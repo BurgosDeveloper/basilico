@@ -71,9 +71,9 @@ If Err.Number = 0 Then
 End If
 On Error GoTo 0
 
-' 2. Si el servidor no está activo, iniciarlo en consola visible
+' 2. Si el servidor no está activo, iniciarlo de forma silenciosa en segundo plano
 If Not isPortActive Then
-    WshShell.Run "cmd /k title SERVIDOR BACKEND BASILICO POS && cd /d """ & strRoot & """ && node server/index.js", 1, False
+    WshShell.Run "cmd /c cd /d """ & strRoot & """ && node server/index.js", 0, False
     WScript.Sleep 2500
 End If
 

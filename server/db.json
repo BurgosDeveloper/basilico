@@ -1,0 +1,278 @@
+{
+  "users": [
+    {
+      "id": "u-admin",
+      "username": "admin",
+      "password": "admin",
+      "role": "admin",
+      "name": "Administrador General"
+    },
+    {
+      "id": "u-mesero",
+      "username": "basilico",
+      "password": "mesero",
+      "role": "mesero",
+      "name": "Mesero Principal"
+    },
+    {
+      "id": "u-caja",
+      "username": "basilico_caja",
+      "password": "caja",
+      "role": "caja",
+      "name": "Cajero Principal"
+    },
+    {
+      "id": "u-cocina",
+      "username": "basilico_cocina",
+      "password": "cocina",
+      "role": "cocina",
+      "name": "Jefe de Cocina"
+    }
+  ],
+  "ingredients": [
+    {
+      "id": "ing-1",
+      "name": "Salsa de Tomate",
+      "price_usd": 1,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": false,
+      "category": "Salsas"
+    },
+    {
+      "id": "ing-2",
+      "name": "Queso Mozzarella",
+      "price_usd": 2,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": true,
+      "category": "Quesos"
+    },
+    {
+      "id": "ing-3",
+      "name": "Pepperoni Importado",
+      "price_usd": 2.5,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": true,
+      "category": "Carnes"
+    },
+    {
+      "id": "ing-4",
+      "name": "Albahaca Fresca",
+      "price_usd": 1,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": false,
+      "category": "Vegetales"
+    },
+    {
+      "id": "ing-5",
+      "name": "Orégano Silvestre",
+      "price_usd": 0.5,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": false,
+      "category": "Especias"
+    },
+    {
+      "id": "ing-6",
+      "name": "Tocineta Ahumada",
+      "price_usd": 2,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": true,
+      "category": "Carnes"
+    },
+    {
+      "id": "ing-7",
+      "name": "Champiñones Frescos",
+      "price_usd": 1.5,
+      "is_base_for_pizza": true,
+      "is_extra_for_pizza": true,
+      "category": "Vegetales"
+    },
+    {
+      "id": "ing-8",
+      "name": "Orilla Rellena de Queso",
+      "price_usd": 3,
+      "is_base_for_pizza": false,
+      "is_extra_for_pizza": true,
+      "category": "Orillas"
+    },
+    {
+      "id": "ing-9",
+      "name": "Salsa de Ajo Especial",
+      "price_usd": 1,
+      "is_base_for_pizza": false,
+      "is_extra_for_pizza": true,
+      "category": "Salsas"
+    }
+  ],
+  "products": [
+    {
+      "id": "prod-1",
+      "name": "Pizza Margherita Suprema",
+      "category": "Pizzas",
+      "drink_type": null,
+      "price": 12,
+      "description": "Salsa San Marzano, Mozzarella Fior di Latte, albahaca fresca y aceite de oliva.",
+      "image": "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=600&q=80",
+      "badge": "POPULAR",
+      "base_ingredients": [
+        "Salsa de Tomate",
+        "Queso Mozzarella",
+        "Albahaca Fresca"
+      ]
+    },
+    {
+      "id": "prod-2",
+      "name": "Pizza Pepperoni Especial",
+      "category": "Pizzas",
+      "drink_type": null,
+      "price": 14.5,
+      "description": "Doble capa de pepperoni crujiente, mozzarella fundida y orégano silvestre.",
+      "image": "https://images.unsplash.com/photo-1628840042765-356cda07504e?auto=format&fit=crop&w=600&q=80",
+      "badge": "FAVORITA",
+      "base_ingredients": [
+        "Salsa de Tomate",
+        "Queso Mozzarella",
+        "Pepperoni Importado",
+        "Orégano Silvestre"
+      ]
+    },
+    {
+      "id": "prod-3",
+      "name": "Pizza 4 Quesos Artesanal",
+      "category": "Pizzas",
+      "drink_type": null,
+      "price": 16,
+      "description": "Mezcla cremosa de Mozzarella, Gorgonzola, Parmesano y Fontina.",
+      "image": "https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=600&q=80",
+      "badge": null,
+      "base_ingredients": [
+        "Queso Mozzarella"
+      ]
+    },
+    {
+      "id": "prod-4",
+      "name": "Refresco 1.5L (Coca-Cola / Pepsi)",
+      "category": "Bebidas",
+      "drink_type": "refresco",
+      "price": 3.5,
+      "description": "Botella de 1.5 litros bien fría.",
+      "image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=600&q=80",
+      "badge": null,
+      "base_ingredients": null
+    },
+    {
+      "id": "prod-5",
+      "name": "Jugo Natural de Naranja / Maracuyá",
+      "category": "Bebidas",
+      "drink_type": "jugo",
+      "price": 3,
+      "description": "Jugo de fruta 100% natural recién exprimido.",
+      "image": "https://images.unsplash.com/photo-1613478223719-2ab802602423?auto=format&fit=crop&w=600&q=80",
+      "badge": null,
+      "base_ingredients": null
+    },
+    {
+      "id": "prod-6",
+      "name": "Tinto de Verano Helado",
+      "category": "Bebidas",
+      "drink_type": "licor",
+      "price": 4.5,
+      "description": "Vino tinto con gaseosa de limón y rodajas de naranja.",
+      "image": "https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=600&q=80",
+      "badge": null,
+      "base_ingredients": null
+    }
+  ],
+  "tables": [
+    {
+      "id": "table-1",
+      "number": 1,
+      "name": "Mesa #1",
+      "capacity": 2,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-2",
+      "number": 2,
+      "name": "Mesa #2",
+      "capacity": 4,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-3",
+      "number": 3,
+      "name": "Mesa #3",
+      "capacity": 2,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-4",
+      "number": 4,
+      "name": "Mesa #4",
+      "capacity": 4,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-5",
+      "number": 5,
+      "name": "Mesa #5",
+      "capacity": 2,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-6",
+      "number": 6,
+      "name": "Mesa #6",
+      "capacity": 4,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-7",
+      "number": 7,
+      "name": "Mesa #7",
+      "capacity": 2,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    },
+    {
+      "id": "table-8",
+      "number": 8,
+      "name": "Mesa #8",
+      "capacity": 6,
+      "status": "libre",
+      "zone": "Salón Principal",
+      "current_order_id": null
+    }
+  ],
+  "orders": [],
+  "order_items": [],
+  "caja_apertura": null,
+  "caja_transactions": [],
+  "caja_cierres": [],
+  "exchange_rates": {
+    "cop_rate": 3950,
+    "bs_rate": 36.5
+  },
+  "order_payments": [],
+  "kitchen_logs": [],
+  "cash_register": {
+    "balance_usd": 0,
+    "balance_cop": 0,
+    "balance_bs": 0
+  },
+  "order_sequence": 0,
+  "caja_chica_transactions": [],
+  "caja_chica_cierres": []
+}

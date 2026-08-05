@@ -1,0 +1,80 @@
+{
+  "name": "horizon-ui-tailwind-react-ts",
+  "version": "2.0.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "@chakra-ui/hooks": "^2.1.4",
+    "@chakra-ui/modal": "^2.2.9",
+    "@chakra-ui/popover": "^2.1.8",
+    "@chakra-ui/portal": "^2.0.15",
+    "@chakra-ui/system": "^2.3.5",
+    "@chakra-ui/tooltip": "^2.2.6",
+    "@emotion/react": "^11.10.5",
+    "@emotion/styled": "^11.10.5",
+    "@expo/vector-icons": "^15.1.1",
+    "@tanstack/react-table": "^8.7.9",
+    "@testing-library/jest-dom": "^6.4.6",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/jest": "29.5.14",
+    "@types/node": "^12.20.55",
+    "@types/react": "~19.2.14",
+    "@types/react-dom": "~19.2.3",
+    "ajv": "^8.20.0",
+    "apexcharts": "^3.35.5",
+    "expo": "^56.0.0",
+    "react": "19.2.3",
+    "react-apexcharts": "1.4.0",
+    "react-calendar": "^5.0.0",
+    "react-dom": "19.2.3",
+    "react-icons": "^4.4.0",
+    "react-native": "0.85.3",
+    "react-native-web": "^0.21.2",
+    "react-router-dom": "^6.4.0",
+    "react-scripts": "5.0.1",
+    "socket.io-client": "^4.8.3",
+    "tailwindcss-rtl": "^0.9.0",
+    "typescript": "~6.0.3",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "prestart": "node scripts/print-lan.js",
+    "start": "react-scripts start",
+    "expo": "expo start",
+    "expo:web": "expo start --web",
+    "build": "react-scripts build",
+    "build:apk": "node scripts/build-apk.js",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "pretty": "prettier --write \"./**/*.{js,jsx,json}\""
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@types/react-calendar": "^3.5.2",
+    "@types/react-router-dom": "^5.3.3",
+    "@types/react-table": "^7.7.12",
+    "autoprefixer": "^10.4.8",
+    "postcss": "^8.4.16",
+    "prettier": "^2.8.3",
+    "prettier-plugin-tailwindcss": "^0.2.1",
+    "tailwindcss": "^3.1.8"
+  }
+}

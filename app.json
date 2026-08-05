@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Basilico Pizzeria",
+    "slug": "basilico-pizzeria",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070707"
+    },
+    "android": {
+      "package": "com.basilico.pizzeria",
+      "usesCleartextTraffic": true,
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070707"
+      },
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE"
+      ]
+    }
+  }
+}

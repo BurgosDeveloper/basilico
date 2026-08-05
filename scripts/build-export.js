@@ -10,6 +10,12 @@ if (!fs.existsSync(exportDir)) {
   fs.mkdirSync(exportDir, { recursive: true });
 }
 
+// Auto-detect and update LAN IP in lanConfig.json
+console.log('📡 Detectando IP LAN de la computadora...');
+try {
+  execSync('node scripts/print-lan.js', { cwd: rootDir, stdio: 'inherit' });
+} catch (e) {}
+
 // Ensure frontend production build folder exists
 const buildDir = path.join(rootDir, 'build');
 if (!fs.existsSync(buildDir)) {

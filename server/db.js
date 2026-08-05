@@ -245,7 +245,31 @@ async function initDb() {
       `ALTER TABLE orders ADD COLUMN IF NOT EXISTS shift VARCHAR(32) DEFAULT 'ambos';`,
       `ALTER TABLE caja_chica_apertura ADD COLUMN IF NOT EXISTS shift VARCHAR(32) DEFAULT 'ambos';`,
       `ALTER TABLE caja_chica_transactions ADD COLUMN IF NOT EXISTS shift VARCHAR(32) DEFAULT 'ambos';`,
-      `ALTER TABLE caja_chica_cierres ADD COLUMN IF NOT EXISTS shift VARCHAR(32) DEFAULT 'ambos';`
+      `ALTER TABLE caja_chica_cierres ADD COLUMN IF NOT EXISTS shift VARCHAR(32) DEFAULT 'ambos';`,
+
+      // Insertar únicamente usuarios oficiales por turno, tasas de cambio y mesas iniciales (Sin productos ni comandas falsas de prueba)
+      `INSERT INTO exchange_rates (id, cop_rate, bs_rate) VALUES (1, 3950.00, 36.50) ON CONFLICT (id) DO NOTHING;`,
+      `INSERT INTO users (id, username, password, role, name, shift) VALUES
+        ('u-admin-noche', 'basilico', 'admin.noche', 'admin', 'Administrador Noche', 'noche'),
+        ('u-mesero-noche', 'basilico', 'mesero.noche', 'mesero', 'Mesero Noche', 'noche'),
+        ('u-caja-noche', 'basilico', 'caja.noche', 'caja', 'Cajero Noche', 'noche'),
+        ('u-cocina-noche', 'basilico', 'cocina.noche', 'cocina', 'Cocina Noche', 'noche'),
+        ('u-admin-manana', 'basilico', 'admin.manana', 'admin', 'Administrador Mañana', 'manana'),
+        ('u-mesero-manana', 'basilico', 'mesero.manana', 'mesero', 'Mesero Mañana', 'manana'),
+        ('u-caja-manana', 'basilico', 'caja.manana', 'caja', 'Cajero Mañana', 'manana'),
+        ('u-cocina-manana', 'basilico', 'cocina.manana', 'cocina', 'Cocina Mañana', 'manana'),
+        ('u-admin-owner', 'basilico', 'basilico1.', 'admin', 'Dueño (Ambos)', 'ambos')
+       ON CONFLICT (id) DO NOTHING;`,
+      `INSERT INTO tables_config (id, number, name, capacity, status, zone) VALUES
+        ('table-1', 1, 'Mesa #1', 2, 'libre', 'Salón Principal'),
+        ('table-2', 2, 'Mesa #2', 4, 'libre', 'Salón Principal'),
+        ('table-3', 3, 'Mesa #3', 2, 'libre', 'Salón Principal'),
+        ('table-4', 4, 'Mesa #4', 4, 'libre', 'Salón Principal'),
+        ('table-5', 5, 'Mesa #5', 2, 'libre', 'Salón Principal'),
+        ('table-6', 6, 'Mesa #6', 4, 'libre', 'Salón Principal'),
+        ('table-7', 7, 'Mesa #7', 2, 'libre', 'Salón Principal'),
+        ('table-8', 8, 'Mesa #8', 6, 'libre', 'Salón Principal')
+       ON CONFLICT (id) DO NOTHING;`
     ];
 
     for (const q of migrationQueries) {

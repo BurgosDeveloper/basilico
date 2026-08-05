@@ -10,6 +10,17 @@ if (!fs.existsSync(exportDir)) {
   fs.mkdirSync(exportDir, { recursive: true });
 }
 
+// Ensure frontend production build folder exists
+const buildDir = path.join(rootDir, 'build');
+if (!fs.existsSync(buildDir)) {
+  console.log('📦 Compilando la aplicación Web (npm run build)...');
+  try {
+    execSync('npm run build', { cwd: rootDir, stdio: 'inherit' });
+  } catch (e) {
+    console.warn('⚠️ Error al compilar web:', e.message);
+  }
+}
+
 // Function to wrap PNG buffer into valid Windows ICO format (22-byte header + PNG)
 function convertPngToIco(pngBuffer) {
   const icoHeader = Buffer.alloc(22);

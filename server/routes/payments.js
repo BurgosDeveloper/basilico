@@ -1,0 +1,434 @@
+const express = require('express');
+const router = express.Router();
+const { query, getClient } = require('../db');
+const { fetchAllOrders } = require('../helpers/fetchAll');
+const {
+  isValidPaymentMethod,
+  toUsd,
+  paymentAmounts,
+  changeAmounts,
+  paymentHistoryTotals,
+} = require('../helpers/paymentLedger');
+const { postCompletedOrderCashMovements } = require('../helpers/cashLedger');
+const { assertShiftAccess } = require('../helpers/shiftScope');
+const { getRatesForShift } = require('../helpers/exchangeRates');
+const { requireRole } = require('../helpers/sessionAuth');
+
+function assertPaymentOrderAccess(user, order) {
+  if (!order) {
+    const error = new Error('Comanda no encontrada.');
+    error.statusCode = 404;
+    throw error;
+  }
+  assertShiftAccess(user, order.shift);
+}
+
+module.exports = function(io) {
+  router.post('/:id/ledger', requireRole('caja', 'admin'), async (req, res) => {
+    const { id } = req.params;
+    const { entryType, currency, amountLocal, paymentMethod, payerName, itemIds } = req.body;
+    const normalizedItemIds = Array.isArray(itemIds)
+      ? [...new Set(itemIds.filter((itemId) => typeof itemId === 'string' && itemId.trim()))]
+      : [];
+
+    if (!['payment', 'change'].includes(entryType)) {
+      return res.status(400).json({ error: 'El tipo de registro debe ser pago o vuelto.' });
+    }
+    if (!['USD', 'COP', 'Bs'].includes(currency) || !isValidPaymentMethod(currency, paymentMethod)) {
+      return res.status(400).json({ error: 'El método de pago no corresponde con la moneda seleccionada.' });
+    }
+
+    const localAmount = Number(amountLocal);
+    if (!Number.isFinite(localAmount) || localAmount <= 0) {
+      return res.status(400).json({ error: 'El monto debe ser mayor que cero.' });
+    }
+    if (Array.isArray(itemIds) && normalizedItemIds.length !== itemIds.length) {
+      return res.status(400).json({ error: 'Los ítems seleccionados no son válidos.' });
+    }
+
+    let client;
+    try {
+      client = await getClient();
+      await client.query('BEGIN');
+
+      const { rows: orderRows } = await client.query(
+        `SELECT id, order_number, type, total_usd, shift FROM orders WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      const order = orderRows[0];
+      assertPaymentOrderAccess(req.user, order);
+
+      const { COP: copRate, Bs: bsRate } = await getRatesForShift(client, req.user.shift);
+      const amountUSD = toUsd(localAmount, currency, copRate, bsRate);
+      const { rows: paymentRows } = await client.query('SELECT * FROM order_payments WHERE order_id = $1 ORDER BY created_at ASC', [id]);
+      const hasIndividualPayments = paymentRows.some((payment) => Array.isArray(payment.item_ids) && payment.item_ids.length > 0);
+      if (hasIndividualPayments && normalizedItemIds.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(409).json({ error: 'Esta comanda ya tiene pagos por persona. Registra los movimientos restantes desde Pagar por personas.' });
+      }
+      const totals = paymentHistoryTotals(paymentRows);
+      const orderTotal = Number(order.total_usd) || 0;
+      let pendingChangeUSD = Math.max(0, totals.tenderedUSD - orderTotal - totals.changeGivenUSD);
+
+      let amountPaidUSD = 0;
+      let tendered = { cashTenderedUSD: 0, cashTenderedCOP: 0, cashTenderedBs: 0 };
+      let change = { changeGivenUSD: 0, changeGivenCOP: 0, changeGivenBs: 0 };
+
+      let selectedTotalUSD = 0;
+      if (normalizedItemIds.length > 0) {
+        const { rows: selectedItems } = await client.query(
+          `SELECT id, price, quantity, is_paid_individually
+           FROM order_items
+           WHERE order_id = $1 AND id = ANY($2::text[])
+           FOR UPDATE`,
+          [id, normalizedItemIds]
+        );
+        if (selectedItems.length !== normalizedItemIds.length) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(400).json({ error: 'Uno o más ítems no pertenecen a esta comanda.' });
+        }
+        selectedTotalUSD = selectedItems.reduce(
+          (total, item) => total + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+          0
+        );
+        if (entryType === 'payment' && selectedItems.some((item) => item.is_paid_individually)) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(409).json({ error: 'Uno o más ítems seleccionados ya fueron cobrados.' });
+        }
+        if (entryType === 'change') {
+          const scopedRows = paymentRows.filter((payment) => Array.isArray(payment.item_ids)
+            && payment.item_ids.some((itemId) => normalizedItemIds.includes(itemId)));
+          const scopedTotals = paymentHistoryTotals(scopedRows);
+          pendingChangeUSD = Math.max(0, scopedTotals.tenderedUSD - selectedTotalUSD - scopedTotals.changeGivenUSD);
+        }
+      }
+
+      if (entryType === 'payment') {
+        amountPaidUSD = selectedTotalUSD > 0
+          ? selectedTotalUSD
+          : Math.min(amountUSD, Math.max(0, orderTotal - totals.paidUSD));
+        if (amountPaidUSD <= 0.01) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(409).json({ error: 'La comanda ya está cubierta. Registra únicamente el vuelto pendiente o anula un movimiento.' });
+        }
+        tendered = paymentAmounts(localAmount, currency);
+        if (selectedTotalUSD > 0 && (amountUSD + 0.01 < selectedTotalUSD || amountPaidUSD + 0.01 < selectedTotalUSD)) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(400).json({ error: 'El pago no cubre el total de los ítems seleccionados.' });
+        }
+      } else {
+        if (amountUSD > pendingChangeUSD + 0.01) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(400).json({ error: 'El vuelto excede el monto pendiente por entregar.' });
+        }
+        change = changeAmounts(localAmount, currency);
+      }
+
+      const paymentId = `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      await client.query(
+        `INSERT INTO order_payments
+          (id, order_id, payer_name, payment_method, amount_paid_usd, cash_tendered_usd, cash_tendered_cop, cash_tendered_bs, change_given_usd, change_given_cop, change_given_bs, item_ids, cop_rate, bs_rate)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          paymentId, id, payerName || 'Cliente General', paymentMethod, amountPaidUSD,
+          tendered.cashTenderedUSD, tendered.cashTenderedCOP, tendered.cashTenderedBs,
+          change.changeGivenUSD, change.changeGivenCOP, change.changeGivenBs,
+          normalizedItemIds, copRate, bsRate,
+        ]
+      );
+
+      const paidAmountUSD = totals.paidUSD + amountPaidUSD;
+      await client.query(
+        `UPDATE orders SET payment_status = 'no_pagado', payment_method = $1, paid_amount_usd = $2,
+          cop_rate_at_payment = $3, bs_rate_at_payment = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5`,
+        [paymentMethod, paidAmountUSD, copRate, bsRate, id]
+      );
+
+      if (entryType === 'payment' && normalizedItemIds.length > 0) {
+        await client.query(
+          `UPDATE order_items SET is_paid_individually = true, paid_by_name = $1 WHERE order_id = $2 AND id = ANY($3::text[])`,
+          [payerName || 'Cliente General', id, normalizedItemIds]
+        );
+      }
+
+      const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
+
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const allOrders = await fetchAllOrders(req.user);
+      const updatedOrder = allOrders.find((currentOrder) => currentOrder.id === id);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      if (cashLedgerResult.posted || cashLedgerResult.removed) io.to(`shift:${req.user.shift}`).emit('caja:updated');
+      return res.json(updatedOrder);
+    } catch (error) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error('Error al registrar movimiento de cobro:', error);
+      return res.status(500).json({ error: 'No se pudo registrar el movimiento de cobro.' });
+    }
+  });
+
+  router.post('/:id/finalize', requireRole('caja', 'admin'), async (req, res) => {
+    const { id } = req.params;
+    let client;
+    try {
+      client = await getClient();
+      await client.query('BEGIN');
+      const { rows: orderRows } = await client.query('SELECT total_usd, status, shift FROM orders WHERE id = $1 FOR UPDATE', [id]);
+      const order = orderRows[0];
+      if (!order) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Comanda no encontrada.' });
+      }
+      assertPaymentOrderAccess(req.user, order);
+
+      const { rows: paymentRows } = await client.query('SELECT * FROM order_payments WHERE order_id = $1', [id]);
+      const totals = paymentHistoryTotals(paymentRows);
+      const totalUSD = Number(order.total_usd) || 0;
+      const pendingDebtUSD = Math.max(0, totalUSD - totals.paidUSD);
+      const pendingChangeUSD = Math.max(0, totals.tenderedUSD - totalUSD - totals.changeGivenUSD);
+      if (pendingDebtUSD > 0.01 || pendingChangeUSD > 0.01) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: pendingDebtUSD > 0.01 ? 'Aún falta pago por registrar.' : 'Aún hay vuelto pendiente por entregar.',
+          pendingDebtUSD,
+          pendingChangeUSD,
+        });
+      }
+
+      await client.query(
+        `UPDATE orders SET payment_status = 'pagado', paid_amount_usd = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [Math.min(totals.paidUSD, totalUSD), id]
+      );
+      const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const allOrders = await fetchAllOrders(req.user);
+      const updatedOrder = allOrders.find((currentOrder) => currentOrder.id === id);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      if (cashLedgerResult.posted || cashLedgerResult.removed) io.to(`shift:${req.user.shift}`).emit('caja:updated');
+      return res.json(updatedOrder);
+    } catch (error) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error('Error al finalizar comanda:', error);
+      return res.status(500).json({ error: 'No se pudo finalizar la comanda.' });
+    }
+  });
+
+  router.delete('/:id/payments/:paymentId', requireRole('caja', 'admin'), async (req, res) => {
+    try {
+      const { id, paymentId } = req.params;
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        const { rows: orderRows } = await client.query(
+          `SELECT id, total_usd, shift FROM orders WHERE id = $1 FOR UPDATE`,
+          [id]
+        );
+        const order = orderRows[0];
+        assertPaymentOrderAccess(req.user, order);
+        const { rows: paymentRows } = await client.query(
+          `SELECT item_ids, amount_paid_usd FROM order_payments WHERE id = $1 AND order_id = $2 FOR UPDATE`,
+          [paymentId, id]
+        );
+        if (!paymentRows[0]) {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(404).json({ error: 'Registro de pago no encontrado.' });
+        }
+
+        await client.query(`DELETE FROM order_payments WHERE id = $1 AND order_id = $2`, [paymentId, id]);
+        await client.query(`DELETE FROM caja_chica_transactions WHERE order_id = $1 AND description LIKE $2`, [id, `%[${paymentId}]%`]);
+
+        const { rows: remainingPayments } = await client.query(`SELECT * FROM order_payments WHERE order_id = $1`, [id]);
+        const remainingTotals = paymentHistoryTotals(remainingPayments);
+        const newPaid = remainingTotals.paidUSD;
+
+        const total = parseFloat(order.total_usd || 0);
+        const pendingDebtUSD = Math.max(0, total - newPaid);
+        const pendingChangeUSD = Math.max(0, remainingTotals.tenderedUSD - total - remainingTotals.changeGivenUSD);
+        const newStatus = pendingDebtUSD <= 0.01 && pendingChangeUSD <= 0.01 ? 'pagado' : 'no_pagado';
+
+        await client.query(`UPDATE orders SET paid_amount_usd = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`, [newPaid, newStatus, id]);
+
+        if (Number(paymentRows[0].amount_paid_usd) > 0 && Array.isArray(paymentRows[0].item_ids) && paymentRows[0].item_ids.length > 0) {
+          await client.query(
+            `UPDATE order_items SET is_paid_individually = false, paid_by_name = NULL WHERE order_id = $1 AND id = ANY($2::text[])`,
+            [id, paymentRows[0].item_ids]
+          );
+          const { rows: remainingItemPayments } = await client.query(
+            `SELECT payer_name, item_ids FROM order_payments WHERE order_id = $1 AND cardinality(item_ids) > 0`,
+            [id]
+          );
+          for (const payment of remainingItemPayments) {
+            await client.query(
+              `UPDATE order_items SET is_paid_individually = true, paid_by_name = $1 WHERE order_id = $2 AND id = ANY($3::text[])`,
+              [payment.payer_name || 'Cliente General', id, payment.item_ids]
+            );
+          }
+        }
+        await postCompletedOrderCashMovements(client, id);
+        await client.query('COMMIT');
+        client.release();
+      } catch (e) {
+        await client.query('ROLLBACK');
+        if (client) client.release();
+        throw e;
+      }
+
+      const allOrders = await fetchAllOrders(req.user);
+      const updatedOrder = allOrders.find((o) => o.id === id);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      io.to(`shift:${req.user.shift}`).emit('caja:updated');
+      res.json(updatedOrder);
+    } catch (err) {
+      console.error('Error al eliminar movimiento de pago:', err);
+      res.status(500).json({ error: 'Error al eliminar pago' });
+    }
+  });
+
+  router.post('/:id/pay', requireRole('caja', 'admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        paymentMethod, amountUSD, amountCOP, splitPayments, payerName,
+        cashTenderedUSD, cashTenderedCOP, cashTenderedBs,
+        changeGivenUSD, changeGivenCOP, changeGivenBs,
+        itemIds, isDraft
+      } = req.body;
+      
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+
+        const { rows: existingRows } = await client.query(
+          `SELECT id, payment_status, order_number, type, total_usd, paid_amount_usd, shift FROM orders WHERE id = $1 FOR UPDATE`,
+          [id]
+        );
+        if (!existingRows[0]) {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(404).json({ error: 'Comanda no encontrada' });
+        }
+
+        const order = existingRows[0];
+        assertPaymentOrderAccess(req.user, order);
+        const currentPaid = parseFloat(order.paid_amount_usd || 0);
+        const orderTotal = parseFloat(order.total_usd || 0);
+
+        if (order.payment_status === 'pagado') {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(409).json({ error: 'Esta comanda ya fue cobrada totalmente.' });
+        }
+
+        const { rows: individualPaymentRows } = await client.query(
+          `SELECT 1 FROM order_payments WHERE order_id = $1 AND cardinality(item_ids) > 0 LIMIT 1`,
+          [id]
+        );
+        if (individualPaymentRows.length > 0 && (!Array.isArray(itemIds) || itemIds.length === 0)) {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(409).json({ error: 'Esta comanda ya tiene pagos por persona. Registra los movimientos restantes desde Pagar por personas.' });
+        }
+
+        const { COP: currentCopRate, Bs: currentBsRate } = await getRatesForShift(client, req.user.shift);
+
+        const payAmount = amountUSD !== undefined ? parseFloat(amountUSD) : (orderTotal - currentPaid);
+        const totalTenderedVal = (parseFloat(cashTenderedUSD) || 0) + (parseFloat(cashTenderedCOP) || 0) + (parseFloat(cashTenderedBs) || 0);
+        const totalChangeVal = (parseFloat(changeGivenUSD) || 0) + (parseFloat(changeGivenCOP) || 0) + (parseFloat(changeGivenBs) || 0);
+
+        if (!Number.isFinite(payAmount) || !Number.isFinite(totalTenderedVal) || !Number.isFinite(totalChangeVal)
+          || payAmount <= 0 || totalTenderedVal < 0 || totalChangeVal < 0) {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(400).json({ error: 'El monto del movimiento debe ser mayor a $0.00 USD' });
+        }
+        if (payAmount > (orderTotal - currentPaid) + 0.01) {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(400).json({ error: 'El pago no puede exceder la deuda pendiente de la comanda.' });
+        }
+        
+        const newPaidAmount = currentPaid + payAmount;
+        const isFullyPaid = newPaidAmount >= orderTotal - 0.01;
+        const finalMethod = paymentMethod || (splitPayments?.length > 1 ? 'Mixto' : 'Efectivo USD');
+        const activePayerName = payerName || 'Cliente General';
+
+        await client.query(
+          `UPDATE orders SET
+            payment_status = $1, payment_method = $2, paid_amount_usd = $3,
+            cop_rate_at_payment = $4, bs_rate_at_payment = $5, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $6`,
+          [(isFullyPaid && !isDraft) ? 'pagado' : 'no_pagado', finalMethod, newPaidAmount, currentCopRate, currentBsRate, id]
+        );
+
+        if (itemIds && Array.isArray(itemIds) && itemIds.length > 0) {
+          await client.query(
+            `UPDATE order_items SET is_paid_individually = true, paid_by_name = $1 WHERE id = ANY($2::text[])`,
+            [activePayerName, itemIds]
+          );
+        }
+
+        const pmId = `pm-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+        await client.query(
+          `INSERT INTO order_payments
+            (id, order_id, payer_name, payment_method, amount_paid_usd, cash_tendered_usd, cash_tendered_cop, cash_tendered_bs, change_given_usd, change_given_cop, change_given_bs, item_ids, cop_rate, bs_rate)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            pmId, id, activePayerName, finalMethod, payAmount,
+            parseFloat(cashTenderedUSD) || 0, parseFloat(cashTenderedCOP) || 0, parseFloat(cashTenderedBs) || 0,
+            parseFloat(changeGivenUSD) || 0, parseFloat(changeGivenCOP) || 0, parseFloat(changeGivenBs) || 0,
+            itemIds || [], currentCopRate, currentBsRate,
+          ]
+        );
+
+        await postCompletedOrderCashMovements(client, id);
+
+        await client.query('COMMIT');
+        client.release();
+      } catch (txErr) {
+        if (client) {
+          try { await client.query('ROLLBACK'); } catch(e){}
+          client.release();
+        }
+        throw txErr;
+      }
+
+      const allOrders = await fetchAllOrders(req.user);
+      const updatedOrder = allOrders.find((o) => o.id === id);
+
+      io.to(`shift:${req.user.shift}`).emit('order:paid', updatedOrder);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      io.to(`shift:${req.user.shift}`).emit('caja:updated');
+
+      res.json(updatedOrder);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Error al registrar cobro de comanda' });
+    }
+  });
+
+  return router;
+};

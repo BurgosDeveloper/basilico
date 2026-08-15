@@ -1,0 +1,491 @@
+const express = require('express');
+const router = express.Router();
+const { query, getClient } = require('../db');
+const { fetchAllOrders, fetchAllTables } = require('../helpers/fetchAll');
+const { postCompletedOrderCashMovements } = require('../helpers/cashLedger');
+const { requireRole } = require('../helpers/sessionAuth');
+const { assertShiftAccess } = require('../helpers/shiftScope');
+const { printKitchenTicket } = require('../helpers/thermalPrinter');
+
+async function assertOrderAccess(executor, user, orderId) {
+  const { rows } = await executor.query(`SELECT shift FROM orders WHERE id = $1`, [orderId]);
+  if (!rows[0]) {
+    const error = new Error('Comanda no encontrada.');
+    error.statusCode = 404;
+    throw error;
+  }
+  assertShiftAccess(user, rows[0].shift);
+}
+
+module.exports = function(io) {
+  router.delete('/purge-all', requireRole('admin'), async (req, res) => {
+    try {
+      const pgTables = [
+        'order_payments',
+        'order_items',
+        'orders',
+        'caja_chica_transactions',
+        'caja_chica_cierres',
+        'caja_chica_apertura'
+      ];
+      for (const table of pgTables) {
+        try { await query(`DELETE FROM ${table}`); } catch (e) { }
+      }
+      try { await query("UPDATE tables_config SET status = 'libre'"); } catch (e) { }
+
+      console.log('🧹 [API PURGE TOTAL] Se eliminaron todas las comandas, historial y transacciones de caja.');
+
+      const allOrders = await fetchAllOrders();
+      const allTables = await fetchAllTables();
+      io.emit('orders:sync', allOrders);
+      io.emit('tables:sync', allTables);
+      io.emit('caja:updated');
+
+      res.json({ success: true, message: 'Todas las comandas y transacciones eliminadas exitosamente.' });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Error al purgar comandas' });
+    }
+  });
+
+  router.get('/', async (req, res) => {
+    try {
+      const orders = await fetchAllOrders(req.user);
+      res.json(orders);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Error al obtener comandas' });
+    }
+  });
+
+  router.post('/', requireRole('mesero', 'admin'), async (req, res) => {
+    let client;
+    try {
+      const { type, tableNumber, customerName, kitchenNotes, items, totalUSD, deliveryFeeUSD } = req.body;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'La comanda debe incluir al menos un ítem.' });
+      }
+
+      client = await getClient();
+      await client.query('BEGIN');
+      const orderId = `ord-${Date.now()}`;
+
+      let nextNum = 1;
+      try {
+        const countRes = await client.query(`SELECT COUNT(*) FROM orders`);
+        nextNum = 1 + parseInt(countRes.rows[0]?.count || '0', 10);
+      } catch (e) {
+      }
+      const orderNumber = `#${nextNum}`;
+
+      const requiresKitchen = (items || []).some(it => {
+        const nameLower = (it.productName || '').toLowerCase();
+        const isSoda = nameLower.includes('coca') || nameLower.includes('pepsi') || nameLower.includes('refresco') || nameLower.includes('gaseosa') || nameLower.includes('nestea') || nameLower.includes('agua') || nameLower.includes('7up') || nameLower.includes('sprite');
+        return !isSoda;
+      });
+      const initialStatus = requiresKitchen ? 'en_preparacion' : 'preparada';
+
+      console.log(`📝 [COMANDA RECIBIDA] ${orderNumber} (${type.toUpperCase()}) | Cliente: ${customerName || 'N/A'} | Items: ${items?.length || 0} | Total: $${totalUSD} | Requiere Cocina: ${requiresKitchen}`);
+
+      await client.query(
+        `INSERT INTO orders (id, order_number, type, table_number, customer_name, kitchen_notes, status, payment_status, total_usd, waiter_name, shift, delivery_fee_usd)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'no_pagado', $8, 'Mesero', $9, $10)`,
+        [orderId, orderNumber, type || 'mesa', tableNumber || null, customerName || null, kitchenNotes || null, initialStatus, totalUSD || 0, req.user.shift, deliveryFeeUSD || 0]
+      );
+
+      for (const item of items) {
+        const itemId = `it-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        await client.query(
+          `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            itemId,
+            orderId,
+            item.productId || 'prod-custom',
+            item.productName || 'Producto',
+            item.price || 0,
+            item.quantity || 1,
+            item.size || 'Grande',
+            !!item.isHalfHalf,
+            JSON.stringify(item.halfDetails || null),
+            item.removedIngredients || [],
+            JSON.stringify(item.extras || []),
+            item.sugarPreference || null,
+            !!item.isTakeaway,
+            item.notes || '',
+          ]
+        );
+      }
+
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const allOrders = await fetchAllOrders(req.user);
+      const createdOrder = allOrders.find((o) => o.id === orderId) || {
+        id: orderId,
+        orderNumber,
+        type,
+        tableNumber,
+        customerName,
+        kitchenNotes,
+        status: initialStatus,
+        paymentStatus: 'no_pagado',
+        totalUSD,
+        deliveryFeeUSD,
+        createdAt: new Date().toISOString(),
+        items: items || []
+      };
+
+      io.to(`shift:${req.user.shift}`).emit('order:created', createdOrder);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+
+      console.log(`✅ [COMANDA REGISTRADA OK] ${createdOrder.orderNumber} enviada a WebSocket`);
+      if (requiresKitchen) {
+        void printKitchenTicket(createdOrder)
+          .then((result) => {
+            if (result.printed) console.log(`🖨️ [COMANDA IMPRESA] ${createdOrder.orderNumber} (${result.copies} copia${result.copies === 1 ? '' : 's'})`);
+          })
+          .catch((printError) => {
+            console.error(`⚠️ [IMPRESIÓN PENDIENTE] ${createdOrder.orderNumber}: ${printError.message}`);
+            io.to(`shift:${req.user.shift}`).emit('order:print_failed', {
+              orderId: createdOrder.id,
+              orderNumber: createdOrder.orderNumber,
+              message: printError.message,
+            });
+          });
+      }
+      res.status(201).json(createdOrder);
+    } catch (err) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error('❌ Error general al crear comanda:', err);
+      res.status(500).json({ error: 'Error al crear la comanda en el servidor' });
+    }
+  });
+
+  router.patch('/:id/status', requireRole('cocina', 'admin'), async (req, res) => {
+    let client;
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      if (!['en_preparacion', 'preparada', 'entregada', 'cancelado'].includes(status)) {
+        return res.status(400).json({ error: 'El estado de comanda no es válido.' });
+      }
+
+      client = await getClient();
+      await client.query('BEGIN');
+      await assertOrderAccess(client, req.user, id);
+      const { rows } = await client.query(
+        `UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id`,
+        [status, id]
+      );
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(404).json({ error: 'Comanda no encontrada.' });
+      }
+      const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const allOrders = await fetchAllOrders(req.user);
+      const updatedOrder = allOrders.find((o) => o.id === id);
+
+      io.to(`shift:${req.user.shift}`).emit('order:status_updated', updatedOrder);
+      
+      if (status === 'preparada') {
+        io.to(`shift:${req.user.shift}`).emit('order:prepared_sound', updatedOrder);
+      }
+
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      if (cashLedgerResult.posted || cashLedgerResult.removed) io.to(`shift:${req.user.shift}`).emit('caja:updated');
+
+      res.json(updatedOrder);
+    } catch (err) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error(err);
+      res.status(500).json({ error: 'Error al actualizar estado de comanda' });
+    }
+  });
+
+  router.patch('/:id/cancel', requireRole('mesero', 'caja', 'admin'), async (req, res) => {
+    let client;
+    try {
+      const { id } = req.params;
+
+      client = await getClient();
+      await client.query('BEGIN');
+      await assertOrderAccess(client, req.user, id);
+      const { rows } = await client.query(
+        `UPDATE orders SET status = 'cancelado', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+        [id]
+      );
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(404).json({ error: 'Comanda no encontrada.' });
+      }
+      const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const allOrders = await fetchAllOrders(req.user);
+      const cancelledOrder = allOrders.find((o) => o.id === id);
+
+      io.to(`shift:${req.user.shift}`).emit('order:cancelled', cancelledOrder);
+      io.to(`shift:${req.user.shift}`).emit('order:cancelled_sound', cancelledOrder);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      if (cashLedgerResult.posted || cashLedgerResult.removed) io.to(`shift:${req.user.shift}`).emit('caja:updated');
+
+      console.log(`🚫 [COMANDA CANCELADA] ${cancelledOrder?.orderNumber || id} - Alerta sonora enviada a Cocina`);
+      res.json({ success: true, order: cancelledOrder });
+    } catch (err) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error('Error al cancelar comanda:', err);
+      res.status(500).json({ error: 'Error al cancelar la comanda' });
+    }
+  });
+
+  router.patch('/:id/edit', requireRole('admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { items, kitchenNotes, totalUSD, deliveryFeeUSD, customerName, tableNumber, type, paymentStatus } = req.body;
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede editar una comanda.' });
+      await assertOrderAccess({ query }, req.user, id);
+
+      const { rows: orderRows } = await query(
+        `SELECT id, paid_amount_usd FROM orders WHERE id = $1`,
+        [id]
+      );
+      if (!orderRows[0]) {
+        return res.status(404).json({ error: 'Comanda no encontrada.' });
+      }
+
+      if (Array.isArray(items)) {
+        const { rows: paymentRows } = await query(
+          `SELECT id FROM order_payments WHERE order_id = $1 LIMIT 1`,
+          [id]
+        );
+        if (paymentRows.length > 0 || Number(orderRows[0].paid_amount_usd) > 0) {
+          return res.status(409).json({ error: 'Anula primero todos los pagos y vueltos antes de modificar los productos de la comanda.' });
+        }
+      }
+
+      await query(
+        `UPDATE orders SET 
+           kitchen_notes = COALESCE($1, kitchen_notes), 
+           total_usd = COALESCE($2, total_usd), 
+           delivery_fee_usd = COALESCE($3, delivery_fee_usd),
+           customer_name = COALESCE($4, customer_name),
+           table_number = COALESCE($5, table_number),
+           type = COALESCE($6, type),
+           payment_status = COALESCE($7, payment_status),
+           is_edited = true, 
+           updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $8`,
+        [kitchenNotes ?? null, totalUSD ?? null, deliveryFeeUSD ?? null, customerName ?? null, tableNumber ?? null, type ?? null, paymentStatus ?? null, id]
+      );
+
+      if (items && Array.isArray(items)) {
+        await query(`DELETE FROM order_items WHERE order_id = $1`, [id]);
+
+        for (const item of items) {
+          const itemId = `it-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+          await query(
+            `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, is_new_or_modified, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [
+              itemId,
+              id,
+              item.productId || 'prod-custom',
+              item.productName || 'Producto',
+              item.price || 0,
+              item.quantity || 1,
+              item.size || 'Grande',
+              !!item.isHalfHalf,
+              JSON.stringify(item.halfDetails || null),
+              item.removedIngredients || [],
+              JSON.stringify(item.extras || []),
+              item.sugarPreference || null,
+              !!item.isTakeaway,
+              item.isNewOrModified !== false,
+              item.notes || '',
+            ]
+          );
+        }
+      }
+
+      // Registrar edición en historial
+      const editDetails = [];
+      if (items && Array.isArray(items)) editDetails.push('Productos modificados');
+      if (kitchenNotes !== undefined) editDetails.push('Notas de cocina actualizadas');
+      if (totalUSD !== undefined) editDetails.push(`Total actualizado a $${totalUSD}`);
+      if (customerName !== undefined) editDetails.push(`Cliente: ${customerName}`);
+      if (tableNumber !== undefined) editDetails.push(`Mesa: ${tableNumber}`);
+      if (type !== undefined) editDetails.push(`Tipo: ${type}`);
+      if (deliveryFeeUSD !== undefined) editDetails.push(`Delivery fee: $${deliveryFeeUSD}`);
+      const editId = `edit-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      try {
+        const { rows: orderForEdit } = await query(`SELECT order_number FROM orders WHERE id = $1`, [id]);
+        await query(
+          `INSERT INTO order_edits (id, order_id, order_number, edited_by, edit_type, edit_details) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [editId, id, orderForEdit[0]?.order_number || '', req.user.username, 'modificacion', editDetails.join('; ') || 'Edición general']
+        );
+      } catch (editErr) {
+        console.warn('Aviso: No se pudo registrar edición en historial:', editErr.message);
+      }
+
+      const allOrders = await fetchAllOrders(req.user);
+      const updatedOrder = allOrders.find((o) => o.id === id);
+
+      io.to(`shift:${req.user.shift}`).emit('order:edited', updatedOrder);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+
+      console.log(`✏️ [COMANDA EDITADA] ${updatedOrder?.orderNumber} actualizada`);
+      res.json(updatedOrder);
+    } catch (err) {
+      console.error('Error al editar comanda:', err);
+      res.status(500).json({ error: 'Error al editar la comanda' });
+    }
+  });
+
+  router.post('/:id/reopen', requireRole('cocina', 'admin'), async (req, res) => {
+    let client;
+    try {
+      const { id } = req.params;
+
+      client = await getClient();
+      await client.query('BEGIN');
+      await assertOrderAccess(client, req.user, id);
+      const { rows } = await client.query(
+        `UPDATE orders SET status = 'preparada', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+        [id]
+      );
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(404).json({ error: 'Comanda no encontrada.' });
+      }
+      const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const updatedOrdersList = await fetchAllOrders(req.user);
+      const updatedTarget = updatedOrdersList.find((o) => o.id === id);
+
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', updatedOrdersList);
+      if (updatedTarget) {
+        io.to(`shift:${req.user.shift}`).emit('order:status_updated', updatedTarget);
+      }
+      if (cashLedgerResult.posted || cashLedgerResult.removed) io.to(`shift:${req.user.shift}`).emit('caja:updated');
+
+      console.log(`🔄 [REAPERTURA DE COMANDA] Comanda ${id} reabierta exitosamente`);
+      res.json(updatedTarget || { success: true });
+    } catch (err) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error('Error al reabrir comanda:', err);
+      res.status(500).json({ error: 'Error interno al reabrir la comanda' });
+    }
+  });
+
+  router.post('/merge', requireRole('admin'), async (req, res) => {
+    try {
+      const { targetOrderId, sourceOrderIds } = req.body;
+
+      if (!targetOrderId || !sourceOrderIds || !Array.isArray(sourceOrderIds) || sourceOrderIds.length === 0) {
+        return res.status(400).json({ error: 'Debe especificar la comanda principal y las comandas a fusionar.' });
+      }
+
+      let mergedOrderNumber = '';
+      const allOrders = await fetchAllOrders();
+      const targetOrder = allOrders.find((o) => o.id === targetOrderId);
+      if (!targetOrder) {
+        return res.status(404).json({ error: 'Comanda principal no encontrada.' });
+      }
+
+      const sourceOrders = allOrders.filter((o) => sourceOrderIds.includes(o.id));
+      if (sourceOrders.length !== sourceOrderIds.length || sourceOrderIds.includes(targetOrderId)) {
+        return res.status(403).json({ error: 'Solo puedes fusionar comandas distintas y accesibles en tu turno.' });
+      }
+      const allInvolved = [targetOrder, ...sourceOrders];
+
+      const hasAnyPayment = allInvolved.some(
+        (o) => (o.paidAmountUSD || 0) > 0 || o.paymentStatus === 'pagado' || (o.paymentHistory && o.paymentHistory.length > 0)
+      );
+
+      if (hasAnyPayment) {
+        return res.status(400).json({
+          error: 'No se pueden unificar comandas que ya tengan abonos o estén pagadas. La única forma de unificar comandas es si ninguna tiene pagos registrados.'
+        });
+      }
+      mergedOrderNumber = targetOrder.orderNumber;
+      const sourceNumbers = sourceOrders.map((o) => o.orderNumber).join(', ');
+
+      await query(`UPDATE order_payments SET order_id = $1 WHERE order_id = ANY($2::text[])`, [targetOrderId, sourceOrderIds]);
+      await query(`UPDATE order_items SET order_id = $1 WHERE order_id = ANY($2::text[])`, [targetOrderId, sourceOrderIds]);
+
+      const { rows: allTargetItems } = await query(`SELECT price, quantity, extras_json FROM order_items WHERE order_id = $1`, [targetOrderId]);
+      let newTotalUSD = 0;
+      for (const it of allTargetItems) {
+        let itemPrice = parseFloat(it.price || 0);
+        let extras = [];
+        try {
+          extras = typeof it.extras_json === 'string' ? JSON.parse(it.extras_json || '[]') : (it.extras_json || []);
+        } catch(e) {}
+        if (Array.isArray(extras)) {
+          for (const ex of extras) {
+            itemPrice += parseFloat(ex.price || 0);
+          }
+        }
+        newTotalUSD += itemPrice * (parseInt(it.quantity) || 1);
+      }
+
+      const { rows: sumPayments } = await query(`SELECT COALESCE(SUM(amount_paid_usd), 0) as paid FROM order_payments WHERE order_id = $1`, [targetOrderId]);
+      const newPaidUSD = parseFloat(sumPayments[0]?.paid || 0);
+      const newPaymentStatus = newPaidUSD >= (newTotalUSD - 0.01) ? 'pagado' : 'no_pagado';
+
+      const updatedNotes = `${targetOrder.kitchenNotes || ''} (Fusionada con comandas ${sourceNumbers})`.trim();
+      await query(
+        `UPDATE orders SET total_usd = $1, paid_amount_usd = $2, payment_status = $3, kitchen_notes = $4, merged_from_orders = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6`,
+        [newTotalUSD, newPaidUSD, newPaymentStatus, updatedNotes, sourceOrders.map((o) => o.orderNumber), targetOrderId]
+      );
+
+      await query(
+        `UPDATE orders SET status = 'fusionada', kitchen_notes = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2::text[])`,
+        [`Fusionada en Comanda ${targetOrder.orderNumber}`, sourceOrderIds]
+      );
+
+      const updatedOrdersList = await fetchAllOrders(req.user);
+      const updatedTarget = updatedOrdersList.find((o) => o.id === targetOrderId);
+
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', updatedOrdersList);
+      io.to(`shift:${req.user.shift}`).emit('order:status_updated', updatedTarget);
+
+      console.log(`🔗 [FUSIÓN DE COMANDAS] Comandas ${sourceNumbers} unificadas en Comanda ${mergedOrderNumber}`);
+      res.json(updatedTarget);
+    } catch (err) {
+      console.error('Error al fusionar comandas:', err);
+      res.status(500).json({ error: 'Error al fusionar comandas' });
+    }
+  });
+
+  return router;
+};

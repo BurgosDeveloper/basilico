@@ -1,106 +1,143 @@
-# 🍕 GUÍA DE INSTALACIÓN Y CONFIGURACIÓN LAN PASO A PASO
-### Basilico Pizzeria POS & KDS (Servidor PC y Tablets Android)
+# GUIA DE INSTALACION Y CONFIGURACION LAN
 
-Esta guía explica en detalle cómo instalar el sistema Basilico POS en cualquier computadora con Windows desde cero y cómo conectar las tablets/teléfonos Android a la red local (LAN) sin complicaciones.
+## Basilico Pizzeria POS y KDS
 
----
+Esta guia instala Basilico en una PC nueva y conecta tablets o telefonos Android a la misma red local. PostgreSQL guarda comandas y pagos; Socket.IO actualiza Caja, Mesero, Cocina y Android en tiempo real.
 
-## 📌 PARTE 1: INSTALACIÓN EN UNA NUEVA COMPUTADORA (SERVIDOR PRINCIPAL)
+## 1. Requisitos en la PC servidor
 
-### Requisitos Previos en la nueva PC:
-1. **Node.js (Versión 18 o superior)**:
-   - Descarga e instala Node.js desde [https://nodejs.org](https://nodejs.org).
-   - Marca la casilla *"Add to PATH"* durante la instalación.
-2. **PostgreSQL (Base de Datos)**:
-   - Descarga e instala PostgreSQL desde [https://www.postgresql.org/download/windows/](https://www.postgresql.org/download/windows/).
-   - Durante la instalación, asigna la contraseña: `sdmaia1.`
-   - Abre **pgAdmin 4** o la consola de PostgreSQL y crea una base de datos llamada: `sdmaia`
+1. Instala Node.js 18 o superior desde https://nodejs.org y marca `Add to PATH`.
+2. Instala PostgreSQL y recuerda la clave del usuario `postgres`.
+3. Usa la base `basilico` y la clave predeterminada configurada actualmente: `basilico1.`.
+4. Instala Google Chrome o Microsoft Edge.
+5. Conecta la PC y todas las tablets a la misma red Wi-Fi o Ethernet. No uses una red de invitados.
 
-> 💡 *Nota*: Si no deseas instalar PostgreSQL, el sistema arrancará automáticamente usando su base de datos local de respaldo (`server/db.json`) sin fallar.
+Si PostgreSQL tiene otra clave, define estas variables en PowerShell antes de iniciar Basilico:
 
----
+    $env:DB_USER = 'postgres'
+    $env:DB_PASSWORD = 'TU_CLAVE_DE_POSTGRES'
+    $env:DB_NAME = 'basilico'
 
-### Paso 1: Copiar la carpeta del proyecto
-Copiar toda la carpeta del proyecto `basilico` a la nueva computadora (por ejemplo, en el Escritorio o en `C:\basilico`).
+El backend intenta crear `basilico` si el usuario de PostgreSQL tiene permiso `CREATEDB`. Si no puede hacerlo, abre pgAdmin, crea una base vacia llamada `basilico` y vuelve a iniciar Basilico. No ejecutes `server/schema.sql` manualmente: el backend aplica migraciones idempotentes al arrancar.
 
-### Paso 2: Instalar Dependencias
-Abre **PowerShell** o el **Símbolo del sistema (CMD)** como Administrador dentro de la carpeta `basilico` y ejecuta:
+## 2. Copiar el sistema e instalar dependencias
 
-```powershell
-npm install
-cd server
-npm install
-cd ..
-```
+1. Copia la carpeta completa `basilico` a una ruta permanente, por ejemplo `C:\basilico`. No la muevas despues de generar el acceso directo.
+2. Abre PowerShell dentro de la carpeta y ejecuta:
 
----
+    npm install
+    Set-Location server
+    npm install
+    Set-Location ..
 
-## 📌 PARTE 2: CÓMO OBTENER LA DIRECCIÓN IP LAN DE TU PC SERVIDOR
+3. Permite una vez el puerto del servidor en el Firewall de Windows. Abre PowerShell como administrador y ejecuta:
 
-Para que las tablets/teléfonos Android se conecten al servidor de la PC, necesitan saber la IP de la computadora en la red Wi-Fi local.
+    New-NetFirewallRule -DisplayName 'Basilico POS LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3001 -Profile Private
 
-### Paso 1: Buscar la IP local
-1. En la PC Servidor, presiona las teclas `Windows + R`, escribe `cmd` y presiona **Enter**.
-2. En la ventana negra, escribe el siguiente comando y presiona **Enter**:
-   ```cmd
-   ipconfig
-   ```
-3. Busca la sección llamada **Adaptador de LAN inalámbrica Wi-Fi** (o *Adaptador de Ethernet* si la PC está conectada por cable).
-4. Ubica la línea que dice **Dirección IPv4**. Ejemplo:
-   ```text
-   Dirección IPv4. . . . . . . . . . . . . . : 192.168.1.15
-   ```
-   > 📌 *Apunta esa dirección IP* (ejemplo: `192.168.1.15`). Esa es la IP de tu servidor LAN.
+4. Comprueba que Windows identifica la red como privada en `Configuracion > Red e Internet`. Si la red es publica, las tablets no podran entrar aunque el sistema este iniciado.
 
----
+## 3. Generar produccion y el acceso directo
 
-## 📌 PARTE 3: CONFIGURACIÓN Y RECOMPILACIÓN DE LA APK ANDROID
+Desde la raiz `basilico`, ejecuta:
 
-Si la dirección IP de tu PC cambió o colocaste el sistema en una PC nueva, debes actualizar la IP en la APK para que las tablets se puedan conectar.
+    npm run build:export
 
-### Paso 1: Cambiar la IP en el proyecto
-Abre el archivo `src/context/AppContext.tsx` en tu editor de código o Bloc de notas y busca la constante `DEFAULT_SERVER_IP`:
+El comando detecta la IP privada activa, actualiza `src/config/lanConfig.json`, compila `build/` y genera:
 
-```typescript
-const DEFAULT_SERVER_IP = '192.168.1.15'; // <-- Reemplaza aquí con la nueva IP de tu PC
-```
+- `export/BasilicoPOS.vbs`
+- `export/BasilicoPOS_Con_Consola.bat`
+- `export/Basilico Pizzeria.lnk`
 
-### Paso 2: Regenerar la APK de Android
-En la PC Servidor, abre PowerShell dentro de la carpeta `basilico` y ejecuta el comando de compilación:
+Usa `export/Basilico Pizzeria.lnk` diariamente. El acceso directo inicia `scripts/launch-pos.js` mediante VBS sin mostrar una terminal, espera al backend y abre Chrome o Edge con la direccion LAN vigente.
 
-```powershell
-npm run build:apk
-```
+`BasilicoPOS_Con_Consola.bat` hace lo mismo mostrando una consola. Usalo solo para diagnostico si el acceso directo no abre el sistema.
 
-El script compilará automáticamente la APK y colocará el nuevo ejecutable actualizado en:
-`export/BasilicoPizzeria.apk`
+## 4. Iniciar sesion por primera vez
 
-### Paso 3: Instalar la APK en las Tablets Android
-1. Copia el archivo `export/BasilicoPizzeria.apk` a una memoria USB, correo o envíalo por WhatsApp/Telegram a la tablet.
-2. En la tablet Android, abre el archivo para instalarlo.
-3. Asegúrate de que **la tablet esté conectada a la misma red Wi-Fi** que la PC Servidor.
+En una instalacion nueva puedes entrar con:
 
----
+- Usuario: `basilico`
+- Clave de propietario: `basilico1.`
 
-## 📌 PARTE 4: CÓMO ARRANCAR EL SISTEMA EN LA PC
+La cuenta de propietario ve ambos turnos. Las cuentas por turno usan el mismo usuario `basilico` y una de estas claves: `mesero.manana`, `caja.manana`, `cocina.manana`, `admin.manana`, `mesero.noche`, `caja.noche`, `cocina.noche` o `admin.noche`.
 
-Para abrir el sistema en la computadora principal:
+## 5. Verificar la IP LAN y abrir cada pantalla
 
-1. Entra en la carpeta `export/`.
-2. Haz doble clic en el acceso directo:
-   - **`Basilico Pizzeria.lnk`** o **`BasilicoPOS_Con_Consola.bat`**
-3. El sistema encenderá el servidor backend en segundo plano y abrirá automáticamente la aplicación en Google Chrome o Microsoft Edge en la dirección `http://localhost:3001`.
+Con la PC conectada a la red operativa, ejecuta:
 
----
+    node scripts/print-lan.js
 
-## 📌 PARTE 5: RESETEAR Y LIMPIAR LA BASE DE DATOS (EMPEZAR DE CERO)
+El resultado muestra una direccion como `http://192.168.1.15:3001`. En otro dispositivo de la misma red abre:
 
-Si deseas eliminar todas las comandas de prueba y reiniciar los contadores desde la **Comanda #1**:
+- Mesero: `http://IP_DE_LA_PC:3001/mesonero`
+- Caja: `http://IP_DE_LA_PC:3001/caja`
+- Cocina: `http://IP_DE_LA_PC:3001/cocina`
+- Administracion: `http://IP_DE_LA_PC:3001/menu-admin`
 
-Abre PowerShell en la carpeta `basilico` y ejecuta:
+No copies esa IP dentro de `AppContext.tsx`: el acceso directo vuelve a detectarla al iniciar y el servidor actualiza su configuracion cuando cambia la interfaz LAN. Si el router cambia la IP, reinicia el acceso directo. Para evitar cambios, crea una reserva DHCP para la direccion MAC del adaptador de la PC servidor.
 
-```powershell
-node scripts/clean-database.js
-```
+## 6. Generar e instalar la APK Android
 
-Este comando purgará PostgreSQL y `db.json`, reseteando el sistema al estado inicial sin tocar tu menú de pizzas ni ingredientes.
+La APK incluye la IP LAN detectada al compilar. Antes de compilar, conecta la PC servidor a la red que usaran las tablets.
+
+1. En PowerShell, desde la raiz del proyecto, ejecuta:
+
+       npm run build:apk
+
+2. El script detecta la IP, actualiza `src/config/lanConfig.json`, prepara Android y compila la APK.
+3. Al terminar, toma `export/BasilicoPizzeria.apk`.
+4. Copiala a cada tablet e instalala. Android puede pedir permitir la instalacion desde la aplicacion de archivos usada.
+5. Conecta la tablet a la misma red privada que la PC y abre Basilico.
+
+Cuando cambie la IP de la PC o se use otra red, repite los pasos 1 a 4 y reinstala la APK nueva. Una APK ya instalada no puede conocer una IP diferente si no logra contactar al servidor.
+
+## 7. Inicio manual para soporte
+
+Usa estas dos consolas solo para diagnostico o desarrollo:
+
+    Set-Location server
+    npm run start
+
+En otra consola:
+
+    npm run start
+
+La interfaz de desarrollo usa normalmente `http://localhost:3000/caja`. La version de produccion que sirve el backend usa el puerto `3001`.
+
+## 8. Actualizar una PC ya instalada
+
+1. Copia los archivos nuevos sin borrar `server/config/thermal-printer.json` ni PostgreSQL.
+2. Ejecuta `npm install`, luego `Set-Location server; npm install; Set-Location ..`.
+3. Ejecuta `npm run build:export`.
+4. Cierra cualquier backend anterior y abre otra vez `Basilico Pizzeria.lnk`.
+5. Si cambio la red o actualizaste Android, ejecuta `npm run build:apk` e instala la APK nueva.
+
+### Copiar datos operativos a la PC nueva
+
+Para conservar menu, comandas, pagos y caja, realiza una copia de PostgreSQL en la PC anterior:
+
+    pg_dump -U postgres -Fc -d basilico -f C:\Respaldo\basilico.backup
+
+Copia `basilico.backup` a la PC nueva. Con `basilico` vacia y el backend apagado, restaura:
+
+    pg_restore -U postgres -d basilico C:\Respaldo\basilico.backup
+
+No uses opciones de limpieza sobre una base que ya tiene datos operativos. Inicia Basilico despues de restaurar para que aplique migraciones pendientes.
+
+## 9. Impresora termica de cocina y reportes
+
+1. Configura la IP de la impresora en `server/config/thermal-printer.json` y conserva el puerto `9100` salvo que la autoprueba de la impresora indique otro.
+2. Reinicia el backend despues de guardar esa configuracion.
+3. Solo cuando la impresora este conectada, valida con:
+
+       npm run print:test
+
+No ejecutes esa prueba mientras la impresora este desconectada. Las comandas se guardan en PostgreSQL antes de intentar imprimir; un error de impresora no borra ni modifica la comanda.
+
+## 10. Reiniciar datos de prueba
+
+Atencion: este comando elimina comandas y movimientos de caja. Haz una copia de seguridad de PostgreSQL antes de usarlo.
+
+    node scripts/clean-database.js
+
+No uses esta limpieza para resolver un problema de conexion, acceso directo, impresora o APK.

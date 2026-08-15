@@ -73,6 +73,8 @@ function fixAndroidConfigs() {
 }
 
 async function buildApk() {
+  console.log('📡 Actualizando la IP LAN incluida en la APK...');
+  execSync('node scripts/print-lan.js', { cwd: rootDir, stdio: 'inherit', env: envVars });
   await ensureGradleZip();
 
   console.log('🚀 [1/3] Generando archivos nativos de Android con Expo Prebuild...');
@@ -87,6 +89,8 @@ async function buildApk() {
   console.log('📦 [2/3] Compilando APK Release de Android (Gradle)...');
   try {
     const gradlewCmd = process.platform === 'win32' ? 'gradlew.bat assembleRelease' : './gradlew assembleRelease';
+    const stopGradleCmd = process.platform === 'win32' ? 'gradlew.bat --stop' : './gradlew --stop';
+    execSync(stopGradleCmd, { cwd: androidDir, stdio: 'inherit', env: envVars });
     execSync(gradlewCmd, { cwd: androidDir, stdio: 'inherit', env: envVars });
   } catch (err) {
     console.warn('⚠️ Error en assembleRelease, probando assembleDebug...');

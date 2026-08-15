@@ -4,7 +4,6 @@
 /node_modules
 /.pnp
 .pnp.js
-package-lock.json
 
 # testing
 /coverage
@@ -24,9 +23,15 @@ yarn-debug.log*
 yarn-error.log*
 
 # custom additions
-android/
 export/
 server/node_modules/
 .expo/
 gradle-*.zip
+
+# Android source is versioned; local SDK paths and generated artifacts are not.
+/android/.gradle/
+/android/.kotlin/
+/android/build/
+/android/app/build/
+/android/local.properties
 

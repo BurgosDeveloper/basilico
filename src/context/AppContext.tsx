@@ -21,6 +21,7 @@ export interface UserSession {
   username: string;
   role: UserRole;
   shift?: 'manana' | 'noche' | 'ambos';
+  sessionToken?: string;
 }
 
 interface AppContextType {
@@ -51,7 +52,7 @@ interface AppContextType {
   
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   cancelOrder: (orderId: string) => Promise<void>;
-  editOrder: (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number }) => Promise<void>;
+  editOrder: (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup'; }) => Promise<Order>;
   processPayment: (
 
     orderId: string,
@@ -70,13 +71,25 @@ interface AppContextType {
       itemIds?: string[];
     }
   ) => Promise<void>;
+  registerLedgerEntry: (orderId: string, entry: {
+    entryType: 'payment' | 'change';
+    currency: 'USD' | 'COP' | 'Bs';
+    amountLocal: number;
+    paymentMethod: PaymentMethod;
+    payerName?: string;
+    itemIds?: string[];
+  }) => Promise<void>;
+  finalizeOrder: (orderId: string) => Promise<void>;
+  reopenOrder: (orderId: string) => Promise<void>;
+  deletePaymentEntry: (orderId: string, paymentId: string) => Promise<Order>;
   mergeOrders: (targetOrderId: string, sourceOrderIds: string[]) => Promise<void>;
-  processMultiplePayments: (orderIds: string[], method: PaymentMethod, totalUSD: number, totalCOP: number, splitPayments?: any[]) => Promise<void>;
 
   aperturarCajaChica: (usdCash: number, copCash: number) => Promise<void>;
-  addCajaTransaction: (trans: { type: 'ingreso' | 'egreso'; amountUSD: number; amountCOP: number; paymentMethod: string; description: string }) => Promise<void>;
+  addCajaTransaction: (trans: { type: 'ingreso' | 'egreso'; amountUSD: number; amountCOP: number; amountBs: number; paymentMethod: string; description: string }) => Promise<void>;
   realizarCierreCaja: (actualUSD: number, actualCOP: number, notes?: string) => Promise<any>;
   obtenerReporteDiario: () => Promise<any>;
+  fetchReporteIntervalo: (from: string, to: string) => Promise<any>;
+  printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina', data: any) => Promise<void>;
   updateExchangeRates: (newRates: Partial<ExchangeRates>) => Promise<void>;
   queryCajaAI: (message: string) => Promise<string>;
 
@@ -95,6 +108,7 @@ interface AppContextType {
 
   // Server connection status & backend URL
   isConnected: boolean;
+  syncError: string | null;
   backendUrl: string;
   updateServerIp: (newIp: string) => void;
 }
@@ -102,26 +116,27 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const getInitialBackendUrl = (): string => {
+  // El cliente web consulta /api/connection-info antes de iniciar la sincronización.
+  if (typeof document !== 'undefined') return '';
+
+  // La app nativa usa la IP LAN incluida en su paquete.
+  try {
+    const lanConfig = require('../config/lanConfig.json');
+    if (lanConfig && lanConfig.backendUrl) return lanConfig.backendUrl;
+  } catch (e) {}
+
+  // Respaldo manual para clientes nativos con una configuración específica.
   if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
     const savedIp = window.localStorage.getItem('basilico_server_ip');
     if (savedIp) {
       const cleanIp = savedIp.trim();
-      return cleanIp.startsWith('http') ? cleanIp : `http://${cleanIp}:3001`;
+      if (cleanIp) {
+        return cleanIp.startsWith('http') ? cleanIp : `http://${cleanIp}:3001`;
+      }
     }
   }
 
-  if (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname !== 'localhost') {
-    return `${window.location.protocol || 'http:'}//${window.location.hostname}:3001`;
-  }
-
-  try {
-    const lanConfig = require('../config/lanConfig.json');
-    if (lanConfig && lanConfig.backendUrl) {
-      return lanConfig.backendUrl;
-    }
-  } catch (e) {}
-
-  return 'http://192.168.1.4:3001';
+  return '';
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -154,6 +169,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    let isActive = true;
+    const resolveLanBackend = async () => {
+      try {
+        const response = await fetch('/api/connection-info', { cache: 'no-store' });
+        const connectionInfo = await response.json();
+        if (!response.ok || !connectionInfo.backendUrl) {
+          throw new Error('El servidor no tiene una IP LAN disponible.');
+        }
+        if (isActive) {
+          setBackendUrlState(connectionInfo.backendUrl);
+          setSyncError(null);
+        }
+      } catch (error) {
+        if (isActive) {
+          setIsConnected(false);
+          setSyncError('No se pudo detectar la IP LAN del servidor.');
+        }
+      }
+    };
+
+    resolveLanBackend();
+    const intervalId = window.setInterval(resolveLanBackend, 10000);
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
   
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -165,38 +212,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [cajaChicaTransactions, setCajaChicaTransactions] = useState<CajaChicaTransaction[]>([]);
   const [ultimoCierre, setUltimoCierre] = useState<CajaChicaCierre | null>(null);
 
+  const apiFetch = useCallback((url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers);
+    if (userSession?.sessionToken) headers.set('x-basilico-session', userSession.sessionToken);
+    return fetch(url, { ...options, headers });
+  }, [userSession?.sessionToken]);
+
   // Fetch Functions
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/products`);
+      const res = await apiFetch(`${backendUrl}/api/products`);
       if (res.ok) setProducts(await res.json());
     } catch (e) {}
-  }, [backendUrl]);
+  }, [apiFetch, backendUrl]);
 
   const fetchIngredients = useCallback(async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/ingredients`);
+      const res = await apiFetch(`${backendUrl}/api/ingredients`);
       if (res.ok) setIngredients(await res.json());
     } catch (e) {}
-  }, [backendUrl]);
+  }, [apiFetch, backendUrl]);
 
   const fetchTables = useCallback(async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/tables`);
+      const res = await apiFetch(`${backendUrl}/api/tables`);
       if (res.ok) setTables(await res.json());
     } catch (e) {}
-  }, [backendUrl]);
+  }, [apiFetch, backendUrl]);
 
   const fetchOrders = useCallback(async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/orders`);
+      const res = await apiFetch(`${backendUrl}/api/orders`);
       if (res.ok) setOrders(await res.json());
     } catch (e) {}
-  }, [backendUrl]);
+  }, [apiFetch, backendUrl]);
 
   const fetchCajaChica = useCallback(async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/caja-chica`);
+      const res = await apiFetch(`${backendUrl}/api/caja-chica`);
       if (res.ok) {
         const data = await res.json();
         if (data.apertura) setCajaChicaApertura(data.apertura);
@@ -204,14 +257,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data.ultimoCierre) setUltimoCierre(data.ultimoCierre);
       }
     } catch (e) {}
-  }, [backendUrl]);
+  }, [apiFetch, backendUrl]);
 
   const fetchRates = useCallback(async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/rates`);
+      const res = await apiFetch(`${backendUrl}/api/rates`);
       if (res.ok) setExchangeRates(await res.json());
     } catch (e) {}
-  }, [backendUrl]);
+  }, [apiFetch, backendUrl]);
 
   const refreshAllState = useCallback(() => {
     fetchProducts();
@@ -221,6 +274,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetchCajaChica();
     fetchRates();
   }, [fetchProducts, fetchIngredients, fetchTables, fetchOrders, fetchCajaChica, fetchRates]);
+
+  const requireApiSuccess = async (response: Response, fallbackMessage: string) => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload.error || fallbackMessage;
+      setSyncError(message);
+      throw new Error(message);
+    }
+    setSyncError(null);
+    return payload;
+  };
 
   const login = async (usernameInput: string, passwordInput: string) => {
     try {
@@ -232,7 +296,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.user) {
-          const session: UserSession = { username: data.user.username, role: data.user.role, shift: data.user.shift };
+          const session: UserSession = { username: data.user.username, role: data.user.role, shift: data.user.shift, sessionToken: data.user.sessionToken };
           setUserSession(session);
           if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
             window.localStorage.setItem('basilico_user_session', JSON.stringify(session));
@@ -257,9 +321,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   useEffect(() => {
-    refreshAllState();
+    if (!backendUrl || !userSession?.sessionToken) {
+      setIsConnected(false);
+      return;
+    }
 
     const socket: Socket = io(backendUrl, {
+      auth: { sessionToken: userSession?.sessionToken },
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       timeout: 5000,
@@ -267,11 +335,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     socket.on('connect', () => {
       setIsConnected(true);
+      setSyncError(null);
       refreshAllState();
     });
 
     socket.on('disconnect', () => {
       setIsConnected(false);
+      setSyncError('Conexión en tiempo real interrumpida. Se reintentará automáticamente.');
+    });
+
+    socket.on('connect_error', (error) => {
+      setIsConnected(false);
+      if (error.message === 'Sesión no válida.') {
+        setUserSession(null);
+        if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+          window.localStorage.removeItem('basilico_user_session');
+        }
+        setSyncError('La sesión anterior venció al reiniciar el servidor. Inicia sesión nuevamente.');
+        return;
+      }
+      setSyncError(`No se pudo conectar al servidor en ${backendUrl}.`);
     });
 
     socket.on('order:created', (newOrder: Order) => {
@@ -299,6 +382,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     socket.on('order:edited', (editedOrder: Order) => {
       setOrders((prev) => prev.map((o) => (o.id === editedOrder.id ? editedOrder : o)));
       soundService.playOrderEditedSound();
+    });
+
+    socket.on('order:print_failed', (printFailure: { orderNumber?: string; message?: string }) => {
+      setSyncError(`La comanda ${printFailure.orderNumber || ''} fue guardada, pero no se imprimió: ${printFailure.message || 'verifica la impresora térmica.'}`);
     });
 
     socket.on('order:paid', (updatedOrder: Order) => {
@@ -333,7 +420,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       socket.disconnect();
     };
-  }, [refreshAllState, fetchCajaChica]);
+  }, [backendUrl, refreshAllState, fetchCajaChica, userSession?.sessionToken]);
 
   const createOrder = async (orderData: {
     type: 'mesa' | 'delivery' | 'pickup';
@@ -343,94 +430,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     items: OrderItem[];
     totalUSD: number;
   }) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...orderData, waiterName: 'Mesero' }),
-      });
-      if (res.ok) {
-        const created = await res.json();
-        setOrders((prev) => [created, ...prev.filter((o) => o.id !== created.id)]);
-        soundService.playNewOrderSound();
-      } else {
-        const errText = await res.text();
-        console.warn('⚠️ Error de respuesta en servidor al crear comanda:', res.status, errText);
-        throw new Error(`Server returned ${res.status}: ${errText}`);
-      }
-    } catch (e) {
-      console.warn('⚠️ Usando estado local para comanda:', e);
-      const nextNum = 101 + orders.length;
-      const newOrd: Order = {
-        id: `ord-${Date.now()}`,
-        orderNumber: `#${nextNum}`,
-        type: orderData.type,
-        tableNumber: orderData.tableNumber,
-        customerName: orderData.customerName,
-        kitchenNotes: orderData.kitchenNotes,
-        status: 'en_preparacion',
-        paymentStatus: 'no_pagado',
-        totalUSD: orderData.totalUSD,
-        waiterName: 'Mesero',
-        createdAt: new Date().toISOString(),
-        elapsedMinutes: 0,
-        items: orderData.items,
-      };
-      setOrders((prev) => [newOrd, ...prev.filter((o) => o.id !== newOrd.id)]);
-      soundService.playNewOrderSound();
-    }
+    const res = await apiFetch(`${backendUrl}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...orderData,
+        waiterName: userSession?.username || 'Mesero',
+        shift: userSession?.shift || 'ambos',
+      }),
+    });
+    const created = await requireApiSuccess(res, 'No se pudo crear la comanda en el servidor.');
+    setOrders((prev) => [created, ...prev.filter((order) => order.id !== created.id)]);
+    soundService.playNewOrderSound();
   };
 
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setOrders((prev) => prev.map((o) => (o.id === orderId ? updated : o)));
-      }
-    } catch (e) {
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status } : o))
-      );
-      if (status === 'preparada') soundService.playOrderReadySound();
-    }
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const updated = await requireApiSuccess(res, 'No se pudo actualizar el estado de la comanda.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? updated : order)));
   };
 
   const cancelOrder = async (orderId: string) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/orders/${orderId}/cancel`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelado' } : o)));
-        soundService.playOrderCancelledSound();
-      }
-    } catch (e) {
-      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelado' } : o)));
-      soundService.playOrderCancelledSound();
-    }
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/cancel`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await requireApiSuccess(res, 'No se pudo cancelar la comanda.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? data.order : order)));
+    soundService.playOrderCancelledSound();
   };
 
-  const editOrder = async (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number }) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/orders/${orderId}/edit`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editData),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setOrders((prev) => prev.map((o) => (o.id === orderId ? updated : o)));
-      }
-    } catch (e) {
-      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...editData, isEdited: true } : o)));
+  const editOrder = async (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup'; }) => {
+    if (userSession?.role !== 'admin') {
+      throw new Error('Solo un administrador puede editar una comanda.');
     }
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/edit`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...editData, actorRole: userSession.role }),
+    });
+    const response = await requireApiSuccess(res, 'No se pudo editar la comanda.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
+    return response as Order;
   };
 
   const processPayment = async (
@@ -448,160 +493,176 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       changeGivenCOP?: number;
       changeGivenBs?: number;
       itemIds?: string[];
+      isDraft?: boolean;
     }
   ) => {
-    try {
-      const payload = {
-        paymentMethod: method,
-        amountUSD,
-        amountCOP,
-        splitPayments,
-        payerName: details?.payerName,
-        cashTenderedUSD: details?.cashTenderedUSD,
-        cashTenderedCOP: details?.cashTenderedCOP,
-        cashTenderedBs: details?.cashTenderedBs,
-        changeGivenUSD: details?.changeGivenUSD,
-        changeGivenCOP: details?.changeGivenCOP,
-        changeGivenBs: details?.changeGivenBs,
-        itemIds: details?.itemIds,
-        shift: userSession?.shift || 'ambos',
-      };
+    const payload = {
+      paymentMethod: method,
+      amountUSD,
+      amountCOP,
+      splitPayments,
+      payerName: details?.payerName,
+      cashTenderedUSD: details?.cashTenderedUSD,
+      cashTenderedCOP: details?.cashTenderedCOP,
+      cashTenderedBs: details?.cashTenderedBs,
+      changeGivenUSD: details?.changeGivenUSD,
+      changeGivenCOP: details?.changeGivenCOP,
+      changeGivenBs: details?.changeGivenBs,
+      itemIds: details?.itemIds,
+      isDraft: details?.isDraft,
+      shift: userSession?.shift || 'ambos',
+    };
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const updated = await requireApiSuccess(res, 'No se pudo registrar el pago.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? updated : order)));
+    fetchCajaChica();
+  };
 
-      const res = await fetch(`${backendUrl}/api/orders/${orderId}/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setOrders((prev) => prev.map((o) => (o.id === orderId ? updated : o)));
-        fetchCajaChica();
-      }
-    } catch (e) {
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, paymentStatus: 'pagado', paymentMethod: method } : o))
-      );
+  const registerLedgerEntry = async (
+    orderId: string,
+    entry: {
+      entryType: 'payment' | 'change';
+      currency: 'USD' | 'COP' | 'Bs';
+      amountLocal: number;
+      paymentMethod: PaymentMethod;
+      payerName?: string;
+      itemIds?: string[];
     }
+  ) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...entry, shift: userSession?.shift || 'ambos' }),
+    });
+    const response = await requireApiSuccess(res, 'No se pudo registrar el movimiento.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
+    fetchCajaChica();
+  };
+
+  const finalizeOrder = async (orderId: string) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const response = await requireApiSuccess(res, 'No se pudo finalizar la comanda.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
+  };
+
+  const reopenOrder = async (orderId: string) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/reopen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const updated = await requireApiSuccess(res, 'No se pudo reactivar la comanda.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? updated : order)));
+  };
+
+  const deletePaymentEntry = async (orderId: string, paymentId: string) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/payments/${paymentId}`, {
+      method: 'DELETE',
+    });
+    const response = await requireApiSuccess(res, 'No se pudo eliminar el registro.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
+    fetchCajaChica();
+    return response as Order;
   };
 
   const mergeOrders = async (targetOrderId: string, sourceOrderIds: string[]) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/orders/merge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetOrderId, sourceOrderIds }),
-      });
-      if (res.ok) {
-        fetchOrders();
-      }
-    } catch (e) {
-      console.error('Error al fusionar comandas:', e);
-    }
+    const res = await apiFetch(`${backendUrl}/api/orders/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetOrderId, sourceOrderIds }),
+    });
+    await requireApiSuccess(res, 'No se pudieron unificar las comandas.');
+    fetchOrders();
   };
-
-  const processMultiplePayments = async (
-    orderIds: string[],
-    method: PaymentMethod,
-    totalUSD: number,
-    totalCOP: number,
-    splitPayments?: any[]
-  ) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/orders/pay-multiple`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderIds, paymentMethod: method, totalUSD, totalCOP, splitPayments, shift: userSession?.shift || 'ambos' }),
-      });
-      if (res.ok) {
-        setOrders((prev) => prev.map((o) => (orderIds.includes(o.id) ? { ...o, paymentStatus: 'pagado', paymentMethod: method } : o)));
-        fetchCajaChica();
-      }
-    } catch (e) {
-      setOrders((prev) => prev.map((o) => (orderIds.includes(o.id) ? { ...o, paymentStatus: 'pagado', paymentMethod: method } : o)));
-    }
-  };
-
-
 
   const aperturarCajaChica = async (usdCash: number, copCash: number) => {
-    try {
-      await fetch(`${backendUrl}/api/caja-chica/apertura`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usdCash, copCash, shift: userSession?.shift || 'ambos' }),
-      });
-      fetchCajaChica();
-    } catch (e) {
-      setCajaChicaApertura({ usdCash, copCash, shift: userSession?.shift || 'ambos' });
-    }
+    const res = await apiFetch(`${backendUrl}/api/caja-chica/apertura`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usdCash, copCash, shift: userSession?.shift || 'ambos' }),
+    });
+    await requireApiSuccess(res, 'No se pudo aperturar la caja.');
+    fetchCajaChica();
   };
 
   const addCajaTransaction = async (trans: {
     type: 'ingreso' | 'egreso';
     amountUSD: number;
     amountCOP: number;
+    amountBs: number;
     paymentMethod: string;
     description: string;
   }) => {
-    try {
-      await fetch(`${backendUrl}/api/caja-chica/transaction`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...trans, shift: userSession?.shift || 'ambos' }),
-      });
-      fetchCajaChica();
-    } catch (e) {
-      const newTx: CajaChicaTransaction = {
-        id: `tx-${Date.now()}`,
-        ...trans,
-        timestamp: new Date().toISOString(),
-        shift: userSession?.shift || 'ambos'
-      };
-      setCajaChicaTransactions((prev) => [newTx, ...prev]);
-    }
+    const res = await apiFetch(`${backendUrl}/api/caja-chica/transaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...trans, shift: userSession?.shift || 'ambos' }),
+    });
+    await requireApiSuccess(res, 'No se pudo registrar el movimiento de caja.');
+    fetchCajaChica();
   };
 
   const realizarCierreCaja = async (actualUSD: number, actualCOP: number, notes?: string) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/caja-chica/cierre`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actualUSD, actualCOP, notes, closedBy: userSession?.username || 'Caja', shift: userSession?.shift || 'ambos' }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        fetchCajaChica();
-        return data;
-      }
-    } catch (e) {}
-    return null;
+    const res = await apiFetch(`${backendUrl}/api/caja-chica/cierre`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actualUSD, actualCOP, notes, closedBy: userSession?.username || 'Caja', shift: userSession?.shift || 'ambos' }),
+    });
+    const data = await requireApiSuccess(res, 'No se pudo cerrar la caja.');
+    fetchCajaChica();
+    return data;
   };
 
   const obtenerReporteDiario = async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/caja-chica/reporte-diario`);
+      const res = await apiFetch(`${backendUrl}/api/caja-chica/reporte-diario`);
       if (res.ok) return await res.json();
     } catch (e) {}
     return null;
   };
 
-  const updateExchangeRates = async (newRates: Partial<ExchangeRates>) => {
+  const fetchReporteIntervalo = async (from: string, to: string) => {
     try {
-      const updated = { ...exchangeRates, ...newRates };
-      await fetch(`${backendUrl}/api/rates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      });
-      setExchangeRates(updated);
-    } catch (e) {
-      setExchangeRates((prev) => ({ ...prev, ...newRates }));
+      const params = new URLSearchParams({ from, to });
+      const res = await apiFetch(`${backendUrl}/api/caja/reporte-intervalo?${params.toString()}`);
+      if (res.ok) return await res.json();
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al obtener reporte por intervalo.');
+    } catch (e: any) {
+      setSyncError(e.message || 'Error al obtener reporte por intervalo.');
+      throw e;
     }
+  };
+
+  const printReporteIntervalo = async (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina', data: any) => {
+    const res = await apiFetch(`${backendUrl}/api/caja/reporte-intervalo/imprimir`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reportType, data }),
+    });
+    await requireApiSuccess(res, 'No se pudo imprimir el reporte térmico.');
+  };
+
+  const updateExchangeRates = async (newRates: Partial<ExchangeRates>) => {
+    const updated = { ...exchangeRates, ...newRates };
+    const res = await apiFetch(`${backendUrl}/api/rates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    await requireApiSuccess(res, 'No se pudieron actualizar las tasas.');
+    setExchangeRates(updated);
   };
 
   const queryCajaAI = async (message: string): Promise<string> => {
     try {
-      const res = await fetch(`${backendUrl}/api/caja/ai-chat`, {
+      const res = await apiFetch(`${backendUrl}/api/caja/ai-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),
@@ -630,123 +691,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ADMIN CRUD ACTIONS (Persisted to Database / JSON)
   const addProduct = async (productData: Omit<Product, 'id'>) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productData),
-      });
-      if (res.ok) fetchProducts();
-    } catch (e) {
-      const newProduct: Product = { ...productData, id: `p${Date.now()}` };
-      setProducts((prev) => [newProduct, ...prev]);
-    }
+    const res = await apiFetch(`${backendUrl}/api/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData),
+    });
+    await requireApiSuccess(res, 'No se pudo guardar el producto.');
+    fetchProducts();
   };
 
   const updateProduct = async (id: string, productData: Omit<Product, 'id'>) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/products/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productData),
-      });
-      if (res.ok) fetchProducts();
-    } catch (e) {
-      setProducts((prev) => prev.map((p) => p.id === id ? { ...p, ...productData } : p));
-    }
+    const res = await apiFetch(`${backendUrl}/api/products/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData),
+    });
+    await requireApiSuccess(res, 'No se pudo actualizar el producto.');
+    fetchProducts();
   };
 
 
   const deleteProduct = async (id: string) => {
-    try {
-      await fetch(`${backendUrl}/api/products/${id}`, { method: 'DELETE' });
-      fetchProducts();
-    } catch (e) {
-      setProducts((prev) => prev.filter((p) => p.id !== id));
-    }
+    const res = await apiFetch(`${backendUrl}/api/products/${id}`, { method: 'DELETE' });
+    await requireApiSuccess(res, 'No se pudo eliminar el producto.');
+    fetchProducts();
   };
 
   const addIngredient = async (ingData: Omit<Ingredient, 'id'>) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/ingredients`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ingData),
-      });
-      if (res.ok) fetchIngredients();
-    } catch (e) {
-      const newIng: Ingredient = { ...ingData, id: `ing-${Date.now()}` };
-      setIngredients((prev) => [newIng, ...prev]);
-    }
+    const res = await apiFetch(`${backendUrl}/api/ingredients`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ingData),
+    });
+    await requireApiSuccess(res, 'No se pudo guardar el ingrediente.');
+    fetchIngredients();
   };
 
   const updateIngredient = async (id: string, ingData: Partial<Ingredient>) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/ingredients/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ingData),
-      });
-      if (res.ok) fetchIngredients();
-    } catch (e) {
-      setIngredients((prev) => prev.map((i) => i.id === id ? { ...i, ...ingData } : i));
-    }
+    const res = await apiFetch(`${backendUrl}/api/ingredients/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ingData),
+    });
+    await requireApiSuccess(res, 'No se pudo actualizar el ingrediente.');
+    fetchIngredients();
   };
 
 
   const deleteIngredient = async (id: string) => {
-    try {
-      await fetch(`${backendUrl}/api/ingredients/${id}`, { method: 'DELETE' });
-      fetchIngredients();
-    } catch (e) {
-      setIngredients((prev) => prev.filter((i) => i.id !== id));
-    }
+    const res = await apiFetch(`${backendUrl}/api/ingredients/${id}`, { method: 'DELETE' });
+    await requireApiSuccess(res, 'No se pudo eliminar el ingrediente.');
+    fetchIngredients();
   };
 
   const addTable = async (tableData: { number: number; name: string; capacity: number; zone: string }) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/tables`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tableData),
-      });
-      if (res.ok) fetchTables();
-    } catch (e) {
-      const newT: Table = { id: `t-${Date.now()}`, ...tableData, status: 'libre' };
-      setTables((prev) => [...prev, newT]);
-    }
+    const res = await apiFetch(`${backendUrl}/api/tables`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tableData),
+    });
+    await requireApiSuccess(res, 'No se pudo guardar la mesa.');
+    fetchTables();
   };
 
   const updateTable = async (id: string, tableData: { number: number; name: string; capacity: number; zone: string }) => {
-    try {
-      const res = await fetch(`${backendUrl}/api/tables/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tableData),
-      });
-      if (res.ok) fetchTables();
-    } catch (e) {
-      setTables((prev) => prev.map((t) => t.id === id ? { ...t, ...tableData } : t));
-    }
+    const res = await apiFetch(`${backendUrl}/api/tables/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tableData),
+    });
+    await requireApiSuccess(res, 'No se pudo actualizar la mesa.');
+    fetchTables();
   };
 
 
   const deleteTable = async (id: string) => {
-    try {
-      await fetch(`${backendUrl}/api/tables/${id}`, { method: 'DELETE' });
-      fetchTables();
-    } catch (e) {
-      setTables((prev) => prev.filter((t) => t.id !== id));
-    }
+    const res = await apiFetch(`${backendUrl}/api/tables/${id}`, { method: 'DELETE' });
+    await requireApiSuccess(res, 'No se pudo eliminar la mesa.');
+    fetchTables();
   };
 
   const purgeAllOrders = async () => {
-    try {
-      await fetch(`${backendUrl}/api/orders/purge-all`, { method: 'DELETE' });
-      setOrders([]);
-    } catch (e) {
-      setOrders([]);
-    }
+    const res = await apiFetch(`${backendUrl}/api/orders/purge-all`, { method: 'DELETE' });
+    await requireApiSuccess(res, 'No se pudieron eliminar las comandas.');
+    setOrders([]);
   };
 
   const extras = ingredients.filter((i) => i.isExtraForPizza);
@@ -766,18 +794,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cajaChicaApertura,
         cajaChicaTransactions,
         ultimoCierre,
+        syncError,
         createOrder,
         updateOrderStatus,
         cancelOrder,
         editOrder,
         processPayment,
+        registerLedgerEntry,
+        finalizeOrder,
+        reopenOrder,
+        deletePaymentEntry,
         mergeOrders,
-        processMultiplePayments,
-
         aperturarCajaChica,
         addCajaTransaction,
         realizarCierreCaja,
         obtenerReporteDiario,
+        fetchReporteIntervalo,
+        printReporteIntervalo,
         updateExchangeRates,
         queryCajaAI,
         addProduct,

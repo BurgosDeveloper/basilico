@@ -36,15 +36,20 @@
     "socket.io-client": "^4.8.3",
     "tailwindcss-rtl": "^0.9.0",
     "typescript": "~6.0.3",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
+    "prebuild": "node scripts/print-lan.js",
     "prestart": "node scripts/print-lan.js",
     "start": "react-scripts start",
     "expo": "expo start",
     "expo:web": "expo start --web",
     "build": "react-scripts build",
+    "build:export": "npm run build && node scripts/build-export.js",
+    "start:pos": "node scripts/launch-pos.js",
     "build:apk": "node scripts/build-apk.js",
+    "print:test": "node scripts/test-thermal-printer.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "pretty": "prettier --write \"./**/*.{js,jsx,json}\""

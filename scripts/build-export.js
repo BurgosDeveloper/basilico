@@ -58,10 +58,10 @@ if (fs.existsSync(srcIcon)) {
   fs.writeFileSync(exportIcoIcon, icoBuffer);
 }
 
-// 2. Generar archivo ejecutable VBS y BAT con detección inteligente de puerto activo
+// 2. Generar archivo ejecutable VBS y BAT que abren el POS con la IP LAN vigente.
 const vbsPath = path.join(exportDir, 'BasilicoPOS.vbs');
 const vbsContent = `' =========================================================
-' BASILICO PIZZERIA - EJECUTABLE DE ESCRITORIO PC (CON DETECCIÓN DE PUERTO)
+' BASILICO PIZZERIA - EJECUTABLE DE ESCRITORIO PC
 ' =========================================================
 Set WshShell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -69,41 +69,8 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 strPath = fso.GetParentFolderName(WScript.ScriptFullName)
 strRoot = fso.GetParentFolderName(strPath)
 
-' 1. Verificar si el servidor ya está escuchando en el puerto 3001
-Dim objExec, isPortActive, strOut
-isPortActive = False
-
-On Error Resume Next
-Set objExec = WshShell.Exec("cmd /c netstat -ano | findstr :3001")
-If Err.Number = 0 Then
-    Do While objExec.Status = 0
-        WScript.Sleep 50
-    Loop
-    If Not objExec.StdOut.AtEndOfStream Then
-        strOut = objExec.StdOut.ReadAll()
-        If InStr(strOut, "LISTENING") > 0 Then
-            isPortActive = True
-        End If
-    End If
-End If
-On Error GoTo 0
-
-' 2. Si el servidor no está activo, iniciarlo de forma silenciosa en segundo plano
-If Not isPortActive Then
-    WshShell.Run "cmd /c cd /d """ & strRoot & """ && node server/index.js", 0, False
-    WScript.Sleep 2500
-End If
-
-' 3. Abrir la aplicación en ventana independiente de escritorio
-strChrome = "chrome.exe --app=http://localhost:3001 --new-window"
-strEdge = "msedge.exe --app=http://localhost:3001 --new-window"
-
-On Error Resume Next
-WshShell.Run strChrome, 1, False
-If Err.Number <> 0 Then
-    Err.Clear
-    WshShell.Run strEdge, 1, False
-End If
+' El lanzador Node espera el backend y abre Chrome con su IP LAN actual.
+WshShell.Run "cmd /c cd /d """ & strRoot & """ && node scripts\\launch-pos.js", 0, False
 `;
 fs.writeFileSync(vbsPath, vbsContent);
 
@@ -112,25 +79,39 @@ const batPath = path.join(exportDir, 'BasilicoPOS_Con_Consola.bat');
 const batContent = `@echo off
 title SERVIDOR & POS BASILICO PIZZERIA
 cd /d "%~dp0.."
-netstat -ano | findstr :3001 | findstr LISTENING >nul 2>&1
-if %errorlevel% neq 0 (
-    start "BACKEND BASILICO" cmd /k "node server/index.js"
-    timeout /t 3 /nobreak >nul
-)
-start chrome.exe --app=http://localhost:3001 || start msedge.exe --app=http://localhost:3001
+node scripts\launch-pos.js
 `;
 fs.writeFileSync(batPath, batContent);
 
-// 3. Crear Acceso Directo con Icono de Pizza para Windows (Basilico Pizzeria.lnk)
+// 3. Crear accesos directos actualizados para export/ y el Escritorio de Windows.
 const psScriptPath = path.join(rootDir, 'create_shortcut.ps1');
 const psScriptContent = `
 $WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("${exportDir.replace(/\\/g, '\\\\')}\\Basilico Pizzeria.lnk")
-$Shortcut.TargetPath = "${vbsPath.replace(/\\/g, '\\\\')}"
-$Shortcut.WorkingDirectory = "${rootDir.replace(/\\/g, '\\\\')}"
-$Shortcut.IconLocation = "${exportIcoIcon.replace(/\\/g, '\\\\')}"
-$Shortcut.Description = "Basilico Pizzeria - Sistema POS & KDS de Escritorio"
-$Shortcut.Save()
+$shortcutPaths = @(
+  "${exportDir.replace(/\\/g, '\\\\')}\\Basilico Pizzeria.lnk",
+  (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Basilico Pizzeria.lnk')
+)
+$timestamp = Get-Date
+foreach ($shortcutPath in $shortcutPaths) {
+  $Shortcut = $WshShell.CreateShortcut($shortcutPath)
+  $Shortcut.TargetPath = "${vbsPath.replace(/\\/g, '\\\\')}"
+  $Shortcut.WorkingDirectory = "${rootDir.replace(/\\/g, '\\\\')}"
+  $Shortcut.IconLocation = "${exportIcoIcon.replace(/\\/g, '\\\\')}"
+  $Shortcut.Description = "Basilico Pizzeria - Sistema POS & KDS de Escritorio"
+  $Shortcut.Save()
+  $shortcutItem = Get-Item -LiteralPath $shortcutPath
+  $shortcutItem.CreationTime = $timestamp
+  $shortcutItem.LastWriteTime = $timestamp
+}
+$launcherPaths = @(
+  "${vbsPath.replace(/\\/g, '\\\\')}",
+  "${batPath.replace(/\\/g, '\\\\')}"
+)
+foreach ($launcherPath in $launcherPaths) {
+  $launcherItem = Get-Item -LiteralPath $launcherPath
+  $launcherItem.CreationTime = $timestamp
+  $launcherItem.LastWriteTime = $timestamp
+}
 `;
 
 fs.writeFileSync(psScriptPath, psScriptContent);
@@ -142,6 +123,14 @@ try {
 } finally {
   if (fs.existsSync(psScriptPath)) {
     fs.unlinkSync(psScriptPath);
+  }
+}
+
+const exportedLauncherPaths = [vbsPath, batPath];
+for (const launcherPath of exportedLauncherPaths) {
+  if (fs.existsSync(launcherPath)) {
+    const timestamp = new Date();
+    fs.utimesSync(launcherPath, timestamp, timestamp);
   }
 }
 

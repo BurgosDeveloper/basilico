@@ -1,3 +1,5 @@
+const defaultColors = require('tailwindcss/colors');
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: "class",
@@ -135,6 +137,7 @@ module.exports = {
       "4xl-max": { max: "1850px" },
     },
     colors: () => ({
+      ...defaultColors,
       white: "#ffffff",
       lightPrimary: "#F4F7FE",
       blueSecondary: "#4318FF",

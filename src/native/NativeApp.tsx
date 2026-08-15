@@ -20,12 +20,12 @@ export function NativeApp() {
   const [cartTotal, setCartTotal] = useState<number>(0);
 
   const tables = [
-    { number: 1, status: 'Ocupada', color: '#f59e0b' },
-    { number: 2, status: 'Ocupada', color: '#f59e0b' },
-    { number: 3, status: 'Por Cobrar', color: '#3b82f6' },
+    { number: 1, status: 'Ocupada', color: '#0A4E36' },
+    { number: 2, status: 'Ocupada', color: '#0A4E36' },
+    { number: 3, status: 'Por Cobrar', color: '#0A4E36' },
     { number: 4, status: 'Libre', color: '#10b981' },
     { number: 5, status: 'Libre', color: '#10b981' },
-    { number: 6, status: 'Reservada', color: '#a855f7' },
+    { number: 6, status: 'Reservada', color: '#0A4E36' },
     { number: 7, status: 'Libre', color: '#10b981' },
     { number: 8, status: 'Libre', color: '#10b981' },
   ];
@@ -44,7 +44,7 @@ export function NativeApp() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#070707" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F4FAF6" />
 
       {/* NATIVE NAVBAR */}
       <View style={styles.navbar}>
@@ -268,11 +268,11 @@ export function NativeApp() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
   },
   navbar: {
     height: 60,
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(216, 230, 223, 0.15)',
     flexDirection: 'row',
@@ -282,13 +282,13 @@ const styles = StyleSheet.create({
   },
   menuBtn: {
     padding: 8,
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.2)',
   },
   menuBtnText: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 20,
     fontWeight: 'bold',
   },
@@ -298,13 +298,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   brandName: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 18,
     fontWeight: '900',
     letterSpacing: -0.5,
   },
   badgeTag: {
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
@@ -312,12 +312,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(216, 230, 223, 0.3)',
   },
   badgeTagText: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 8,
     fontWeight: 'bold',
   },
   roleBadge: {
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -337,25 +337,25 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   headerCard: {
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.2)',
   },
   headerTitle: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 4,
   },
   headerSubtitle: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 12,
     opacity: 0.7,
   },
   sectionTitle: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 14,
     fontWeight: 'bold',
     marginTop: 8,
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
   },
   tableCard: {
     width: '23%',
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderRadius: 14,
     borderWidth: 1.5,
     padding: 10,
@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tableCardSelected: {
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
   },
   statusDot: {
     width: 6,
@@ -384,17 +384,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   tableName: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 11,
     fontWeight: 'bold',
   },
   tableStatus: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 8,
     opacity: 0.7,
   },
   productCard: {
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.15)',
@@ -405,12 +405,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   productName: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 14,
     fontWeight: 'bold',
   },
   productDesc: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 10,
     opacity: 0.6,
     marginTop: 2,
@@ -428,12 +428,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   addBtnText: {
-    color: '#070707',
+    color: '#F4FAF6',
     fontSize: 10,
     fontWeight: '900',
   },
   orderCardPOS: {
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.2)',
@@ -441,12 +441,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   posOrderTitle: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 16,
     fontWeight: 'bold',
   },
   posItemsText: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 12,
     opacity: 0.7,
   },
@@ -464,12 +464,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   payBtnText: {
-    color: '#070707',
+    color: '#F4FAF6',
     fontSize: 12,
     fontWeight: '900',
   },
   kdsCard: {
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.2)',
@@ -482,7 +482,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   kdsOrderNum: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -493,16 +493,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   timerText: {
-    color: '#070707',
+    color: '#F4FAF6',
     fontSize: 12,
     fontWeight: 'bold',
   },
   kdsItem: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 13,
   },
   readyBtn: {
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     borderColor: '#10b981',
     borderWidth: 1,
     paddingVertical: 12,
@@ -521,19 +521,19 @@ const styles = StyleSheet.create({
   },
   kpiBox: {
     flex: 1,
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.2)',
     padding: 16,
   },
   kpiTitle: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 11,
     opacity: 0.6,
   },
   kpiValue: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 18,
     fontWeight: '900',
     marginTop: 4,
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 16,
     right: 16,
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     borderWidth: 1,
     borderColor: '#10b981',
     borderRadius: 20,
@@ -553,7 +553,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cartBarText: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 13,
     fontWeight: 'bold',
   },
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   sendCajaBtnText: {
-    color: '#070707',
+    color: '#F4FAF6',
     fontSize: 11,
     fontWeight: '900',
   },
@@ -586,23 +586,23 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   drawerTitle: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 1,
   },
   closeBtn: {
     padding: 8,
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     borderRadius: 12,
   },
   closeBtnText: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 16,
     fontWeight: 'bold',
   },
   drawerSectionLabel: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 10,
     fontWeight: 'bold',
     opacity: 0.5,
@@ -621,25 +621,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   drawerItemActive: {
-    backgroundColor: '#0B2A1A',
+    backgroundColor: '#E7F5ED',
     borderColor: '#10b981',
   },
   drawerItemIcon: {
     fontSize: 22,
   },
   drawerItemTitle: {
-    color: '#ffffff',
+    color: '#102A20',
     fontSize: 14,
     fontWeight: 'bold',
   },
   drawerItemSub: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 10,
     opacity: 0.6,
   },
   ratesBox: {
     marginTop: 'auto',
-    backgroundColor: '#070707',
+    backgroundColor: '#F4FAF6',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(216, 230, 223, 0.2)',
@@ -653,11 +653,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   ratesText: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 11,
   },
   drawerFooter: {
-    color: '#D8E6DF',
+    color: '#173D2D',
     fontSize: 9,
     opacity: 0.4,
     textAlign: 'center',

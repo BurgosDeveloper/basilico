@@ -58,7 +58,7 @@ const MainAppLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#070707] font-sans antialiased text-white selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-screen flex flex-col bg-slate-50 font-sans antialiased text-slate-900 selection:bg-emerald-500 selection:text-black">
       {/* Global Navbar */}
       <Navbar
         onOpenExchangeModal={() => setIsExchangeModalOpen(true)}
@@ -149,12 +149,12 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-[#070707] text-white flex flex-col items-center justify-center p-6 text-center space-y-4 font-sans">
-          <div className="w-16 h-16 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-3xl text-red-400">
+        <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 text-center space-y-4 font-sans">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-3xl text-red-600">
             ⚠️
           </div>
           <h2 className="text-xl font-black">Estado del sistema recuperado</h2>
-          <p className="text-xs text-gray-400 max-w-md">{this.state.error?.message || 'Los datos de la pantalla han sido actualizados.'}</p>
+          <p className="text-xs text-slate-500 max-w-md">{this.state.error?.message || 'Los datos de la pantalla han sido actualizados.'}</p>
           <button
             onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
             className="px-6 py-3 rounded-xl bg-emerald-500 text-black font-black text-xs hover:bg-emerald-400 shadow-lg"

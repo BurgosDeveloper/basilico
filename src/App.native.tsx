@@ -33,6 +33,7 @@ const NativeAppContent: React.FC = () => {
     updateOrderStatus,
     queryCajaAI,
     isConnected,
+    syncError,
     backendUrl,
     updateServerIp,
   } = useApp();
@@ -109,7 +110,7 @@ const NativeAppContent: React.FC = () => {
   if (!userSession) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" backgroundColor="#070707" />
+        <StatusBar barStyle="dark-content" backgroundColor="#F4FAF6" />
         <ScrollView contentContainerStyle={styles.loginScroll}>
           <View style={styles.loginCard}>
             <View style={styles.brandIconBox}>
@@ -124,9 +125,9 @@ const NativeAppContent: React.FC = () => {
               <Ionicons
                 name={isConnected ? 'wifi-outline' : 'wifi-outline'}
                 size={14}
-                color={isConnected ? '#10b981' : '#ef4444'}
+                color={isConnected ? '#10b981' : '#0A4E36'}
               />
-              <Text style={[styles.statusBadgeText, { color: isConnected ? '#10b981' : '#ef4444' }]}>
+              <Text style={[styles.statusBadgeText, { color: isConnected ? '#10b981' : '#0A4E36' }]}>
                 {isConnected ? '🟢 EN VIVO - CONECTADO A PC' : '🔴 DESCONECTADO / REVISAR SERVIDOR'}
               </Text>
             </View>
@@ -139,14 +140,14 @@ const NativeAppContent: React.FC = () => {
                 setIsServerModalOpen(true);
               }}
             >
-              <Ionicons name="hardware-chip-outline" size={16} color="#fbbf24" />
+              <Ionicons name="hardware-chip-outline" size={16} color="#0A4E36" />
               <Text style={styles.serverConfigBtnText}>IP SERVIDOR PC: {backendUrl}</Text>
-              <Ionicons name="create-outline" size={14} color="#9ca3af" />
+              <Ionicons name="create-outline" size={14} color="#28513E" />
             </TouchableOpacity>
 
             {loginError && (
               <View style={styles.errorBox}>
-                <Ionicons name="warning-outline" size={18} color="#ef4444" />
+                <Ionicons name="warning-outline" size={18} color="#0A4E36" />
                 <Text style={styles.errorText}>{loginError}</Text>
               </View>
             )}
@@ -357,6 +358,10 @@ const NativeAppContent: React.FC = () => {
 
   const [isSubmittingNative, setIsSubmittingNative] = useState(false);
 
+  const showSyncError = (error: unknown) => {
+    Alert.alert('Acción no sincronizada', error instanceof Error ? error.message : 'No se pudo confirmar la operación en el servidor.');
+  };
+
   const handleConfirmOrder = async () => {
     if (!activeOrderTarget || cartItems.length === 0 || isSubmittingNative) return;
     setIsSubmittingNative(true);
@@ -373,6 +378,8 @@ const NativeAppContent: React.FC = () => {
       setActiveOrderTarget(null);
       setCartItems([]);
       Alert.alert('¡Comanda Enviada!', `Orden enviada a Cocina y Caja (${activeOrderTarget.title})`);
+    } catch (error) {
+      Alert.alert('Comanda no enviada', error instanceof Error ? error.message : 'No se pudo guardar la comanda en el servidor.');
     } finally {
       setIsSubmittingNative(false);
     }
@@ -415,12 +422,12 @@ const NativeAppContent: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#070707" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F4FAF6" />
 
       {/* HEADER / NAVBAR */}
       <View style={styles.navbar}>
         <TouchableOpacity style={styles.iconBtn} onPress={() => setIsSidebarOpen(true)}>
-          <Ionicons name="menu-outline" size={24} color="#D8E6DF" />
+          <Ionicons name="menu-outline" size={24} color="#173D2D" />
         </TouchableOpacity>
 
         <View style={styles.brandContainer}>
@@ -441,7 +448,7 @@ const NativeAppContent: React.FC = () => {
               activeRole === 'admin' ? 'shield-checkmark-outline' : 'restaurant-outline'
             }
             size={12}
-            color={activeRole === 'cocina' ? '#f59e0b' : '#10b981'}
+            color={activeRole === 'cocina' ? '#0A4E36' : '#10b981'}
             style={{ marginRight: 4 }}
           />
           <Text style={styles.roleBadgeText}>
@@ -485,8 +492,8 @@ const NativeAppContent: React.FC = () => {
                 style={styles.specialCardWeb}
                 onPress={() => handleOpenMenuModal('delivery', undefined, 'Orden Delivery')}
               >
-                <View style={[styles.specialIconSquare, { backgroundColor: '#0B2A1A', borderColor: '#10b981' }]}>
-                  <Ionicons name="car-outline" size={26} color="#ffffff" />
+                <View style={[styles.specialIconSquare, { backgroundColor: '#E7F5ED', borderColor: '#10b981' }]}>
+                  <Ionicons name="car-outline" size={26} color="#102A20" />
                 </View>
 
                 <View style={{ flex: 1 }}>
@@ -506,20 +513,20 @@ const NativeAppContent: React.FC = () => {
                 style={styles.specialCardWeb}
                 onPress={() => handleOpenMenuModal('pickup', undefined, 'Orden PickUp')}
               >
-                <View style={[styles.specialIconSquare, { backgroundColor: '#2d1a04', borderColor: '#f59e0b' }]}>
-                  <Ionicons name="walk-outline" size={26} color="#ffffff" />
+                <View style={[styles.specialIconSquare, { backgroundColor: '#2d1a04', borderColor: '#0A4E36' }]}>
+                  <Ionicons name="walk-outline" size={26} color="#102A20" />
                 </View>
 
                 <View style={{ flex: 1 }}>
                   <View style={[styles.miniPill, { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: 'rgba(245, 158, 11, 0.4)' }]}>
-                    <Text style={[styles.miniPillText, { color: '#f59e0b' }]}>PARA LLEVAR</Text>
+                    <Text style={[styles.miniPillText, { color: '#0A4E36' }]}>PARA LLEVAR</Text>
                   </View>
                   <Text style={styles.specialTitleWeb}>NUEVO PICKUP</Text>
                   <Text style={styles.specialSubWeb}>El cliente retira directamente en la pizzería.</Text>
                 </View>
 
-                <View style={[styles.plusCircleBtn, { borderColor: '#f59e0b' }]}>
-                  <Ionicons name="add" size={20} color="#f59e0b" />
+                <View style={[styles.plusCircleBtn, { borderColor: '#0A4E36' }]}>
+                  <Ionicons name="add" size={20} color="#0A4E36" />
                 </View>
               </TouchableOpacity>
             </View>
@@ -544,15 +551,15 @@ const NativeAppContent: React.FC = () => {
                     style={[
                       styles.tableCardWebItem,
                       {
-                        borderColor: isReady ? '#10b981' : isOccupied ? '#f59e0b' : 'rgba(255, 255, 255, 0.12)',
-                        backgroundColor: isReady ? 'rgba(16, 185, 129, 0.1)' : '#070707',
+                        borderColor: isReady ? '#10b981' : isOccupied ? '#0A4E36' : 'rgba(255, 255, 255, 0.12)',
+                        backgroundColor: isReady ? 'rgba(16, 185, 129, 0.1)' : '#F4FAF6',
                       },
                     ]}
                     onPress={() => handleOpenMenuModal('mesa', t.number, `Mesa #${t.number}`)}
                   >
                     <View style={styles.tableCardTopRow}>
                       <View style={styles.tablePizzaIconBox}>
-                        <Ionicons name="pizza-outline" size={20} color={isReady ? '#10b981' : isOccupied ? '#f59e0b' : '#10b981'} />
+                        <Ionicons name="pizza-outline" size={20} color={isReady ? '#10b981' : isOccupied ? '#0A4E36' : '#10b981'} />
                       </View>
 
                       <View
@@ -560,11 +567,11 @@ const NativeAppContent: React.FC = () => {
                           styles.tableBadgePill,
                           {
                             backgroundColor: isReady ? '#10b981' : isOccupied ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                            borderColor: isReady ? '#10b981' : isOccupied ? '#f59e0b' : 'rgba(16, 185, 129, 0.4)',
+                            borderColor: isReady ? '#10b981' : isOccupied ? '#0A4E36' : 'rgba(16, 185, 129, 0.4)',
                           },
                         ]}
                       >
-                        <Text style={[styles.tableBadgeText, { color: isReady ? '#070707' : isOccupied ? '#f59e0b' : '#10b981' }]}>
+                        <Text style={[styles.tableBadgeText, { color: isReady ? '#F4FAF6' : isOccupied ? '#0A4E36' : '#10b981' }]}>
                           {isReady ? '¡LISTA!' : isOccupied ? 'OCUPADA' : 'LIBRE'}
                         </Text>
                       </View>
@@ -619,20 +626,20 @@ const NativeAppContent: React.FC = () => {
                   <View style={styles.posHeader}>
                     <View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ color: '#ffffff', fontSize: 20, fontWeight: '900' }}>🧾 COMANDA #{ord.orderNumber}</Text>
+                        <Text style={{ color: '#102A20', fontSize: 20, fontWeight: '900' }}>🧾 COMANDA #{ord.orderNumber}</Text>
                         <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.4)' }}>
                           <Text style={{ color: '#10b981', fontSize: 13, fontWeight: '900' }}>{typeIcon} {typeLabel}</Text>
                         </View>
                       </View>
-                      <Text style={{ color: '#9ca3af', fontSize: 14, fontWeight: 'bold', marginTop: 4 }}>
+                      <Text style={{ color: '#28513E', fontSize: 14, fontWeight: 'bold', marginTop: 4 }}>
                         👤 Cliente: {ord.customerName || typeLabel}
                       </Text>
-                      <Text style={{ color: '#9ca3af', fontSize: 13, fontWeight: 'bold', marginTop: 2 }}>
+                      <Text style={{ color: '#28513E', fontSize: 13, fontWeight: 'bold', marginTop: 2 }}>
                         🧑‍🍳 Mesero: {ord.waiterName || 'Mesero'}
                       </Text>
                     </View>
 
-                    <Text style={{ color: isPrepared ? '#10b981' : '#f59e0b', fontWeight: '900', fontSize: 12, backgroundColor: isPrepared ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: isPrepared ? '#10b981' : '#f59e0b' }}>
+                    <Text style={{ color: '#102A20', fontWeight: '900', fontSize: 12, backgroundColor: isPrepared ? '#DDF2E5' : '#E7F5ED', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: isPrepared ? '#6ee7b7' : '#fcd34d' }}>
                       {isPrepared ? '🔥 ¡LISTA!' : '⏳ EN COCINA'}
                     </Text>
                   </View>
@@ -640,7 +647,7 @@ const NativeAppContent: React.FC = () => {
                   {/* Kitchen Notes Box */}
                   {ord.kitchenNotes ? (
                     <View style={{ backgroundColor: 'rgba(245,158,11,0.15)', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)', marginVertical: 4 }}>
-                      <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: 'bold' }}>📝 Nota de Cocina: {ord.kitchenNotes}</Text>
+                      <Text style={{ color: '#0A4E36', fontSize: 11, fontWeight: 'bold' }}>📝 Nota de Cocina: {ord.kitchenNotes}</Text>
                     </View>
                   ) : null}
 
@@ -650,10 +657,10 @@ const NativeAppContent: React.FC = () => {
                       <View key={it.id} style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(216,230,223,0.15)', padding: 10, gap: 4 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                            <View style={{ backgroundColor: '#0B2A1A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#10b981' }}>
+                            <View style={{ backgroundColor: '#E7F5ED', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#10b981' }}>
                               <Text style={{ color: '#10b981', fontSize: 16, fontWeight: '900' }}>{it.productName.includes('Pizza') || it.productName.includes('Mitad') ? '🍕' : '🥤'} {it.quantity}x</Text>
                             </View>
-                            <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: 'bold', flex: 1 }}>
+                            <Text style={{ color: '#102A20', fontSize: 18, fontWeight: 'bold', flex: 1 }}>
                               {it.productName} {it.size ? `(${it.size})` : ''}
                             </Text>
                           </View>
@@ -665,20 +672,20 @@ const NativeAppContent: React.FC = () => {
                         {/* Takeaway Indicator */}
                         {it.isTakeaway && (
                           <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(245,158,11,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)' }}>
-                            <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '900' }}>📦 PARA LLEVAR</Text>
+                            <Text style={{ color: '#0A4E36', fontSize: 10, fontWeight: '900' }}>📦 PARA LLEVAR</Text>
                           </View>
                         )}
 
                         {/* 1/2 + 1/2 Pizza Breakdown */}
                         {it.isHalfHalf && it.halfDetails && (
                           <View style={{ backgroundColor: 'rgba(245,158,11,0.1)', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)', gap: 4, marginTop: 4 }}>
-                            <Text style={{ color: '#f59e0b', fontSize: 14, fontWeight: '900' }}>🌓 DESGLOSE 1/2 Y 1/2:</Text>
-                            <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: 'bold' }}>
+                            <Text style={{ color: '#0A4E36', fontSize: 14, fontWeight: '900' }}>🌓 DESGLOSE 1/2 Y 1/2:</Text>
+                            <Text style={{ color: '#102A20', fontSize: 14, fontWeight: 'bold' }}>
                               • 1ra Mitad: {it.halfDetails.half1Name}
                               {it.halfDetails.half1Removed && it.halfDetails.half1Removed.length > 0 ? `\n   🚫 SIN: ${it.halfDetails.half1Removed.join(', ')}` : ''}
                               {it.halfDetails.half1Extras && it.halfDetails.half1Extras.length > 0 ? `\n   ➕ EXTRAS: ${it.halfDetails.half1Extras.map((e) => e.name).join(', ')}` : ''}
                             </Text>
-                            <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: 'bold' }}>
+                            <Text style={{ color: '#102A20', fontSize: 14, fontWeight: 'bold' }}>
                               • 2da Mitad: {it.halfDetails.half2Name}
                               {it.halfDetails.half2Removed && it.halfDetails.half2Removed.length > 0 ? `\n   🚫 SIN: ${it.halfDetails.half2Removed.join(', ')}` : ''}
                               {it.halfDetails.half2Extras && it.halfDetails.half2Extras.length > 0 ? `\n   ➕ EXTRAS: ${it.halfDetails.half2Extras.map((e) => e.name).join(', ')}` : ''}
@@ -688,14 +695,14 @@ const NativeAppContent: React.FC = () => {
 
                         {/* Standard Base Ingredient Removals */}
                         {!it.isHalfHalf && it.removedIngredients && it.removedIngredients.length > 0 && (
-                          <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: 'bold' }}>
+                          <Text style={{ color: '#0A4E36', fontSize: 14, fontWeight: 'bold' }}>
                             🚫 SIN: {it.removedIngredients.join(', ')}
                           </Text>
                         )}
 
                         {/* Standard Extras */}
                         {!it.isHalfHalf && it.extras && it.extras.length > 0 && (
-                          <Text style={{ color: '#a855f7', fontSize: 14, fontWeight: 'bold' }}>
+                          <Text style={{ color: '#0A4E36', fontSize: 14, fontWeight: 'bold' }}>
                             ➕ EXTRAS: {it.extras.map((e) => e.name).join(', ')}
                           </Text>
                         )}
@@ -706,7 +713,7 @@ const NativeAppContent: React.FC = () => {
                   {/* Footer Totals */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' }}>
                     <Text style={{ color: '#10b981', fontSize: 17, fontWeight: '900' }}>💵 Total: ${ord.totalUSD.toFixed(2)} USD</Text>
-                    <Text style={{ color: isPaid ? '#10b981' : '#ef4444', fontWeight: '900', fontSize: 11, backgroundColor: isPaid ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: isPaid ? '#10b981' : '#ef4444' }}>
+                    <Text style={{ color: isPaid ? '#10b981' : '#0A4E36', fontWeight: '900', fontSize: 11, backgroundColor: isPaid ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: isPaid ? '#10b981' : '#0A4E36' }}>
                       {isPaid ? `✓ PAGADO (${ord.paymentMethod})` : '⚠️ PENDIENTE PAGO'}
                     </Text>
                   </View>
@@ -716,9 +723,13 @@ const NativeAppContent: React.FC = () => {
                     {!isPaid ? (
                       <TouchableOpacity
                         style={[styles.btnPrimary, { paddingVertical: 12 }]}
-                        onPress={() => {
-                          processPayment(ord.id, 'Divisas');
-                          Alert.alert('¡Pago Cobrado!', `Orden ${ord.orderNumber} cobrada exitosamente.`);
+                        onPress={async () => {
+                          try {
+                            await processPayment(ord.id, 'Efectivo USD');
+                            Alert.alert('¡Pago Cobrado!', `Orden ${ord.orderNumber} cobrada exitosamente.`);
+                          } catch (error) {
+                            showSyncError(error);
+                          }
                         }}
                       >
                         <Ionicons name="card-outline" size={16} color="#070707" style={{ marginRight: 6 }} />
@@ -726,8 +737,14 @@ const NativeAppContent: React.FC = () => {
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
-                        style={[styles.btnPrimary, { paddingVertical: 12, backgroundColor: '#0B2A1A', borderWidth: 1, borderColor: '#10b981' }]}
-                        onPress={() => updateOrderStatus(ord.id, 'entregada')}
+                        style={[styles.btnPrimary, { paddingVertical: 12, backgroundColor: '#E7F5ED', borderWidth: 1, borderColor: '#10b981' }]}
+                        onPress={async () => {
+                          try {
+                            await updateOrderStatus(ord.id, 'entregada');
+                          } catch (error) {
+                            showSyncError(error);
+                          }
+                        }}
                       >
                         <Ionicons name="checkmark-done-circle" size={18} color="#10b981" style={{ marginRight: 6 }} />
                         <Text style={[styles.btnPrimaryText, { color: '#10b981' }]}>MARCAR COMO ENTREGADA</Text>
@@ -742,7 +759,7 @@ const NativeAppContent: React.FC = () => {
             <Text style={styles.sectionHeadingWeb}>ASISTENTE IA DE TEXTO PARA CAJA</Text>
             <View style={styles.aiBox}>
               {aiChatLogs.map((log, idx) => (
-                <Text key={idx} style={{ color: log.sender === 'user' ? '#10b981' : '#D8E6DF', fontSize: 11, marginBottom: 4 }}>
+                <Text key={idx} style={{ color: log.sender === 'user' ? '#10b981' : '#173D2D', fontSize: 11, marginBottom: 4 }}>
                   {log.sender === 'user' ? 'Tú: ' : ''}{log.text}
                 </Text>
               ))}
@@ -767,15 +784,15 @@ const NativeAppContent: React.FC = () => {
         {(activeRole === 'cocina' || activeRole === 'admin') && (
           <View style={styles.screenSection}>
             <View style={styles.bannerCardWeb}>
-              <View style={[styles.bannerIconSquare, { backgroundColor: '#2d1a04', borderColor: '#f59e0b' }]}>
-                <Ionicons name="flame-outline" size={24} color="#f59e0b" />
+              <View style={[styles.bannerIconSquare, { backgroundColor: '#2d1a04', borderColor: '#0A4E36' }]}>
+                <Ionicons name="flame-outline" size={24} color="#0A4E36" />
               </View>
 
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={styles.bannerTitleWeb}>Cocina</Text>
-                  <View style={[styles.realtimePill, { borderColor: '#f59e0b' }]}>
-                    <Text style={[styles.realtimePillText, { color: '#f59e0b' }]}>EN VIVO</Text>
+                  <View style={[styles.realtimePill, { borderColor: '#0A4E36' }]}>
+                    <Text style={[styles.realtimePillText, { color: '#0A4E36' }]}>EN VIVO</Text>
                   </View>
                 </View>
                 <Text style={styles.bannerSubWeb}>
@@ -788,9 +805,9 @@ const NativeAppContent: React.FC = () => {
             <View style={{ flexDirection: 'row', gap: 8, marginVertical: 6 }}>
               <TouchableOpacity
                 onPress={() => setKitchenTab('pendientes')}
-                style={[styles.miniPill, { backgroundColor: kitchenTab === 'pendientes' ? '#f59e0b' : 'rgba(255,255,255,0.05)', paddingHorizontal: 12, paddingVertical: 8 }]}
+                style={[styles.miniPill, { backgroundColor: kitchenTab === 'pendientes' ? '#0A4E36' : 'rgba(255,255,255,0.05)', paddingHorizontal: 12, paddingVertical: 8 }]}
               >
-                <Text style={{ color: kitchenTab === 'pendientes' ? '#070707' : '#ffffff', fontWeight: 'bold', fontSize: 11 }}>
+                <Text style={{ color: kitchenTab === 'pendientes' ? '#F4FAF6' : '#102A20', fontWeight: 'bold', fontSize: 11 }}>
                   COMANDAS EN COCINA ({pendingKitchenOrders.length})
                 </Text>
               </TouchableOpacity>
@@ -799,7 +816,7 @@ const NativeAppContent: React.FC = () => {
                 onPress={() => setKitchenTab('listas')}
                 style={[styles.miniPill, { backgroundColor: kitchenTab === 'listas' ? '#10b981' : 'rgba(255,255,255,0.05)', paddingHorizontal: 12, paddingVertical: 8 }]}
               >
-                <Text style={{ color: kitchenTab === 'listas' ? '#070707' : '#ffffff', fontWeight: 'bold', fontSize: 11 }}>
+                <Text style={{ color: kitchenTab === 'listas' ? '#F4FAF6' : '#102A20', fontWeight: 'bold', fontSize: 11 }}>
                   COMANDAS LISTAS ({readyKitchenOrders.length})
                 </Text>
               </TouchableOpacity>
@@ -816,17 +833,17 @@ const NativeAppContent: React.FC = () => {
                   <View style={styles.posHeader}>
                     <View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ color: '#ffffff', fontSize: 17, fontWeight: '900' }}>📜 {ord.orderNumber}</Text>
+                        <Text style={{ color: '#102A20', fontSize: 17, fontWeight: '900' }}>📜 {ord.orderNumber}</Text>
                         <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.4)' }}>
-                          <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '900' }}>{typeIcon} {typeLabel}</Text>
+                          <Text style={{ color: '#0A4E36', fontSize: 10, fontWeight: '900' }}>{typeIcon} {typeLabel}</Text>
                         </View>
                       </View>
-                      <Text style={{ color: '#9ca3af', fontSize: 11, fontWeight: 'bold', marginTop: 2 }}>
+                      <Text style={{ color: '#28513E', fontSize: 11, fontWeight: 'bold', marginTop: 2 }}>
                         👤 Cliente: {ord.customerName || typeLabel} • 🧑‍🍳 Mesero: {ord.waiterName || 'Mesero'}
                       </Text>
                     </View>
 
-                    <Text style={{ color: isPrepared ? '#10b981' : '#f59e0b', fontWeight: '900', fontSize: 12, backgroundColor: isPrepared ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: isPrepared ? '#10b981' : '#f59e0b' }}>
+                    <Text style={{ color: '#102A20', fontWeight: '900', fontSize: 12, backgroundColor: isPrepared ? '#DDF2E5' : '#E7F5ED', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: isPrepared ? '#6ee7b7' : '#fcd34d' }}>
                       {isPrepared ? '🔥 ¡LISTA!' : '⏳ EN COCINA'}
                     </Text>
                   </View>
@@ -834,7 +851,7 @@ const NativeAppContent: React.FC = () => {
                   {/* Kitchen Notes Box */}
                   {ord.kitchenNotes && (
                     <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)', marginVertical: 4 }}>
-                      <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: 'bold' }}>📝 Nota de Cocina: {ord.kitchenNotes}</Text>
+                      <Text style={{ color: '#0A4E36', fontSize: 11, fontWeight: 'bold' }}>📝 Nota de Cocina: {ord.kitchenNotes}</Text>
                     </View>
                   )}
 
@@ -844,16 +861,16 @@ const NativeAppContent: React.FC = () => {
                       <View key={it.id} style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(216,230,223,0.15)', padding: 10, gap: 4 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                            <View style={{ backgroundColor: '#0B2A1A', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#10b981' }}>
+                            <View style={{ backgroundColor: '#E7F5ED', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#10b981' }}>
                               <Text style={{ color: '#10b981', fontSize: 12, fontWeight: '900' }}>{it.productName.includes('Pizza') ? '🍕' : '🥤'} {it.quantity}x</Text>
                             </View>
-                            <Text style={{ color: '#ffffff', fontSize: 15, fontWeight: 'bold', flex: 1 }}>
+                            <Text style={{ color: '#102A20', fontSize: 15, fontWeight: 'bold', flex: 1 }}>
                               {it.productName} {it.size ? `(${it.size})` : ''}
                             </Text>
                           </View>
                           {it.isTakeaway && (
                             <View style={{ backgroundColor: 'rgba(245,158,11,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)' }}>
-                              <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '900' }}>📦 PARA LLEVAR</Text>
+                              <Text style={{ color: '#0A4E36', fontSize: 10, fontWeight: '900' }}>📦 PARA LLEVAR</Text>
                             </View>
                           )}
                         </View>
@@ -861,13 +878,13 @@ const NativeAppContent: React.FC = () => {
                         {/* 1/2 + 1/2 Pizza Breakdown */}
                         {it.isHalfHalf && it.halfDetails && (
                           <View style={{ backgroundColor: 'rgba(245,158,11,0.1)', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)', gap: 2, marginTop: 2 }}>
-                            <Text style={{ color: '#f59e0b', fontSize: 11, fontWeight: '900' }}>🌓 DESGLOSE 1/2 Y 1/2:</Text>
-                            <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: 'bold' }}>
+                            <Text style={{ color: '#0A4E36', fontSize: 11, fontWeight: '900' }}>🌓 DESGLOSE 1/2 Y 1/2:</Text>
+                            <Text style={{ color: '#102A20', fontSize: 11, fontWeight: 'bold' }}>
                               • 1ra Mitad: {it.halfDetails.half1Name}
                               {it.halfDetails.half1Removed && it.halfDetails.half1Removed.length > 0 ? ` (🚫 SIN: ${it.halfDetails.half1Removed.join(', ')})` : ''}
                               {it.halfDetails.half1Extras && it.halfDetails.half1Extras.length > 0 ? ` (➕ EXTRAS: ${it.halfDetails.half1Extras.map((e) => e.name).join(', ')})` : ''}
                             </Text>
-                            <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: 'bold' }}>
+                            <Text style={{ color: '#102A20', fontSize: 11, fontWeight: 'bold' }}>
                               • 2da Mitad: {it.halfDetails.half2Name}
                               {it.halfDetails.half2Removed && it.halfDetails.half2Removed.length > 0 ? ` (🚫 SIN: ${it.halfDetails.half2Removed.join(', ')})` : ''}
                               {it.halfDetails.half2Extras && it.halfDetails.half2Extras.length > 0 ? ` (➕ EXTRAS: ${it.halfDetails.half2Extras.map((e) => e.name).join(', ')})` : ''}
@@ -876,13 +893,13 @@ const NativeAppContent: React.FC = () => {
                         )}
 
                         {!it.isHalfHalf && it.removedIngredients && it.removedIngredients.length > 0 && (
-                          <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: 'bold' }}>
+                          <Text style={{ color: '#0A4E36', fontSize: 11, fontWeight: 'bold' }}>
                             🚫 SIN: {it.removedIngredients.join(', ')}
                           </Text>
                         )}
 
                         {!it.isHalfHalf && it.extras && it.extras.length > 0 && (
-                          <Text style={{ color: '#a855f7', fontSize: 11, fontWeight: 'bold' }}>
+                          <Text style={{ color: '#0A4E36', fontSize: 11, fontWeight: 'bold' }}>
                             ➕ EXTRAS: {it.extras.map((e) => e.name).join(', ')}
                           </Text>
                         )}
@@ -893,9 +910,13 @@ const NativeAppContent: React.FC = () => {
                   {!isPrepared && (
                     <TouchableOpacity
                       style={[styles.btnPrimary, { paddingVertical: 12, marginTop: 4 }]}
-                      onPress={() => {
-                        updateOrderStatus(ord.id, 'preparada');
-                        Alert.alert('¡Comanda Lista!', `Enviada a Comandas Listas.`);
+                      onPress={async () => {
+                        try {
+                          await updateOrderStatus(ord.id, 'preparada');
+                          Alert.alert('¡Comanda Lista!', 'Enviada a Comandas Listas.');
+                        } catch (error) {
+                          showSyncError(error);
+                        }
                       }}
                     >
                       <Ionicons name="checkmark-circle" size={18} color="#070707" style={{ marginRight: 6 }} />
@@ -917,7 +938,7 @@ const NativeAppContent: React.FC = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{activeOrderTarget?.title}</Text>
               <TouchableOpacity onPress={() => setActiveOrderTarget(null)}>
-                <Ionicons name="close" size={24} color="#D8E6DF" />
+                <Ionicons name="close" size={24} color="#173D2D" />
               </TouchableOpacity>
             </View>
 
@@ -997,7 +1018,7 @@ const NativeAppContent: React.FC = () => {
 
                       {item.isHalfHalf && item.halfDetails ? (
                         <View style={{ marginLeft: 6, marginTop: 4, backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)', padding: 6 }}>
-                          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '900' }}>🌓 MITAD Y MITAD:</Text>
+                          <Text style={{ color: '#0A4E36', fontSize: 11, fontWeight: '900' }}>🌓 MITAD Y MITAD:</Text>
                           <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 2 }}>
                             • 1ra: {item.halfDetails.half1Name}
                             {item.halfDetails.half1Removed && item.halfDetails.half1Removed.length > 0 ? ` 🚫 SIN: ${item.halfDetails.half1Removed.join(', ')}` : ''}
@@ -1051,13 +1072,13 @@ const NativeAppContent: React.FC = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{configuringPizza?.name}</Text>
               <TouchableOpacity onPress={() => setConfiguringPizza(null)}>
-                <Ionicons name="close" size={24} color="#D8E6DF" />
+                <Ionicons name="close" size={24} color="#173D2D" />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={{ flex: 1, paddingVertical: 10 }}>
               {/* TAMAÑO DE PIZZA */}
-              <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+              <Text style={{ color: '#0A4E36', fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
                 📏 TAMAÑO DE LA PIZZA:
               </Text>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
@@ -1069,11 +1090,11 @@ const NativeAppContent: React.FC = () => {
                     borderRadius: 12,
                     borderWidth: 1,
                     borderColor: pizzaSize === 'Grande' ? '#10b981' : 'rgba(216,230,223,0.2)',
-                    backgroundColor: pizzaSize === 'Grande' ? 'rgba(16,185,129,0.2)' : '#070707',
+                    backgroundColor: pizzaSize === 'Grande' ? 'rgba(16,185,129,0.2)' : '#F4FAF6',
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={{ color: pizzaSize === 'Grande' ? '#10b981' : '#D8E6DF', fontWeight: '900', fontSize: 13 }}>
+                  <Text style={{ color: pizzaSize === 'Grande' ? '#10b981' : '#173D2D', fontWeight: '900', fontSize: 13 }}>
                     🍕 Grande (12")
                   </Text>
                 </TouchableOpacity>
@@ -1086,18 +1107,18 @@ const NativeAppContent: React.FC = () => {
                     borderRadius: 12,
                     borderWidth: 1,
                     borderColor: pizzaSize === 'Pequeña' ? '#10b981' : 'rgba(216,230,223,0.2)',
-                    backgroundColor: pizzaSize === 'Pequeña' ? 'rgba(16,185,129,0.2)' : '#070707',
+                    backgroundColor: pizzaSize === 'Pequeña' ? 'rgba(16,185,129,0.2)' : '#F4FAF6',
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={{ color: pizzaSize === 'Pequeña' ? '#10b981' : '#D8E6DF', fontWeight: '900', fontSize: 13 }}>
+                  <Text style={{ color: pizzaSize === 'Pequeña' ? '#10b981' : '#173D2D', fontWeight: '900', fontSize: 13 }}>
                     🍕 Pequeña (8") (${(configuringPizza?.priceSmall ?? (configuringPizza ? Math.max(2, configuringPizza.price - 4) : 0)).toFixed(2)} USD)
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {/* TIPO DE SABOR: COMPLETA O MITAD Y MITAD */}
-              <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+              <Text style={{ color: '#0A4E36', fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
                 🌓 DIVISIÓN DE SABORES:
               </Text>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
@@ -1108,12 +1129,12 @@ const NativeAppContent: React.FC = () => {
                     paddingVertical: 10,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: !pizzaIsHalfHalf ? '#f59e0b' : 'rgba(216,230,223,0.2)',
-                    backgroundColor: !pizzaIsHalfHalf ? 'rgba(245,158,11,0.2)' : '#070707',
+                    borderColor: !pizzaIsHalfHalf ? '#0A4E36' : 'rgba(216,230,223,0.2)',
+                    backgroundColor: !pizzaIsHalfHalf ? 'rgba(245,158,11,0.2)' : '#F4FAF6',
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={{ color: !pizzaIsHalfHalf ? '#f59e0b' : '#D8E6DF', fontWeight: '900', fontSize: 12 }}>
+                  <Text style={{ color: !pizzaIsHalfHalf ? '#0A4E36' : '#173D2D', fontWeight: '900', fontSize: 12 }}>
                     🍕 Completa (1 Sabor)
                   </Text>
                 </TouchableOpacity>
@@ -1125,12 +1146,12 @@ const NativeAppContent: React.FC = () => {
                     paddingVertical: 10,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: pizzaIsHalfHalf ? '#f59e0b' : 'rgba(216,230,223,0.2)',
-                    backgroundColor: pizzaIsHalfHalf ? 'rgba(245,158,11,0.2)' : '#070707',
+                    borderColor: pizzaIsHalfHalf ? '#0A4E36' : 'rgba(216,230,223,0.2)',
+                    backgroundColor: pizzaIsHalfHalf ? 'rgba(245,158,11,0.2)' : '#F4FAF6',
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={{ color: pizzaIsHalfHalf ? '#f59e0b' : '#D8E6DF', fontWeight: '900', fontSize: 12 }}>
+                  <Text style={{ color: pizzaIsHalfHalf ? '#0A4E36' : '#173D2D', fontWeight: '900', fontSize: 12 }}>
                     🌓 Mitad y Mitad (2 Sabores)
                   </Text>
                 </TouchableOpacity>
@@ -1139,13 +1160,13 @@ const NativeAppContent: React.FC = () => {
               {/* CONDICIONAL: MITAD Y MITAD O COMPLETA */}
               {pizzaIsHalfHalf ? (
                 <View style={{ backgroundColor: 'rgba(245,158,11,0.1)', padding: 12, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)', gap: 12, marginBottom: 14 }}>
-                  <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '900' }}>
+                  <Text style={{ color: '#0A4E36', fontSize: 12, fontWeight: '900' }}>
                     🌓 DESGLOSE E INGREDIENTES DE CADA MITAD:
                   </Text>
 
                   {/* 1RA MITAD */}
-                  <View style={{ backgroundColor: '#070707', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', gap: 6 }}>
-                    <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '900' }}>1ra Mitad (Sabor A):</Text>
+                  <View style={{ backgroundColor: '#F4FAF6', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', gap: 6 }}>
+                    <Text style={{ color: '#0A4E36', fontSize: 12, fontWeight: '900' }}>1ra Mitad (Sabor A):</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
                       {allPizzaProducts.map((p) => (
                         <TouchableOpacity
@@ -1155,18 +1176,18 @@ const NativeAppContent: React.FC = () => {
                             paddingHorizontal: 10,
                             paddingVertical: 6,
                             borderRadius: 8,
-                            backgroundColor: pizzaHalf1?.id === p.id ? '#0B2A1A' : 'rgba(255,255,255,0.05)',
+                            backgroundColor: pizzaHalf1?.id === p.id ? '#E7F5ED' : 'rgba(255,255,255,0.05)',
                             borderWidth: 1,
                             borderColor: pizzaHalf1?.id === p.id ? '#10b981' : 'transparent',
                             marginRight: 6,
                           }}
                         >
-                          <Text style={{ color: pizzaHalf1?.id === p.id ? '#10b981' : '#D8E6DF', fontSize: 11, fontWeight: 'bold' }}>{p.name}</Text>
+                          <Text style={{ color: pizzaHalf1?.id === p.id ? '#10b981' : '#173D2D', fontSize: 11, fontWeight: 'bold' }}>{p.name}</Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
 
-                    <Text style={{ color: '#9ca3af', fontSize: 10, fontWeight: 'bold', marginTop: 4 }}>Ingredientes Base 1ra Mitad (Toca para marcar SIN):</Text>
+                    <Text style={{ color: '#28513E', fontSize: 10, fontWeight: 'bold', marginTop: 4 }}>Ingredientes Base 1ra Mitad (Toca para marcar SIN):</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                       {(pizzaHalf1?.baseIngredients || ['Salsa', 'Queso', 'Orégano']).map((ing) => {
                         const isRemoved = pizzaHalf1Removed.includes(ing);
@@ -1179,11 +1200,11 @@ const NativeAppContent: React.FC = () => {
                               paddingVertical: 4,
                               borderRadius: 8,
                               borderWidth: 1,
-                              borderColor: isRemoved ? '#ef4444' : '#10b981',
+                              borderColor: isRemoved ? '#0A4E36' : '#10b981',
                               backgroundColor: isRemoved ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.15)',
                             }}
                           >
-                            <Text style={{ color: isRemoved ? '#ef4444' : '#10b981', fontSize: 10, fontWeight: 'bold' }}>
+                            <Text style={{ color: isRemoved ? '#0A4E36' : '#10b981', fontSize: 10, fontWeight: 'bold' }}>
                               {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
                             </Text>
                           </TouchableOpacity>
@@ -1194,15 +1215,15 @@ const NativeAppContent: React.FC = () => {
                     {/* Extras for 1st Half */}
                     <TouchableOpacity
                       onPress={() => { setExtrasTargetHalf('half1'); setIsExtrasModalOpen(true); }}
-                      style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#a855f7', alignItems: 'center', marginTop: 4 }}
+                      style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#0A4E36', alignItems: 'center', marginTop: 4 }}
                     >
                       <Text style={{ color: '#e9d5ff', fontWeight: 'bold', fontSize: 11 }}>➕ EXTRAS 1RA MITAD ({pizzaHalf1Extras.length})</Text>
                     </TouchableOpacity>
                   </View>
 
                   {/* 2DA MITAD */}
-                  <View style={{ backgroundColor: '#070707', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', gap: 6 }}>
-                    <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '900' }}>2da Mitad (Sabor B):</Text>
+                  <View style={{ backgroundColor: '#F4FAF6', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', gap: 6 }}>
+                    <Text style={{ color: '#0A4E36', fontSize: 12, fontWeight: '900' }}>2da Mitad (Sabor B):</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
                       {allPizzaProducts.map((p) => (
                         <TouchableOpacity
@@ -1212,18 +1233,18 @@ const NativeAppContent: React.FC = () => {
                             paddingHorizontal: 10,
                             paddingVertical: 6,
                             borderRadius: 8,
-                            backgroundColor: pizzaHalf2?.id === p.id ? '#0B2A1A' : 'rgba(255,255,255,0.05)',
+                            backgroundColor: pizzaHalf2?.id === p.id ? '#E7F5ED' : 'rgba(255,255,255,0.05)',
                             borderWidth: 1,
                             borderColor: pizzaHalf2?.id === p.id ? '#10b981' : 'transparent',
                             marginRight: 6,
                           }}
                         >
-                          <Text style={{ color: pizzaHalf2?.id === p.id ? '#10b981' : '#D8E6DF', fontSize: 11, fontWeight: 'bold' }}>{p.name}</Text>
+                          <Text style={{ color: pizzaHalf2?.id === p.id ? '#10b981' : '#173D2D', fontSize: 11, fontWeight: 'bold' }}>{p.name}</Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
 
-                    <Text style={{ color: '#9ca3af', fontSize: 10, fontWeight: 'bold', marginTop: 4 }}>Ingredientes Base 2da Mitad (Toca para marcar SIN):</Text>
+                    <Text style={{ color: '#28513E', fontSize: 10, fontWeight: 'bold', marginTop: 4 }}>Ingredientes Base 2da Mitad (Toca para marcar SIN):</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                       {(pizzaHalf2?.baseIngredients || ['Salsa', 'Queso', 'Orégano']).map((ing) => {
                         const isRemoved = pizzaHalf2Removed.includes(ing);
@@ -1236,11 +1257,11 @@ const NativeAppContent: React.FC = () => {
                               paddingVertical: 4,
                               borderRadius: 8,
                               borderWidth: 1,
-                              borderColor: isRemoved ? '#ef4444' : '#10b981',
+                              borderColor: isRemoved ? '#0A4E36' : '#10b981',
                               backgroundColor: isRemoved ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.15)',
                             }}
                           >
-                            <Text style={{ color: isRemoved ? '#ef4444' : '#10b981', fontSize: 10, fontWeight: 'bold' }}>
+                            <Text style={{ color: isRemoved ? '#0A4E36' : '#10b981', fontSize: 10, fontWeight: 'bold' }}>
                               {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
                             </Text>
                           </TouchableOpacity>
@@ -1251,7 +1272,7 @@ const NativeAppContent: React.FC = () => {
                     {/* Extras for 2nd Half */}
                     <TouchableOpacity
                       onPress={() => { setExtrasTargetHalf('half2'); setIsExtrasModalOpen(true); }}
-                      style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#a855f7', alignItems: 'center', marginTop: 4 }}
+                      style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#0A4E36', alignItems: 'center', marginTop: 4 }}
                     >
                       <Text style={{ color: '#e9d5ff', fontWeight: 'bold', fontSize: 11 }}>➕ EXTRAS 2DA MITAD ({pizzaHalf2Extras.length})</Text>
                     </TouchableOpacity>
@@ -1260,7 +1281,7 @@ const NativeAppContent: React.FC = () => {
               ) : (
                 /* PIZZA COMPLETA BASE INGREDIENTS & EXTRAS */
                 <View style={{ gap: 8, marginBottom: 14 }}>
-                  <Text style={{ color: '#D8E6DF', fontSize: 11, fontWeight: 'bold' }}>
+                  <Text style={{ color: '#173D2D', fontSize: 11, fontWeight: 'bold' }}>
                     INGREDIENTES BASE (Toca para marcar SIN):
                   </Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -1275,11 +1296,11 @@ const NativeAppContent: React.FC = () => {
                             paddingVertical: 6,
                             borderRadius: 10,
                             borderWidth: 1,
-                            borderColor: isRemoved ? '#ef4444' : '#10b981',
+                            borderColor: isRemoved ? '#0A4E36' : '#10b981',
                             backgroundColor: isRemoved ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
                           }}
                         >
-                          <Text style={{ color: isRemoved ? '#ef4444' : '#10b981', fontSize: 11, fontWeight: 'bold' }}>
+                          <Text style={{ color: isRemoved ? '#0A4E36' : '#10b981', fontSize: 11, fontWeight: 'bold' }}>
                             {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
                           </Text>
                         </TouchableOpacity>
@@ -1289,15 +1310,15 @@ const NativeAppContent: React.FC = () => {
 
                   <TouchableOpacity
                     onPress={() => { setExtrasTargetHalf('full'); setIsExtrasModalOpen(true); }}
-                    style={{ backgroundColor: 'rgba(147, 51, 234, 0.3)', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#a855f7', alignItems: 'center', marginTop: 6 }}
+                    style={{ backgroundColor: 'rgba(147, 51, 234, 0.3)', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#0A4E36', alignItems: 'center', marginTop: 6 }}
                   >
                     <Text style={{ color: '#e9d5ff', fontWeight: 'bold', fontSize: 12 }}>➕ AGREGAR ADICIONALES / EXTRAS ({pizzaExtras.length})</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#070707', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.15)', marginBottom: 14 }}>
-                <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 12 }}>📦 Empacar esta Pizza para Llevar</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F4FAF6', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.15)', marginBottom: 14 }}>
+                <Text style={{ color: '#102A20', fontWeight: 'bold', fontSize: 12 }}>📦 Empacar esta Pizza para Llevar</Text>
                 <Switch value={pizzaIsTakeaway} onValueChange={setPizzaIsTakeaway} thumbColor="#10b981" />
               </View>
             </ScrollView>
@@ -1322,7 +1343,7 @@ const NativeAppContent: React.FC = () => {
                   : 'Extras para Toda la Pizza'}
               </Text>
               <TouchableOpacity onPress={() => setIsExtrasModalOpen(false)}>
-                <Ionicons name="close" size={24} color="#D8E6DF" />
+                <Ionicons name="close" size={24} color="#173D2D" />
               </TouchableOpacity>
             </View>
 
@@ -1346,12 +1367,12 @@ const NativeAppContent: React.FC = () => {
                       padding: 12,
                       borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: isSelected ? '#a855f7' : 'rgba(216,230,223,0.15)',
-                      backgroundColor: isSelected ? 'rgba(147, 51, 234, 0.25)' : '#070707',
+                      borderColor: isSelected ? '#0A4E36' : 'rgba(216,230,223,0.15)',
+                      backgroundColor: isSelected ? 'rgba(147, 51, 234, 0.25)' : '#F4FAF6',
                       marginBottom: 8,
                     }}
                   >
-                    <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 13 }}>{extra.name}</Text>
+                    <Text style={{ color: '#102A20', fontWeight: 'bold', fontSize: 13 }}>{extra.name}</Text>
                     <Text style={{ color: '#10b981', fontWeight: '900', fontSize: 12 }}>+${extra.priceUSD.toFixed(2)} USD</Text>
                   </TouchableOpacity>
                 );
@@ -1372,20 +1393,20 @@ const NativeAppContent: React.FC = () => {
             <View style={styles.drawerHeader}>
               <Text style={styles.drawerTitle}>MENÚ DE NAVEGACIÓN</Text>
               <TouchableOpacity onPress={() => setIsSidebarOpen(false)}>
-                <Ionicons name="close" size={24} color="#D8E6DF" />
+                <Ionicons name="close" size={24} color="#173D2D" />
               </TouchableOpacity>
             </View>
 
             <View style={styles.statusBox}>
               <Ionicons name="wifi" size={16} color="#10b981" />
-              <Text style={{ color: '#10b981', fontWeight: 'bold', fontSize: 12 }}>
-                {isConnected ? `Conectado (${userSession.username})` : 'Conectando...'}
+              <Text style={{ color: syncError ? '#0A4E36' : '#10b981', fontWeight: 'bold', fontSize: 12 }}>
+                {syncError || (isConnected ? `Conectado (${userSession.username})` : 'Conectando...')}
               </Text>
             </View>
 
             <TouchableOpacity style={styles.logoutBtn} onPress={() => { setIsSidebarOpen(false); logout(); }}>
-              <Ionicons name="log-out-outline" size={18} color="#ef4444" style={{ marginRight: 6 }} />
-              <Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 13 }}>CERRAR SESIÓN</Text>
+              <Ionicons name="log-out-outline" size={18} color="#0A4E36" style={{ marginRight: 6 }} />
+              <Text style={{ color: '#0A4E36', fontWeight: 'bold', fontSize: 13 }}>CERRAR SESIÓN</Text>
             </TouchableOpacity>
           </SafeAreaView>
         </View>
@@ -1404,96 +1425,96 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#070707', paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0 },
+  safeArea: { flex: 1, backgroundColor: '#F4FAF6', paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0 },
   loginScroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   loginCard: { width: '100%', maxWidth: 400, backgroundColor: '#0B2A1A80', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', padding: 24, alignItems: 'center', gap: 14 },
-  brandIconBox: { width: 70, height: 70, borderRadius: 20, backgroundColor: '#0B2A1A', borderWidth: 1, borderColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
-  loginTitle: { color: '#ffffff', fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
-  loginSub: { color: '#D8E6DF', fontSize: 11, textAlign: 'center', opacity: 0.7 },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(239, 68, 68, 0.2)', borderWidth: 1, borderColor: '#ef4444', padding: 10, borderRadius: 12, width: '100%' },
-  errorText: { color: '#ef4444', fontSize: 11, fontWeight: 'bold' },
+  brandIconBox: { width: 70, height: 70, borderRadius: 20, backgroundColor: '#E7F5ED', borderWidth: 1, borderColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
+  loginTitle: { color: '#102A20', fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
+  loginSub: { color: '#173D2D', fontSize: 11, textAlign: 'center', opacity: 0.7 },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(239, 68, 68, 0.2)', borderWidth: 1, borderColor: '#0A4E36', padding: 10, borderRadius: 12, width: '100%' },
+  errorText: { color: '#0A4E36', fontSize: 11, fontWeight: 'bold' },
   inputGroup: { width: '100%', gap: 4 },
-  inputLabel: { color: '#D8E6DF', fontSize: 11, fontWeight: 'bold' },
-  darkInput: { backgroundColor: '#070707', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', color: '#ffffff', fontSize: 12, paddingHorizontal: 14, paddingVertical: 10, width: '100%', fontWeight: 'bold' },
+  inputLabel: { color: '#173D2D', fontSize: 11, fontWeight: 'bold' },
+  darkInput: { backgroundColor: '#F4FAF6', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', color: '#102A20', fontSize: 12, paddingHorizontal: 14, paddingVertical: 10, width: '100%', fontWeight: 'bold' },
   loginBtn: { width: '100%', backgroundColor: '#10b981', paddingVertical: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 6 },
-  loginBtnText: { color: '#070707', fontSize: 12, fontWeight: '900' },
+  loginBtnText: { color: '#F4FAF6', fontSize: 12, fontWeight: '900' },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, width: '100%', justifyContent: 'center' },
   statusBadgeConnected: { backgroundColor: 'rgba(16, 185, 129, 0.15)', borderColor: '#10b981' },
-  statusBadgeOffline: { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444' },
+  statusBadgeOffline: { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: '#0A4E36' },
   serverConfigBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', backgroundColor: 'rgba(251, 191, 36, 0.1)', borderWidth: 1, borderColor: 'rgba(251, 191, 36, 0.4)', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
-  serverConfigBtnText: { color: '#fbbf24', fontSize: 11, fontWeight: 'bold' },
-  serverModalContent: { width: '90%', maxWidth: 400, backgroundColor: '#070707', borderRadius: 24, borderWidth: 1, borderColor: '#10b981', padding: 20, gap: 14 },
-  serverModalSub: { color: '#9ca3af', fontSize: 11, lineHeight: 16 },
+  serverConfigBtnText: { color: '#0A4E36', fontSize: 11, fontWeight: 'bold' },
+  serverModalContent: { width: '90%', maxWidth: 400, backgroundColor: '#F4FAF6', borderRadius: 24, borderWidth: 1, borderColor: '#10b981', padding: 20, gap: 14 },
+  serverModalSub: { color: '#28513E', fontSize: 11, lineHeight: 16 },
   saveIpBtn: { backgroundColor: '#10b981', paddingVertical: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 },
-  saveIpBtnText: { color: '#070707', fontSize: 12, fontWeight: 'bold' },
+  saveIpBtnText: { color: '#F4FAF6', fontSize: 12, fontWeight: 'bold' },
   cancelIpBtn: { paddingVertical: 10, alignItems: 'center' },
-  cancelIpBtnText: { color: '#9ca3af', fontSize: 11, fontWeight: 'bold' },
-  navbar: { height: 60, backgroundColor: '#070707', borderBottomWidth: 1, borderBottomColor: 'rgba(216, 230, 223, 0.15)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
-  iconBtn: { padding: 8, backgroundColor: '#0B2A1A', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)' },
+  cancelIpBtnText: { color: '#28513E', fontSize: 11, fontWeight: 'bold' },
+  navbar: { height: 60, backgroundColor: '#F4FAF6', borderBottomWidth: 1, borderBottomColor: 'rgba(216, 230, 223, 0.15)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
+  iconBtn: { padding: 8, backgroundColor: '#E7F5ED', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)' },
   brandContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  logoBox: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#0B2A1A', borderWidth: 1, borderColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
-  brandName: { color: '#ffffff', fontSize: 16, fontWeight: '900', letterSpacing: -0.5 },
-  badgeTag: { backgroundColor: '#0B2A1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#10b981' },
+  logoBox: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#E7F5ED', borderWidth: 1, borderColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
+  brandName: { color: '#102A20', fontSize: 16, fontWeight: '900', letterSpacing: -0.5 },
+  badgeTag: { backgroundColor: '#E7F5ED', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#10b981' },
   badgeTagText: { color: '#10b981', fontSize: 8, fontWeight: '900' },
-  roleBadge: { backgroundColor: '#0B2A1A', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#10b981' },
+  roleBadge: { backgroundColor: '#E7F5ED', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#10b981' },
   roleBadgeText: { color: '#10b981', fontSize: 10, fontWeight: 'bold' },
   content: { flex: 1, padding: 16 },
   screenSection: { gap: 14 },
-  bannerCardWeb: { backgroundColor: '#0B2A1A', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)', flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bannerIconSquare: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#070707', borderWidth: 1, borderColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
-  bannerTitleWeb: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
+  bannerCardWeb: { backgroundColor: '#E7F5ED', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)', flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bannerIconSquare: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#F4FAF6', borderWidth: 1, borderColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
+  bannerTitleWeb: { color: '#102A20', fontSize: 16, fontWeight: '900' },
   realtimePill: { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.4)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   realtimePillText: { color: '#10b981', fontSize: 8, fontWeight: '900' },
-  bannerSubWeb: { color: '#D8E6DF', fontSize: 11, opacity: 0.7, marginTop: 2 },
-  sectionHeadingWeb: { color: '#D8E6DF', fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
-  specialCardWeb: { backgroundColor: '#070707', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bannerSubWeb: { color: '#173D2D', fontSize: 11, opacity: 0.7, marginTop: 2 },
+  sectionHeadingWeb: { color: '#173D2D', fontSize: 11, fontWeight: '900', letterSpacing: 0.8 },
+  specialCardWeb: { backgroundColor: '#F4FAF6', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
   specialIconSquare: { width: 50, height: 50, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   miniPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, alignSelf: 'flex-start' },
   miniPillText: { fontSize: 8, fontWeight: '900' },
-  specialTitleWeb: { color: '#ffffff', fontSize: 15, fontWeight: '900', marginTop: 2 },
-  specialSubWeb: { color: '#D8E6DF', fontSize: 10, opacity: 0.6, marginTop: 1 },
+  specialTitleWeb: { color: '#102A20', fontSize: 15, fontWeight: '900', marginTop: 2 },
+  specialSubWeb: { color: '#173D2D', fontSize: 10, opacity: 0.6, marginTop: 1 },
   plusCircleBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', alignItems: 'center', justifyContent: 'center' },
   tableGridWeb: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tableCardWebItem: { width: '48%', borderRadius: 20, borderWidth: 1, padding: 12, gap: 4 },
   tableCardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tablePizzaIconBox: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#0B2A1A', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', alignItems: 'center', justifyContent: 'center' },
+  tablePizzaIconBox: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#E7F5ED', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', alignItems: 'center', justifyContent: 'center' },
   tableBadgePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, borderWidth: 1 },
   tableBadgeText: { fontSize: 8, fontWeight: '900' },
-  tableTitleText: { color: '#ffffff', fontSize: 15, fontWeight: '900', marginTop: 4 },
-  tableCapText: { color: '#D8E6DF', fontSize: 10, opacity: 0.6 },
+  tableTitleText: { color: '#102A20', fontSize: 15, fontWeight: '900', marginTop: 4 },
+  tableCapText: { color: '#173D2D', fontSize: 10, opacity: 0.6 },
   tableCardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)', paddingTop: 8, marginTop: 6 },
   tableFooterAction: { color: '#10b981', fontSize: 10, fontWeight: '900' },
-  posCard: { backgroundColor: '#070707', borderRadius: 18, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', padding: 14, gap: 8, marginBottom: 10 },
+  posCard: { backgroundColor: '#F4FAF6', borderRadius: 18, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', padding: 14, gap: 8, marginBottom: 10 },
   posHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  posTitle: { color: '#ffffff', fontSize: 15, fontWeight: 'bold' },
+  posTitle: { color: '#102A20', fontSize: 15, fontWeight: 'bold' },
   statusBadgeText: { fontSize: 11, fontWeight: 'bold' },
   itemListBg: { backgroundColor: '#0B2A1A40', padding: 10, borderRadius: 12 },
-  itemLineText: { color: '#D8E6DF', fontSize: 12, marginBottom: 2 },
+  itemLineText: { color: '#173D2D', fontSize: 12, marginBottom: 2 },
   totalUSDVal: { color: '#10b981', fontSize: 15, fontWeight: '900' },
   btnPrimary: { backgroundColor: '#10b981', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minHeight: 48 },
-  btnPrimaryText: { color: '#070707', fontSize: 13, fontWeight: '900' },
+  btnPrimaryText: { color: '#F4FAF6', fontSize: 13, fontWeight: '900' },
   btnPrimarySmall: { backgroundColor: '#10b981', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  btnSecondary: { flex: 1, backgroundColor: '#0B2A1A', borderWidth: 1, borderColor: '#f59e0b', paddingVertical: 10, borderRadius: 12, alignItems: 'center' },
-  btnSecondaryText: { color: '#f59e0b', fontSize: 10, fontWeight: 'bold' },
-  kdsCard: { backgroundColor: '#070707', borderRadius: 18, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', padding: 14, gap: 10, marginBottom: 10 },
+  btnSecondary: { flex: 1, backgroundColor: '#E7F5ED', borderWidth: 1, borderColor: '#0A4E36', paddingVertical: 10, borderRadius: 12, alignItems: 'center' },
+  btnSecondaryText: { color: '#0A4E36', fontSize: 10, fontWeight: 'bold' },
+  kdsCard: { backgroundColor: '#F4FAF6', borderRadius: 18, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', padding: 14, gap: 10, marginBottom: 10 },
   aiBox: { backgroundColor: '#0B2A1A40', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(216, 230, 223, 0.2)', padding: 12 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(7,7,7,0.95)' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(244,250,246,0.98)' },
   modalContainer: { flex: 1, padding: 16, paddingBottom: 24 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(216,230,223,0.15)' },
-  modalTitle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
+  modalTitle: { color: '#102A20', fontSize: 16, fontWeight: 'bold' },
   catPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 14, backgroundColor: 'rgba(11,42,26,0.4)', borderWidth: 1, borderColor: 'rgba(216,230,223,0.15)', marginRight: 8, height: 36, justifyContent: 'center', alignItems: 'center' },
-  catPillActive: { backgroundColor: '#0B2A1A', borderColor: '#10b981' },
-  catPillText: { color: '#D8E6DF', fontSize: 12, fontWeight: 'bold' },
+  catPillActive: { backgroundColor: '#E7F5ED', borderColor: '#10b981' },
+  catPillText: { color: '#173D2D', fontSize: 12, fontWeight: 'bold' },
   catPillTextActive: { color: '#10b981', fontWeight: 'bold' },
-  productRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#070707', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(216,230,223,0.15)', padding: 10, marginBottom: 8 },
+  productRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F4FAF6', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(216,230,223,0.15)', padding: 10, marginBottom: 8 },
   prodImg: { width: 44, height: 44, borderRadius: 10 },
-  prodName: { color: '#ffffff', fontSize: 13, fontWeight: 'bold' },
+  prodName: { color: '#102A20', fontSize: 13, fontWeight: 'bold' },
   prodPrice: { color: '#10b981', fontSize: 12, fontWeight: 'bold' },
   modalFooter: { borderTopWidth: 1, borderTopColor: 'rgba(216,230,223,0.15)', paddingTop: 12, paddingBottom: 20, gap: 10 },
-  drawerOverlay: { flex: 1, backgroundColor: 'rgba(7,7,7,0.95)' },
+  drawerOverlay: { flex: 1, backgroundColor: 'rgba(244,250,246,0.98)' },
   drawerContainer: { flex: 1, padding: 20, gap: 12 },
   drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  drawerTitle: { color: '#ffffff', fontSize: 14, fontWeight: 'bold' },
-  statusBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0B2A1A', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#10b981' },
-  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderWidth: 1, borderColor: '#ef4444', padding: 12, borderRadius: 14, marginTop: 10 },
+  drawerTitle: { color: '#102A20', fontSize: 14, fontWeight: 'bold' },
+  statusBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#E7F5ED', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#10b981' },
+  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderWidth: 1, borderColor: '#0A4E36', padding: 12, borderRadius: 14, marginTop: 10 },
 });

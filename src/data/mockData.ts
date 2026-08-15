@@ -78,7 +78,7 @@ export interface OrderItem {
 
 export type OrderStatus = 'en_preparacion' | 'preparada' | 'entregada' | 'cancelado' | 'fusionada';
 export type PaymentStatus = 'no_pagado' | 'pagado';
-export type PaymentMethod = 'Divisas' | 'COP' | 'Bs' | 'Binance' | 'Mixto';
+export type PaymentMethod = 'Efectivo USD' | 'Efectivo COP' | 'Zelle' | 'Binance' | 'Bancolombia' | 'Nequi' | 'Pago Móvil' | 'Tarjeta de Crédito' | 'Tarjeta de Débito' | 'Mixto';
 
 export interface SplitPayment {
   method: PaymentMethod;
@@ -131,6 +131,7 @@ export interface Order {
   notes?: string;
   kitchenNotes?: string;
   shift?: 'manana' | 'noche' | 'ambos';
+  deliveryFeeUSD?: number;
 }
 
 
@@ -141,8 +142,12 @@ export interface CajaChicaTransaction {
   type: 'ingreso' | 'egreso';
   amountUSD: number;
   amountCOP: number;
+  amountBs: number;
+  currency: string;
   paymentMethod: string;
   description: string;
+  orderId?: string;
+  orderReference: string;
   shift?: 'manana' | 'noche' | 'ambos';
 }
 
@@ -159,9 +164,11 @@ export interface CajaChicaCierre {
   openedCOP: number;
   totalSalesUSD: number;
   expectedUSD: number;
+  expectedCOP: number;
   actualUSD: number;
   actualCOP: number;
   differenceUSD: number;
+  differenceCOP: number;
   closedAt: string;
   closedBy?: string;
   notes?: string;

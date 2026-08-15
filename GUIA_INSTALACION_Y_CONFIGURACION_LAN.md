@@ -11,6 +11,7 @@ Esta guia instala Basilico en una PC nueva y conecta tablets o telefonos Android
 3. Usa la base `basilico` y la clave predeterminada configurada actualmente: `basilico1.`.
 4. Instala Google Chrome o Microsoft Edge.
 5. Conecta la PC y todas las tablets a la misma red Wi-Fi o Ethernet. No uses una red de invitados.
+6. Solo si vas a compilar la APK, instala Android Studio con Android SDK y sus Platform Tools. El script detecta el SDK en el perfil del usuario actual de Windows o desde `ANDROID_HOME`.
 
 Si PostgreSQL tiene otra clave, define estas variables en PowerShell antes de iniciar Basilico:
 

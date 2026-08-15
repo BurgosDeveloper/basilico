@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
 
@@ -20,7 +21,9 @@ if (fs.existsSync(studioJdk)) {
 }
 
 // Detect Android SDK
-const defaultSdk = 'C:\\Users\\Burgos\\AppData\\Local\\Android\\Sdk';
+const defaultSdk = process.env.ANDROID_HOME
+  || process.env.ANDROID_SDK_ROOT
+  || path.join(os.homedir(), 'AppData', 'Local', 'Android', 'Sdk');
 if (fs.existsSync(defaultSdk)) {
   envVars.ANDROID_HOME = defaultSdk;
   console.log(`📱 Usando Android SDK en: ${defaultSdk}`);

@@ -12,6 +12,16 @@ function interfacePriority(name) {
 }
 
 function getLanConnectionInfo(port = 3001) {
+  const configuredIp = (process.env.BASILICO_LAN_IP || '').trim();
+  if (PRIVATE_IPV4.test(configuredIp)) {
+    return {
+      lanIp: configuredIp,
+      backendUrl: `http://${configuredIp}:${port}`,
+      interfaceName: 'Configurada manualmente',
+      detectedAt: new Date().toISOString(),
+    };
+  }
+
   const candidates = Object.entries(os.networkInterfaces())
     .flatMap(([name, entries]) => (entries || [])
       .filter((entry) => entry.family === 'IPv4' && !entry.internal && PRIVATE_IPV4.test(entry.address))

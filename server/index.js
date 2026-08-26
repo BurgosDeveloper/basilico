@@ -77,9 +77,9 @@ io.on('connection', (socket) => {
 
   Promise.all([
     fetchAllOrders(socket.user),
-    fetchAllProducts(),
-    fetchAllIngredients(),
-    fetchAllTables(),
+    fetchAllProducts(socket.user),
+    fetchAllIngredients(socket.user),
+    fetchAllTables(socket.user),
     getRatesForShift({ query }, socket.user.shift),
   ]).then(([orders, products, ingredients, tables, rates]) => {
     socket.emit('orders:sync', orders);
@@ -110,6 +110,7 @@ const cajaRoutes = require('./routes/caja');
 const ratesRoutes = require('./routes/rates');
 const uploadRoutes = require('./routes/upload');
 const reporteIntervaloRoutes = require('./routes/reporteIntervalo');
+const printersRoutes = require('./routes/printers');
 
 app.use('/api/auth', authRoutes(io));
 app.use('/api', requireSession);
@@ -118,9 +119,11 @@ app.use('/api/ingredients', ingredientsRoutes(io));
 app.use('/api/tables', tablesRoutes(io));
 app.use('/api/orders', ordersRoutes(io));
 app.use('/api/orders', paymentsRoutes(io));
+app.use('/api/payments', paymentsRoutes(io));
 app.use('/api/caja-chica', cajaRoutes(io));
 app.use('/api/caja', cajaRoutes(io));
 app.use('/api/caja', reporteIntervaloRoutes(io));
+app.use('/api/printers', printersRoutes(io));
 app.use('/api/rates', ratesRoutes(io));
 app.use('/api/upload', uploadRoutes(io));
 

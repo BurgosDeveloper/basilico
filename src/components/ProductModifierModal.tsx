@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product, ExtraIngredient } from '../data/mockData';
 import { IoClose, IoAdd, IoRemove, IoCheckmark } from 'react-icons/io5';
@@ -22,6 +22,7 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
   onConfirm,
 }) => {
   const { extras } = useApp();
+  const sortedExtras = useMemo(() => [...extras].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [extras]);
   const [quantity, setQuantity] = useState<number>(1);
   const [selectedModifiers, setSelectedModifiers] = useState<ExtraIngredient[]>([]);
 
@@ -93,7 +94,7 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
               INGREDIENTES ADICIONALES
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {extras.map((mod) => {
+              {sortedExtras.map((mod) => {
                 const isSelected = selectedModifiers.some((m) => m.id === mod.id);
                 return (
                   <button

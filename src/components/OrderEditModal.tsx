@@ -14,10 +14,11 @@ interface OrderEditModalProps {
     totalUSD: number;
     customerName?: string;
     tableNumber?: number;
-    type?: 'mesa' | 'llevar' | 'delivery' | 'pickup';
+    type?: 'mesa' | 'llevar' | 'delivery' | 'pickup' | 'credito';
     deliveryFeeUSD?: number;
   }) => Promise<void>;
   onDeletePaymentEntry?: (orderId: string, paymentId: string) => Promise<Order>;
+  onDeleteOrder?: (orderId: string) => Promise<void>;
 }
 
 export const OrderEditModal: React.FC<OrderEditModalProps> = ({
@@ -28,10 +29,11 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
   ingredients,
   onSaveEdit,
   onDeletePaymentEntry,
+  onDeleteOrder,
 }) => {
   const [customerName, setCustomerName] = useState('');
   const [tableNumber, setTableNumber] = useState<number | ''>('');
-  const [type, setType] = useState<'mesa' | 'llevar' | 'delivery' | 'pickup'>('mesa');
+  const [type, setType] = useState<'mesa' | 'llevar' | 'delivery' | 'pickup' | 'credito'>('mesa');
   const [kitchenNotes, setKitchenNotes] = useState('');
   const [items, setItems] = useState<OrderItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,8 +42,8 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const availableExtras = useMemo(() => ingredients.filter(i => i.isExtraForPizza), [ingredients]);
-  const allPizzaProducts = useMemo(() => products.filter(p => p.category === 'Pizzas'), [products]);
+  const availableExtras = useMemo(() => ingredients.filter(i => i.isExtraForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [ingredients]);
+  const allPizzaProducts = useMemo(() => products.filter(p => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [products]);
 
   useEffect(() => {
     if (order) {
@@ -119,6 +121,12 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
   };
 
   const handleRemoveItem = (index: number) => {
+    const item = items[index];
+    if (item && item.isPaidIndividually) {
+      setError(`El producto "${item.productName}" ya fue pagado individualmente por ${item.paidByName || 'un cliente'}. Primero anula ese pago en el historial de pagos para poder eliminarlo.`);
+      return;
+    }
+    setError('');
     const updated = [...items];
     updated.splice(index, 1);
     setItems(updated);
@@ -129,25 +137,31 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
     const prod = products.find(p => p.id === selectedProductToAdd);
     if (!prod) return;
 
+    setError('');
+    const isJugo = prod.category === 'Bebidas' && prod.drinkType === 'jugo';
+    const isPizza = prod.category === 'Pizzas';
+
     const newItem: OrderItem = {
-      id: `it-${Date.now()}`,
+      id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       productId: prod.id,
       productName: prod.name,
       price: prod.price,
       quantity: 1,
-      size: 'Grande',
+      size: isPizza ? 'Grande' : undefined,
       isNewOrModified: true,
       removedIngredients: [],
       extras: [],
       isHalfHalf: false,
       isTakeaway: false,
+      sugarPreference: isJugo ? 'Con azúcar' : undefined,
     };
     
-    if (prod.category === 'Pizzas') {
+    if (isPizza) {
       newItem.price = calculateItemPrice(newItem);
     }
 
     setItems([...items, newItem]);
+    setExpandedItemId(newItem.id);
     setSelectedProductToAdd('');
   };
 
@@ -194,7 +208,7 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
             </div>
             <div>
               <h3 className="text-xl font-black tracking-tight">Edición Completa - Comanda #{order.orderNumber}</h3>
-              <p className="text-xs text-emerald-100 font-bold">Modo Administrador: Modifica datos, ítems o abonos</p>
+              <p className="text-xs text-emerald-100 font-bold">Modo Caja / Administrador: Modifica datos, productos o anula pagos</p>
             </div>
           </div>
           <button
@@ -570,17 +584,25 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
                           <div className="pt-2 border-t border-slate-700">
                             <label className="block text-[11px] font-black text-cyan-400 uppercase mb-2">Preferencia de Azúcar</label>
                             <div className="flex flex-wrap gap-2">
-                              {['Sin azúcar', 'Poco azúcar', 'Normal'].map(pref => (
-                                <button
-                                  key={pref}
-                                  onClick={() => updateItem(idx, it => ({ ...it, sugarPreference: pref as any }))}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                    item.sugarPreference === pref ? 'bg-cyan-900/50 border-cyan-500 text-cyan-400' : 'bg-[#1e293b] border-slate-600 text-slate-300 hover:bg-slate-700'
-                                  }`}
-                                >
-                                  {pref}
-                                </button>
-                              ))}
+                              {['Con azúcar', 'Poca azúcar', 'Sin azúcar'].map(pref => {
+                                const isSelected = item.sugarPreference === pref ||
+                                  (pref === 'Con azúcar' && (item.sugarPreference === 'Normal' || !item.sugarPreference)) ||
+                                  (pref === 'Poca azúcar' && item.sugarPreference === 'Poco azúcar');
+                                return (
+                                  <button
+                                    key={pref}
+                                    type="button"
+                                    onClick={() => updateItem(idx, it => ({ ...it, sugarPreference: pref as any }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                      isSelected
+                                        ? 'bg-cyan-900/50 border-cyan-500 text-cyan-300 ring-1 ring-cyan-500'
+                                        : 'bg-[#1e293b] border-slate-600 text-slate-300 hover:bg-slate-700'
+                                    }`}
+                                  >
+                                    {pref === 'Con azúcar' ? '🍬 Con azúcar' : pref === 'Poca azúcar' ? '🥄 Poca azúcar' : '🍋 Sin azúcar'}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -678,13 +700,35 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-[#1e293b] border-t border-slate-700 flex items-center justify-between">
-          <button
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs transition-colors"
-          >
-            Cancelar
-          </button>
+        <div className="p-4 bg-[#1e293b] border-t border-slate-700 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs transition-colors"
+            >
+              Cancelar
+            </button>
+            {onDeleteOrder && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!window.confirm(`¿Seguro que deseas anular y eliminar completamente la comanda #${order.orderNumber}? Se liberará su número correlativo y se borrarán todos sus registros.`)) return;
+                  try {
+                    setIsSubmitting(true);
+                    await onDeleteOrder(order.id);
+                    onClose();
+                  } catch (delError) {
+                    setError(delError instanceof Error ? delError.message : 'No se pudo anular la comanda');
+                    setIsSubmitting(false);
+                  }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-red-950/50 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                title="Anular y eliminar comanda completamente"
+              >
+                <IoTrashOutline /> Anular Comanda
+              </button>
+            )}
+          </div>
           <button
             onClick={handleSave}
             disabled={isSubmitting || hasPaymentHistory}

@@ -1,31 +1,27 @@
-const { loadPrinterConfig, printKitchenTicket } = require('../server/helpers/thermalPrinter');
+const { loadDualPrinterConfig, printTestTicket } = require('../server/helpers/thermalPrinter');
 
 async function run() {
-  const config = loadPrinterConfig();
-  if (!config.enabled || !config.host) {
-    throw new Error('Configura server/config/thermal-printer.json con enabled: true y la IP de la impresora antes de probar.');
+  const configs = loadDualPrinterConfig();
+  const target = process.argv[2] || 'ambas'; // 'cocina', 'caja', 'ambas'
+
+  console.log('====================================================');
+  console.log('🖨️ PRUEBA DE CONEXIÓN A IMPRESORAS TÉRMICAS LAN');
+  console.log('====================================================\n');
+  console.log('Configuración actual detectada:');
+  console.log(`🍳 Cocina: [${configs.cocina.enabled ? '🟢 ACTIVA' : '🔴 INACTIVA'}] ${configs.cocina.host}:${configs.cocina.port}`);
+  console.log(`💳 Caja:   [${configs.caja.enabled ? '🟢 ACTIVA' : '🔴 INACTIVA'}] ${configs.caja.host}:${configs.caja.port}\n`);
+
+  console.log(`Enviando ticket de prueba a destino: ${target.toUpperCase()}...`);
+  const result = await printTestTicket(target);
+
+  for (const r of result.results || []) {
+    console.log(`✅ ¡Ticket emitido con éxito en ${r.printer.toUpperCase()} (${r.host}:${r.port})!`);
   }
-
-  const result = await printKitchenTicket({
-    orderNumber: 'PRUEBA-TERMICA',
-    type: 'mesa',
-    tableNumber: 1,
-    customerName: 'PRUEBA DE IMPRESION',
-    waiterName: 'Sistema',
-    createdAt: new Date().toISOString(),
-    totalUSD: 0,
-    kitchenNotes: 'Este ticket no crea ni modifica una comanda.',
-    items: [{
-      productName: 'Ticket de prueba 80 mm',
-      quantity: 1,
-      notes: 'Verificar ancho, corte y legibilidad.',
-    }],
-  });
-
-  console.log(`Prueba enviada correctamente a ${config.host}:${config.port} (${result.copies} copia${result.copies === 1 ? '' : 's'}).`);
+  console.log('\n🎉 Prueba completada exitosamente.');
 }
 
 run().catch((error) => {
-  console.error(`No se pudo imprimir la prueba: ${error.message}`);
+  console.error(`\n❌ No se pudo imprimir la prueba: ${error.message}`);
+  console.error('Verifica que las impresoras estén encendidas, con papel y conectadas a la misma red Wi-Fi/LAN.');
   process.exitCode = 1;
 });

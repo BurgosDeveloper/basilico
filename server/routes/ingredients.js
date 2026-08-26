@@ -7,7 +7,7 @@ const { requireRole } = require('../helpers/sessionAuth');
 module.exports = function(io) {
   router.get('/', async (req, res) => {
     try {
-      const ingredients = await fetchAllIngredients();
+      const ingredients = await fetchAllIngredients(req.user);
       res.json(ingredients);
     } catch (err) {
       res.status(500).json({ error: 'Error al obtener ingredientes' });
@@ -18,23 +18,21 @@ module.exports = function(io) {
     try {
       const { name, priceUSD, isBaseForPizza, isExtraForPizza, category, available, shift } = req.body;
       const id = `ing-${Date.now()}`;
+      const targetShift = shift || req.user.shift || 'manana';
 
       await query(
         `INSERT INTO ingredients (id, name, price_usd, is_base_for_pizza, is_extra_for_pizza, category, available, shift)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (name) DO UPDATE SET 
-           price_usd = EXCLUDED.price_usd,
-           is_base_for_pizza = EXCLUDED.is_base_for_pizza,
-           is_extra_for_pizza = EXCLUDED.is_extra_for_pizza,
-           category = EXCLUDED.category,
-           available = EXCLUDED.available,
-           shift = EXCLUDED.shift`,
-        [id, name, priceUSD || 0, isBaseForPizza !== false, isExtraForPizza !== false, category || 'Ingredientes', available !== false, shift || 'ambos']
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, name, priceUSD || 0, isBaseForPizza !== false, isExtraForPizza !== false, category || 'Ingredientes', available !== false, targetShift]
       );
 
-      const allIngredients = await fetchAllIngredients();
-      io.emit('ingredients:sync', allIngredients);
-      res.status(201).json(allIngredients.find((i) => i.name === name));
+      const shiftIngredients = await fetchAllIngredients(req.user);
+      io.to(`shift:${targetShift}`).emit('ingredients:sync', shiftIngredients);
+      if (targetShift !== 'ambos') {
+        const ambosIngredients = await fetchAllIngredients({ shift: 'ambos' });
+        io.to('shift:ambos').emit('ingredients:sync', ambosIngredients);
+      }
+      res.status(201).json(shiftIngredients.find((i) => i.name === name) || { id, name });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al guardar ingrediente' });
@@ -45,6 +43,7 @@ module.exports = function(io) {
     try {
       const { id } = req.params;
       const { name, category, priceUSD, isBaseForPizza, isExtraForPizza, available, shift } = req.body;
+      const targetShift = shift || req.user.shift || 'manana';
 
       let oldName = null;
       const { rows } = await query(`SELECT name FROM ingredients WHERE id = $1`, [id]);
@@ -62,7 +61,7 @@ module.exports = function(io) {
           isBaseForPizza !== false, 
           isExtraForPizza !== false, 
           available !== false, 
-          shift || 'ambos',
+          targetShift,
           id
         ]
       );
@@ -71,18 +70,22 @@ module.exports = function(io) {
         await query(
           `UPDATE products 
            SET base_ingredients = array_replace(base_ingredients, $1, $2) 
-           WHERE $1 = ANY(base_ingredients)`,
-          [oldName, name]
+           WHERE $1 = ANY(base_ingredients) AND shift = $3`,
+          [oldName, name, targetShift]
         );
       }
 
-      const allIngredients = await fetchAllIngredients();
-      const allProducts = await fetchAllProducts();
-      io.emit('ingredients:sync', allIngredients);
+      const shiftIngredients = await fetchAllIngredients(req.user);
+      const shiftProducts = await fetchAllProducts(req.user);
+      io.to(`shift:${targetShift}`).emit('ingredients:sync', shiftIngredients);
       if (oldName && oldName !== name) {
-        io.emit('products:sync', allProducts);
+        io.to(`shift:${targetShift}`).emit('products:sync', shiftProducts);
       }
-      res.json(allIngredients.find((i) => i.id === id) || { success: true });
+      if (targetShift !== 'ambos') {
+        const ambosIngredients = await fetchAllIngredients({ shift: 'ambos' });
+        io.to('shift:ambos').emit('ingredients:sync', ambosIngredients);
+      }
+      res.json(shiftIngredients.find((i) => i.id === id) || { success: true });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al actualizar ingrediente' });
@@ -94,8 +97,12 @@ module.exports = function(io) {
       const { id } = req.params;
       await query(`DELETE FROM ingredients WHERE id = $1`, [id]);
       
-      const allIngredients = await fetchAllIngredients();
-      io.emit('ingredients:sync', allIngredients);
+      const shiftIngredients = await fetchAllIngredients(req.user);
+      io.to(`shift:${req.user.shift}`).emit('ingredients:sync', shiftIngredients);
+      if (req.user.shift !== 'ambos') {
+        const ambosIngredients = await fetchAllIngredients({ shift: 'ambos' });
+        io.to('shift:ambos').emit('ingredients:sync', ambosIngredients);
+      }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Error al eliminar ingrediente' });

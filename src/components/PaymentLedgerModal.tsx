@@ -32,10 +32,19 @@ function asUSD(amount: number, currency: Currency, copRate: number, bsRate: numb
 
 function CurrencyValues({ amountUSD, rates }: { amountUSD: number; rates: { COP: number; Bs: number } }) {
   return (
-    <div className="grid grid-cols-3 gap-1.5 text-[11px] font-bold">
-      <span className="rounded-lg bg-white/75 px-2 py-1 text-[#062f22]">${amountUSD.toFixed(2)}</span>
-      <span className="rounded-lg bg-white/75 px-2 py-1 text-[#062f22]">{Math.round(amountUSD * rates.COP).toLocaleString()} COP</span>
-      <span className="rounded-lg bg-white/75 px-2 py-1 text-[#062f22]">{(amountUSD * rates.Bs).toFixed(2)} Bs</span>
+    <div className="space-y-1.5">
+      <div className="text-2xl sm:text-3xl font-black text-emerald-800 tracking-tight flex items-baseline gap-1">
+        <span>${amountUSD.toFixed(2)}</span>
+        <span className="text-xs font-black text-emerald-950 uppercase px-1.5 py-0.5 rounded bg-emerald-200">USD</span>
+      </div>
+      <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-1.5">
+        <span className="inline-flex items-center text-sm font-black text-sky-800 bg-sky-100/90 border border-sky-300 px-2.5 py-1 rounded-xl shadow-sm">
+          🇨🇴 {Math.round(amountUSD * rates.COP).toLocaleString()} COP
+        </span>
+        <span className="inline-flex items-center text-sm font-black text-amber-800 bg-amber-100/90 border border-amber-300 px-2.5 py-1 rounded-xl shadow-sm">
+          🇻🇪 {(amountUSD * rates.Bs).toFixed(2)} Bs
+        </span>
+      </div>
     </div>
   );
 }
@@ -52,7 +61,7 @@ interface PaymentLedgerModalProps {
 }
 
 export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, onClose, onViewOrder, paymentScope, onEditPaymentScope }) => {
-  const { exchangeRates, registerLedgerEntry, deletePaymentEntry, finalizeOrder } = useApp();
+  const { exchangeRates, registerLedgerEntry, deletePaymentEntry, finalizeOrder, closeOrderAsCredit } = useApp();
   const [entryType, setEntryType] = useState<EntryType>('payment');
   const [currency, setCurrency] = useState<Currency>('USD');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Efectivo USD');
@@ -60,6 +69,12 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
   const [payerName, setPayerName] = useState('Cliente General');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Estados para Modal de Crédito
+  const [isCreditPromptOpen, setIsCreditPromptOpen] = useState(false);
+  const [creditDebtorInput, setCreditDebtorInput] = useState('');
+  const [creditNotesInput, setCreditNotesInput] = useState('');
+  const [creditError, setCreditError] = useState('');
 
   useEffect(() => {
     if (!order) return;
@@ -69,17 +84,21 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
     setPaymentMethod('Efectivo USD');
     setAmountLocal('');
     setError('');
+    setIsCreditPromptOpen(false);
+    setCreditError('');
   }, [order, paymentScope?.payerName]);
 
-  if (!order) return null;
-
-  const history = order.paymentHistory || [];
-  const scopedItems = paymentScope
-    ? order.items.filter((item) => paymentScope.itemIds.includes(item.id))
-    : order.items;
-  const scopeTotalUSD = paymentScope
-    ? scopedItems.reduce((total, item) => total + item.price * item.quantity, 0)
-    : order.totalUSD;
+  const history = order?.paymentHistory || [];
+  const scopedItems = order
+    ? paymentScope
+      ? order.items.filter((item) => paymentScope.itemIds.includes(item.id))
+      : order.items
+    : [];
+  const scopeTotalUSD = order
+    ? paymentScope
+      ? scopedItems.reduce((total, item) => total + item.price * item.quantity, 0)
+      : order.totalUSD
+    : 0;
   const scopedHistory = paymentScope
     ? history.filter((entry) => entry.itemIds?.some((itemId) => paymentScope.itemIds.includes(itemId)))
     : history;
@@ -108,8 +127,18 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
     return total + (item.changeGivenUSD || 0) + ((item.changeGivenCOP || 0) / rateCOP) + ((item.changeGivenBs || 0) / rateBs);
   }, 0);
   const entryUSD = asUSD(Number(amountLocal) || 0, currency, exchangeRates.COP, exchangeRates.Bs);
-  const isReadyToClose = Math.max(0, order.totalUSD - fullOrderPaidUSD) <= 0.01
-    && Math.max(0, fullOrderTenderedUSD - order.totalUSD - fullOrderChangeUSD) <= 0.01;
+  const isReadyToClose = order
+    ? Math.max(0, order.totalUSD - fullOrderPaidUSD) <= 0.01 &&
+      Math.max(0, fullOrderTenderedUSD - order.totalUSD - fullOrderChangeUSD) <= 0.01
+    : false;
+
+  // Al estar cubierto el monto a pagar, si hay vuelto pendiente por entregar, seleccionar automáticamente la pestaña de Vuelto
+  useEffect(() => {
+    if (pendingDebtUSD <= 0.01 && pendingChangeUSD > 0.01 && entryType === 'payment') {
+      setEntryType('change');
+      setAmountLocal('');
+    }
+  }, [pendingDebtUSD, pendingChangeUSD, entryType]);
 
   const changeCurrency = (nextCurrency: Currency) => {
     setCurrency(nextCurrency);
@@ -121,6 +150,8 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
     if (!Number(amountLocal) || Number(amountLocal) <= 0 || isSubmitting) return;
     setIsSubmitting(true);
     setError('');
+    const willCoverDebt = entryType === 'payment' && (entryUSD >= pendingDebtUSD - 0.01);
+    const hasExcess = entryType === 'payment' && (entryUSD > pendingDebtUSD + 0.01);
     try {
       await registerLedgerEntry(order.id, {
         entryType,
@@ -131,8 +162,51 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
         itemIds: paymentScope?.itemIds,
       });
       setAmountLocal('');
+      if (hasExcess || willCoverDebt) {
+        setEntryType('change');
+      }
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : 'No se pudo registrar el movimiento.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const fillExactAmount = () => {
+    if (entryType === 'payment') {
+      const exactDebt = pendingDebtUSD * (currency === 'USD' ? 1 : currency === 'COP' ? exchangeRates.COP : exchangeRates.Bs);
+      setAmountLocal(currency === 'COP' ? Math.round(exactDebt).toString() : exactDebt.toFixed(2));
+    } else {
+      const exactChange = pendingChangeUSD * (currency === 'USD' ? 1 : currency === 'COP' ? exchangeRates.COP : exchangeRates.Bs);
+      setAmountLocal(currency === 'COP' ? Math.round(exactChange).toString() : exactChange.toFixed(2));
+    }
+  };
+
+  const handleOpenCreditPrompt = () => {
+    const initialName = (payerName && payerName !== 'Cliente General')
+      ? payerName
+      : (order.customerName && order.customerName !== 'Cliente General')
+      ? order.customerName
+      : '';
+    setCreditDebtorInput(initialName);
+    setCreditNotesInput('');
+    setCreditError('');
+    setIsCreditPromptOpen(true);
+  };
+
+  const handleConfirmCloseCredit = async () => {
+    if (!creditDebtorInput.trim()) {
+      setCreditError('Debe ingresar el nombre del cliente/deudor de forma obligatoria.');
+      return;
+    }
+    setIsSubmitting(true);
+    setCreditError('');
+    try {
+      await closeOrderAsCredit(order.id, creditDebtorInput.trim(), creditNotesInput.trim());
+      setIsCreditPromptOpen(false);
+      onClose();
+    } catch (err) {
+      setCreditError(err instanceof Error ? err.message : 'No se pudo cerrar la cuenta a crédito.');
     } finally {
       setIsSubmitting(false);
     }
@@ -163,6 +237,8 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
       setIsSubmitting(false);
     }
   };
+
+  if (!order) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#062f22]/45 p-3 backdrop-blur-sm">
@@ -205,40 +281,103 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
             <div className="rounded-xl border border-emerald-200 bg-white p-4 shadow-[4px_4px_12px_rgba(6,47,34,.07)]">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="flex items-center gap-2 text-sm font-black text-[#062f22]"><IoReceiptOutline className="text-[#08724c]" /> Registrar movimiento</h3>
-                <div className="inline-flex rounded-lg border border-emerald-200 bg-[#edf8f1] p-1">
-                  {(['payment', 'change'] as EntryType[]).map((type) => (
-                    <button key={type} onClick={() => { setEntryType(type); setError(''); }} className={`rounded-md px-3 py-1.5 text-xs font-black ${entryType === type ? 'bg-[#08724c] text-white' : 'text-[#07513a]'}`}>
-                      {type === 'payment' ? 'Pago del cliente' : 'Vuelto al cliente'}
-                    </button>
-                  ))}
+                <div className="inline-flex rounded-xl border border-emerald-300 bg-slate-100 p-1 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => { setEntryType('payment'); setError(''); }}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-black transition-all flex items-center gap-1.5 ${
+                      entryType === 'payment'
+                        ? 'bg-emerald-600 text-white shadow-md border border-emerald-500 scale-[1.02]'
+                        : 'bg-transparent text-slate-600 hover:text-slate-900 font-bold'
+                    }`}
+                  >
+                    <span>🟢 Pago del cliente</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEntryType('change'); setError(''); }}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-black transition-all flex items-center gap-1.5 ${
+                      entryType === 'change'
+                        ? 'bg-amber-500 text-slate-950 shadow-md border border-amber-400 scale-[1.02]'
+                        : 'bg-transparent text-slate-600 hover:text-slate-900 font-bold'
+                    }`}
+                  >
+                    <span>🟠 Vuelto al cliente</span>
+                  </button>
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-black text-[#07513a]">Cliente
-                  <input value={payerName} onChange={(event) => setPayerName(event.target.value)} className="mt-1.5 w-full rounded-lg border border-emerald-200 bg-[#fbfefc] px-3 py-2.5 text-sm font-bold text-[#062f22] outline-none focus:border-emerald-500" />
+                <label className="text-xs font-black text-[#07513a]">Cliente / Pagador:
+                  <input value={payerName} onChange={(event) => setPayerName(event.target.value)} className="mt-1.5 w-full rounded-xl border border-emerald-200 bg-[#fbfefc] px-3.5 py-2.5 text-sm font-bold text-[#062f22] outline-none focus:border-emerald-500" />
                 </label>
-                <label className="text-xs font-black text-[#07513a]">Moneda
-                  <select value={currency} onChange={(event) => changeCurrency(event.target.value as Currency)} className="mt-1.5 w-full rounded-lg border border-emerald-200 bg-[#fbfefc] px-3 py-2.5 text-sm font-bold text-[#062f22] outline-none focus:border-emerald-500">
-                    <option value="USD">Dolares (USD)</option>
-                    <option value="COP">Pesos (COP)</option>
-                    <option value="Bs">Bolivares (Bs)</option>
-                  </select>
+
+                <div>
+                  <span className="text-xs font-black text-[#07513a] block mb-1.5">Moneda de Pago:</span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['USD', 'COP', 'Bs'] as Currency[]).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => changeCurrency(c)}
+                        className={`py-2 px-2 rounded-xl font-black text-xs transition-all border text-center ${
+                          currency === c
+                            ? 'bg-[#08724c] text-white border-[#08724c] shadow-md scale-[1.02]'
+                            : 'bg-white text-[#07513a] border-emerald-200 hover:bg-emerald-50'
+                        }`}
+                      >
+                        {c === 'USD' ? '💵 USD' : c === 'COP' ? '🇨🇴 COP' : '🇻🇪 Bs'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="text-xs font-black text-[#07513a]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-black">Monto en {currency}:</span>
+                    {((entryType === 'payment' && pendingDebtUSD > 0.01) || (entryType === 'change' && pendingChangeUSD > 0.01)) && (
+                      <button
+                        type="button"
+                        onClick={fillExactAmount}
+                        className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-0.5 rounded-lg font-black transition-colors shadow-sm"
+                      >
+                        ⚡ Exacto
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amountLocal}
+                    onChange={(event) => setAmountLocal(event.target.value)}
+                    placeholder="0.00"
+                    className="mt-1.5 w-full rounded-xl border-2 border-emerald-300 bg-white px-4 py-2 text-2xl font-black text-[#062f22] outline-none focus:border-emerald-600 shadow-inner"
+                  />
                 </label>
-                <label className="text-xs font-black text-[#07513a]">Monto en {currency}
-                  <input type="number" min="0" step="0.01" value={amountLocal} onChange={(event) => setAmountLocal(event.target.value)} placeholder={entryType === 'payment' ? `Pendiente: ${(pendingDebtUSD * (currency === 'USD' ? 1 : currency === 'COP' ? exchangeRates.COP : exchangeRates.Bs)).toFixed(2)}` : `Vuelto: ${(pendingChangeUSD * (currency === 'USD' ? 1 : currency === 'COP' ? exchangeRates.COP : exchangeRates.Bs)).toFixed(2)}`} className="mt-1.5 w-full rounded-lg border border-emerald-200 bg-[#fbfefc] px-3 py-2.5 text-sm font-bold text-[#062f22] outline-none focus:border-emerald-500" />
-                </label>
-                <label className="text-xs font-black text-[#07513a]">Metodo de pago
-                  <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} className="mt-1.5 w-full rounded-lg border border-emerald-200 bg-[#fbfefc] px-3 py-2.5 text-sm font-bold text-[#062f22] outline-none focus:border-emerald-500">
+
+                <label className="text-xs font-black text-[#07513a]">Método de pago ({currency}):
+                  <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} className="mt-1.5 w-full rounded-xl border border-emerald-200 bg-[#fbfefc] px-3.5 py-3 text-sm font-bold text-[#062f22] outline-none focus:border-emerald-500">
                     {methodsByCurrency[currency].map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                   </select>
                 </label>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#edf8f1] p-3">
-                <p className="text-xs font-bold text-[#07513a]">Equivalente: ${entryUSD.toFixed(2)} USD | {Math.round(entryUSD * exchangeRates.COP).toLocaleString()} COP | {(entryUSD * exchangeRates.Bs).toFixed(2)} Bs</p>
-                <button onClick={registerEntry} disabled={isSubmitting || !Number(amountLocal)} className="rounded-lg bg-[#08724c] px-4 py-2.5 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50">
-                  Agregar registro
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#edf8f1] border border-emerald-200 p-3.5">
+                <div className="text-xs font-black text-[#07513a] space-y-0.5">
+                  <div className="text-sm font-black text-[#062f22]">
+                    Equivalente: ${entryUSD.toFixed(2)} USD
+                  </div>
+                  <div className="text-xs text-[#145c45]">
+                    🇨🇴 {Math.round(entryUSD * exchangeRates.COP).toLocaleString()} COP | 🇻🇪 {(entryUSD * exchangeRates.Bs).toFixed(2)} Bs
+                  </div>
+                </div>
+                <button
+                  onClick={registerEntry}
+                  disabled={isSubmitting || !Number(amountLocal)}
+                  className="rounded-xl bg-[#08724c] hover:bg-[#065c3d] px-6 py-2.5 text-xs font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+                >
+                  💾 AGREGAR MOVIMIENTO
                 </button>
               </div>
               {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-xs font-bold text-red-800">{error}</p>}
@@ -271,11 +410,112 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({ order, o
             </div>
 
             <footer className="flex flex-col-reverse gap-3 border-t border-emerald-100 pt-4 sm:flex-row">
-              <button onClick={onClose} className="flex-1 rounded-lg border border-emerald-300 bg-white px-4 py-3 text-xs font-black text-[#07513a]">Guardar y cerrar</button>
-              <button onClick={closeOrder} disabled={!isReadyToClose || isSubmitting} className="flex-1 rounded-lg bg-[#08724c] px-4 py-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">Cerrar comanda</button>
+              <button onClick={onClose} className="flex-1 rounded-lg border border-emerald-300 bg-white px-4 py-3 text-xs font-black text-[#07513a]">
+                Guardar y cerrar
+              </button>
+              {!paymentScope && (
+                <button
+                  type="button"
+                  onClick={handleOpenCreditPrompt}
+                  disabled={isSubmitting}
+                  className="flex-1 rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300 flex items-center justify-center gap-1.5 shadow-md transition-all"
+                  title="Cerrar esta comanda a crédito como cuenta por cobrar"
+                >
+                  <span>📝 Cerrar a Crédito</span>
+                </button>
+              )}
+              <button onClick={closeOrder} disabled={!isReadyToClose || isSubmitting} className="flex-1 rounded-lg bg-[#08724c] px-4 py-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+                Cerrar comanda
+              </button>
             </footer>
           </div>
         </div>
+
+        {/* MODAL DE CONFIRMACIÓN Y REGISTRO DE CRÉDITO */}
+        {isCreditPromptOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-2xl border border-amber-300 bg-white p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-200 pb-3">
+                <div className="flex items-center gap-2 text-amber-900 font-black text-base">
+                  <span>📝</span>
+                  <span>CERRAR CUENTA A CRÉDITO</span>
+                </div>
+                <button
+                  onClick={() => setIsCreditPromptOpen(false)}
+                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                >
+                  <IoClose size={20} />
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1">
+                <div className="font-bold flex justify-between">
+                  <span>Comanda #{order.orderNumber}</span>
+                  <span className="text-sm font-black text-amber-900">${pendingDebtUSD > 0.01 ? pendingDebtUSD.toFixed(2) : order.totalUSD.toFixed(2)} USD</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Esta cuenta se guardará como <strong>deuda / cuenta por cobrar</strong> y no generará ingresos en efectivo en caja chica.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-black text-slate-800 mb-1">
+                    Nombre del Cliente / Deudor <span className="text-red-600">(*Obligatorio)</span>
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Ej. Juan Pérez / Empresa X"
+                    value={creditDebtorInput}
+                    onChange={(e) => {
+                      setCreditDebtorInput(e.target.value);
+                      if (creditError) setCreditError('');
+                    }}
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-amber-500 focus:bg-white transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-slate-800 mb-1">
+                    Nota o referencia del crédito <span className="text-slate-400 font-normal">(Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Paga el viernes / Teléfono / Contacto"
+                    value={creditNotesInput}
+                    onChange={(e) => setCreditNotesInput(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-amber-500 focus:bg-white transition-all"
+                  />
+                </div>
+
+                {creditError && (
+                  <p className="p-2.5 rounded-lg bg-red-50 text-red-700 text-xs font-bold border border-red-200">
+                    {creditError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCreditPromptOpen(false)}
+                  className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCloseCredit}
+                  disabled={isSubmitting || !creditDebtorInput.trim()}
+                  className="flex-1 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2.5 text-xs font-black text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {isSubmitting ? 'Guardando...' : '✅ Confirmar Crédito'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

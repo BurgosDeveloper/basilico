@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Product, Ingredient, Table, RecipeIngredient } from '../data/mockData';
+import { Product, Ingredient, Table, RecipeIngredient, DualPrintersConfig } from '../data/mockData';
+import { AdminPinModal } from '../components/AdminPinModal';
 
 import {
   IoPizza,
@@ -9,6 +10,14 @@ import {
   IoClose,
   IoSparkles,
   IoBeer,
+  IoLockClosed,
+  IoShieldCheckmark,
+  IoKeypad,
+  IoCheckmarkCircle,
+  IoPrintOutline,
+  IoRestaurantOutline,
+  IoCardOutline,
+  IoLayersOutline,
 } from 'react-icons/io5';
 
 export const MenuManagementPage: React.FC = () => {
@@ -25,12 +34,42 @@ export const MenuManagementPage: React.FC = () => {
     addTable,
     updateTable,
     deleteTable,
-    purgeAllOrders,
+    getAdminPin,
+    updateAdminPin,
+    getPrintersConfig,
+    updatePrintersConfig,
+    testPrinter,
     backendUrl,
     userSession,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'pizzas' | 'bebidas' | 'ingredientes' | 'mesas'>('pizzas');
+  const [activeTab, setActiveTab] = useState<'pizzas' | 'bebidas' | 'ingredientes' | 'mesas' | 'seguridad' | 'impresoras'>('pizzas');
+  const [isCashierUnlocked, setIsCashierUnlocked] = useState<boolean>(userSession?.role === 'admin');
+  const [currentPin, setCurrentPin] = useState<string>('1234');
+  const [newPinInput, setNewPinInput] = useState<string>('');
+  const [confirmPinInput, setConfirmPinInput] = useState<string>('');
+  const [pinFeedback, setPinFeedback] = useState<string>('');
+  const [pinError, setPinError] = useState<string>('');
+  const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
+
+  // Estado de Configuración de Impresoras Duales
+  const [printersConfig, setPrintersConfig] = useState<DualPrintersConfig>({
+    cocina: { name: 'Impresora Cocina / KDS', enabled: true, host: '192.168.1.200', port: 9100, timeoutMs: 5000, copies: 1 },
+    caja: { name: 'Impresora Caja / Mostrador', enabled: true, host: '192.168.1.201', port: 9100, timeoutMs: 5000, copies: 1 },
+  });
+  const [isSavingPrinters, setIsSavingPrinters] = useState(false);
+  const [printersFeedback, setPrintersFeedback] = useState('');
+  const [printersError, setPrintersError] = useState('');
+  const [testingPrinterKey, setTestingPrinterKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (userSession?.role === 'admin' || isCashierUnlocked) {
+      void getAdminPin().then((pin) => setCurrentPin(pin)).catch(() => {});
+      void getPrintersConfig().then((cfg) => {
+        if (cfg) setPrintersConfig(cfg);
+      }).catch(() => {});
+    }
+  }, [userSession, isCashierUnlocked, getAdminPin, getPrintersConfig]);
 
   // Modal Pizza (Crear / Editar)
   const [isAddPizzaOpen, setIsAddPizzaOpen] = useState(false);
@@ -122,7 +161,7 @@ export const MenuManagementPage: React.FC = () => {
       image: pizzaImg,
       baseIngredients: selectedBaseIngredients.length > 0 ? selectedBaseIngredients : ['Salsa de Tomate', 'Queso Mozzarella'],
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || 'ambos'
+      shift: userSession?.shift || 'manana'
     };
 
     if (editingProductId) {
@@ -162,7 +201,7 @@ export const MenuManagementPage: React.FC = () => {
       description: drinkDesc || 'Bebida fría.',
       image: drinkImg,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || 'ambos'
+      shift: userSession?.shift || 'manana'
     };
 
     if (editingDrinkId) {
@@ -198,7 +237,7 @@ export const MenuManagementPage: React.FC = () => {
       isBaseForPizza: ingIsBase,
       isExtraForPizza: ingIsExtra,
       category: ingCategory || 'Ingredientes',
-      shift: userSession?.shift || 'ambos'
+      shift: userSession?.shift || 'manana'
     };
 
     if (editingIngredientId) {
@@ -256,11 +295,11 @@ export const MenuManagementPage: React.FC = () => {
     );
   };
 
-  const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift);
-  const pizzas = shiftProducts.filter((p) => p.category === 'Pizzas');
-  const bebidas = shiftProducts.filter((p) => p.category === 'Bebidas');
-  const shiftIngredients = ingredients.filter(i => !i.shift || i.shift === 'ambos' || i.shift === userSession?.shift);
-  const baseIngredientsAvailable = shiftIngredients.filter((i) => i.isBaseForPizza);
+  const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const pizzas = shiftProducts.filter((p) => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const bebidas = shiftProducts.filter((p) => p.category === 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const shiftIngredients = ingredients.filter(i => !i.shift || i.shift === 'ambos' || i.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const baseIngredientsAvailable = shiftIngredients.filter((i) => i.isBaseForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
   return (
     <div className="p-4 sm:p-8 space-y-8 max-w-7xl mx-auto text-slate-900">
@@ -323,6 +362,26 @@ export const MenuManagementPage: React.FC = () => {
           >
             <IoPizza />
             <span>MESAS ({tables.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('seguridad')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+              activeTab === 'seguridad' ? 'bg-emerald-600 text-slate-900 shadow-lg' : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <IoLockClosed />
+            <span>🔐 PIN DE SEGURIDAD</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('impresoras')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+              activeTab === 'impresoras' ? 'bg-emerald-600 text-slate-900 shadow-lg' : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <IoPrintOutline />
+            <span>🖨️ IMPRESORAS TÉRMICAS</span>
           </button>
         </div>
       </div>
@@ -576,6 +635,499 @@ export const MenuManagementPage: React.FC = () => {
             })}
           </div>
         </div>
+      )}
+
+      {/* TAB 5: SEGURIDAD Y PIN */}
+      {activeTab === 'seguridad' && (
+        <div className="space-y-6 max-w-2xl mx-auto">
+          <div className="p-8 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/30 shadow-2xl space-y-6">
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-700">
+                <IoShieldCheckmark size={26} />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-900 uppercase">PIN de Seguridad y Autorizaciones</h2>
+                <p className="text-xs text-slate-600 font-semibold">
+                  Configura el PIN de 4 dígitos requerido para autorizar acciones sensibles en el perfil de Caja (Editar comanda, Anular, Unificar, Historial, Reportes y Cierre).
+                </p>
+              </div>
+            </div>
+
+            {/* PIN Actual Informativo */}
+            <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-black uppercase text-emerald-800 block">PIN de Administrador Configurado:</span>
+                <span className="text-2xl font-black text-emerald-700 tracking-widest">
+                  {currentPin ? currentPin.split('').map(() => '•').join(' ') + ` (${currentPin})` : '1234'}
+                </span>
+              </div>
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-600 text-slate-900 font-black text-xs">
+                ACTIVO
+              </div>
+            </div>
+
+            {/* Formulario de Cambio de PIN */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPinFeedback('');
+                setPinError('');
+                if (!/^\d{4}$/.test(newPinInput)) {
+                  setPinError('El nuevo PIN debe contener exactamente 4 dígitos numéricos.');
+                  return;
+                }
+                if (newPinInput !== confirmPinInput) {
+                  setPinError('La confirmación del PIN no coincide con el nuevo PIN.');
+                  return;
+                }
+                setIsSavingPin(true);
+                try {
+                  await updateAdminPin(newPinInput);
+                  setCurrentPin(newPinInput);
+                  setNewPinInput('');
+                  setConfirmPinInput('');
+                  setPinFeedback('✅ ¡PIN de seguridad actualizado exitosamente a ' + newPinInput + '!');
+                } catch (err: any) {
+                  setPinError(err.message || 'Error al actualizar el PIN.');
+                } finally {
+                  setIsSavingPin(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <h3 className="text-sm font-black text-slate-900 uppercase">Modificar PIN de Seguridad:</h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Nuevo PIN (4 dígitos):</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    required
+                    value={newPinInput}
+                    onChange={(e) => {
+                      setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 4));
+                      setPinFeedback('');
+                      setPinError('');
+                    }}
+                    placeholder="••••"
+                    className="w-full px-4 py-3 rounded-xl bg-white border border-slate-300 text-base font-black text-center tracking-widest text-slate-900 outline-none focus:border-emerald-500 shadow-inner"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Confirmar Nuevo PIN:</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    required
+                    value={confirmPinInput}
+                    onChange={(e) => {
+                      setConfirmPinInput(e.target.value.replace(/\D/g, '').slice(0, 4));
+                      setPinFeedback('');
+                      setPinError('');
+                    }}
+                    placeholder="••••"
+                    className="w-full px-4 py-3 rounded-xl bg-white border border-slate-300 text-base font-black text-center tracking-widest text-slate-900 outline-none focus:border-emerald-500 shadow-inner"
+                  />
+                </div>
+              </div>
+
+              {pinFeedback && (
+                <div className="p-3 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-black text-center flex items-center justify-center gap-1.5">
+                  <IoCheckmarkCircle className="text-base" />
+                  <span>{pinFeedback}</span>
+                </div>
+              )}
+
+              {pinError && (
+                <div className="p-3 rounded-xl bg-red-100 border border-red-300 text-red-800 text-xs font-black text-center">
+                  ⚠️ {pinError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={newPinInput.length !== 4 || confirmPinInput.length !== 4 || isSavingPin}
+                className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-slate-900 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2"
+              >
+                <IoKeypad />
+                <span>{isSavingPin ? 'GUARDANDO PIN...' : 'GUARDAR NUEVO PIN'}</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: IMPRESORAS TÉRMICAS DUALES */}
+      {activeTab === 'impresoras' && (
+        <div className="space-y-6 max-w-4xl mx-auto">
+          {/* Header Info */}
+          <div className="p-6 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/30 shadow-xl flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-700 text-2xl">
+                <IoPrintOutline />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-900 uppercase">Sistema de Impresoras Térmicas Duales</h2>
+                <p className="text-xs text-slate-600 font-semibold">
+                  Configura las direcciones IP y puertos de la <strong>Impresora de Cocina</strong> (comandas y adiciones) y la <strong>Impresora de Caja</strong> (pre-cuentas y cierres).
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={testingPrinterKey !== null}
+              onClick={async () => {
+                setTestingPrinterKey('ambas');
+                setPrintersFeedback('');
+                setPrintersError('');
+                try {
+                  await testPrinter('ambas');
+                  setPrintersFeedback('✅ ¡Impresión de prueba enviada exitosamente a AMBAS impresoras!');
+                } catch (err: any) {
+                  setPrintersError(err.message || 'Error en test de impresoras.');
+                } finally {
+                  setTestingPrinterKey(null);
+                }
+              }}
+              className="px-4 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500 text-sky-800 hover:text-black border border-sky-400/50 font-black text-xs flex items-center gap-2 shadow-sm transition-all whitespace-nowrap"
+            >
+              <IoLayersOutline className="text-base" />
+              <span>{testingPrinterKey === 'ambas' ? 'PROBANDO...' : 'PROBAR AMBAS'}</span>
+            </button>
+          </div>
+
+          {printersFeedback && (
+            <div className="p-4 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-black text-center flex items-center justify-center gap-2 shadow-sm">
+              <IoCheckmarkCircle className="text-lg" />
+              <span>{printersFeedback}</span>
+            </div>
+          )}
+
+          {printersError && (
+            <div className="p-4 rounded-2xl bg-red-100 border border-red-300 text-red-800 text-xs font-black text-center shadow-sm">
+              ⚠️ {printersError}
+            </div>
+          )}
+
+          {/* Formulario 2 Columnas para Cocina y Caja */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* PANEL 1: IMPRESORA DE COCINA */}
+            <div className={`p-6 rounded-3xl border shadow-xl space-y-4 transition-all ${
+              printersConfig.cocina.enabled
+                ? 'bg-gradient-to-br from-white to-amber-50/50 border-amber-500/40 ring-1 ring-amber-400/30'
+                : 'bg-white/60 border-slate-200 opacity-80'
+            }`}>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center text-xl">
+                    <IoRestaurantOutline />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base text-slate-900">🍳 Impresora de Cocina</h3>
+                    <span className="text-[10px] text-slate-500 font-bold block">Comandas y Adiciones de Cocina</span>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={printersConfig.cocina.enabled}
+                    onChange={(e) => setPrintersConfig(prev => ({
+                      ...prev,
+                      cocina: { ...prev.cocina, enabled: e.target.checked }
+                    }))}
+                    className="w-5 h-5 rounded accent-amber-500"
+                  />
+                  <span className={`text-xs font-black ${printersConfig.cocina.enabled ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {printersConfig.cocina.enabled ? '🟢 ACTIVA' : '🔴 INACTIVA'}
+                  </span>
+                </label>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Nombre / Identificador:</label>
+                  <input
+                    type="text"
+                    value={printersConfig.cocina.name}
+                    onChange={(e) => setPrintersConfig(prev => ({
+                      ...prev,
+                      cocina: { ...prev.cocina, name: e.target.value }
+                    }))}
+                    placeholder="Impresora Cocina / KDS"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-bold text-slate-900 outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Dirección IP (Host):</label>
+                    <input
+                      type="text"
+                      value={printersConfig.cocina.host}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        cocina: { ...prev.cocina, host: e.target.value }
+                      }))}
+                      placeholder="192.168.1.200"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-mono font-bold text-slate-900 outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Puerto (Port):</label>
+                    <input
+                      type="number"
+                      value={printersConfig.cocina.port}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        cocina: { ...prev.cocina, port: parseInt(e.target.value, 10) || 9100 }
+                      }))}
+                      placeholder="9100"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-mono font-bold text-slate-900 outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Copias por Ticket:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={printersConfig.cocina.copies}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        cocina: { ...prev.cocina, copies: parseInt(e.target.value, 10) || 1 }
+                      }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-bold text-slate-900 outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Timeout (ms):</label>
+                    <input
+                      type="number"
+                      step={500}
+                      value={printersConfig.cocina.timeoutMs}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        cocina: { ...prev.cocina, timeoutMs: parseInt(e.target.value, 10) || 5000 }
+                      }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-mono text-slate-900 outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    disabled={testingPrinterKey !== null || !printersConfig.cocina.enabled}
+                    onClick={async () => {
+                      setTestingPrinterKey('cocina');
+                      setPrintersFeedback('');
+                      setPrintersError('');
+                      try {
+                        await testPrinter('cocina');
+                        setPrintersFeedback('✅ ¡Impresión de prueba enviada exitosamente a la Impresora de Cocina!');
+                      } catch (err: any) {
+                        setPrintersError(err.message || 'Error al conectar con la impresora de cocina.');
+                      } finally {
+                        setTestingPrinterKey(null);
+                      }
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <IoPrintOutline />
+                    <span>{testingPrinterKey === 'cocina' ? 'PROBANDO...' : '🧪 IMPRESIÓN DE PRUEBA COCINA'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* PANEL 2: IMPRESORA DE CAJA */}
+            <div className={`p-6 rounded-3xl border shadow-xl space-y-4 transition-all ${
+              printersConfig.caja.enabled
+                ? 'bg-gradient-to-br from-white to-emerald-50/50 border-emerald-500/40 ring-1 ring-emerald-400/30'
+                : 'bg-white/60 border-slate-200 opacity-80'
+            }`}>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-700 flex items-center justify-center text-xl">
+                    <IoCardOutline />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base text-slate-900">💳 Impresora de Caja</h3>
+                    <span className="text-[10px] text-slate-500 font-bold block">Pre-Cuentas, Reportes y Cierres</span>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={printersConfig.caja.enabled}
+                    onChange={(e) => setPrintersConfig(prev => ({
+                      ...prev,
+                      caja: { ...prev.caja, enabled: e.target.checked }
+                    }))}
+                    className="w-5 h-5 rounded accent-emerald-500"
+                  />
+                  <span className={`text-xs font-black ${printersConfig.caja.enabled ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {printersConfig.caja.enabled ? '🟢 ACTIVA' : '🔴 INACTIVA'}
+                  </span>
+                </label>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Nombre / Identificador:</label>
+                  <input
+                    type="text"
+                    value={printersConfig.caja.name}
+                    onChange={(e) => setPrintersConfig(prev => ({
+                      ...prev,
+                      caja: { ...prev.caja, name: e.target.value }
+                    }))}
+                    placeholder="Impresora Caja / Mostrador"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-bold text-slate-900 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Dirección IP (Host):</label>
+                    <input
+                      type="text"
+                      value={printersConfig.caja.host}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        caja: { ...prev.caja, host: e.target.value }
+                      }))}
+                      placeholder="192.168.1.201"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-mono font-bold text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Puerto (Port):</label>
+                    <input
+                      type="number"
+                      value={printersConfig.caja.port}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        caja: { ...prev.caja, port: parseInt(e.target.value, 10) || 9100 }
+                      }))}
+                      placeholder="9100"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-mono font-bold text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Copias por Ticket:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={printersConfig.caja.copies}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        caja: { ...prev.caja, copies: parseInt(e.target.value, 10) || 1 }
+                      }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-bold text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Timeout (ms):</label>
+                    <input
+                      type="number"
+                      step={500}
+                      value={printersConfig.caja.timeoutMs}
+                      onChange={(e) => setPrintersConfig(prev => ({
+                        ...prev,
+                        caja: { ...prev.caja, timeoutMs: parseInt(e.target.value, 10) || 5000 }
+                      }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 font-mono text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    disabled={testingPrinterKey !== null || !printersConfig.caja.enabled}
+                    onClick={async () => {
+                      setTestingPrinterKey('caja');
+                      setPrintersFeedback('');
+                      setPrintersError('');
+                      try {
+                        await testPrinter('caja');
+                        setPrintersFeedback('✅ ¡Impresión de prueba enviada exitosamente a la Impresora de Caja!');
+                      } catch (err: any) {
+                        setPrintersError(err.message || 'Error al conectar con la impresora de caja.');
+                      } finally {
+                        setTestingPrinterKey(null);
+                      }
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-slate-900 font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <IoPrintOutline />
+                    <span>{testingPrinterKey === 'caja' ? 'PROBANDO...' : '🧪 IMPRESIÓN DE PRUEBA CAJA'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Botón Guardar Cambios */}
+          <div className="pt-4">
+            <button
+              type="button"
+              disabled={isSavingPrinters}
+              onClick={async () => {
+                setIsSavingPrinters(true);
+                setPrintersFeedback('');
+                setPrintersError('');
+                try {
+                  const updated = await updatePrintersConfig(printersConfig);
+                  setPrintersConfig(updated);
+                  setPrintersFeedback('✅ ¡Configuración de impresoras guardada exitosamente!');
+                } catch (err: any) {
+                  setPrintersError(err.message || 'Error al guardar la configuración de impresoras.');
+                } finally {
+                  setIsSavingPrinters(false);
+                }
+              }}
+              className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-slate-900 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2"
+            >
+              <IoPrintOutline className="text-lg" />
+              <span>{isSavingPrinters ? 'GUARDANDO CONFIGURACIÓN...' : '💾 GUARDAR CONFIGURACIÓN DE IMPRESORAS'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Desbloqueo por PIN para Usuario Caja */}
+      {userSession?.role === 'caja' && !isCashierUnlocked && (
+        <AdminPinModal
+          isOpen={true}
+          title="🔐 ACCESO ADMINISTRATIVO"
+          description="Para ingresar a la gestión del menú y configuración ingrese el PIN de 4 dígitos:"
+          actionName="Panel de Administración"
+          onSuccess={() => setIsCashierUnlocked(true)}
+          onClose={() => window.history.back()}
+        />
       )}
 
       {/* MODAL CREAR PIZZA */}

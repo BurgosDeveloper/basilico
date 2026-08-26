@@ -17,35 +17,61 @@ async function tryPgPool(dbName, dbPassword) {
 
 async function initDb() {
   const targetDbName = process.env.DB_NAME || 'basilico';
-  const targetDbPass = process.env.DB_PASSWORD || 'basilico1.';
+  const explicitPass = process.env.DB_PASSWORD;
+
+  // Lista de posibles contraseñas a probar en orden
+  const passwordsToTry = explicitPass
+    ? [explicitPass]
+    : ['basilico1.', 'basilico1', 'sdmaia1.', 'postgres', 'admin', 'root', ''];
+
+  const dbsToTry = [targetDbName, 'sdmaia', 'postgres'];
 
   let connectionObj = null;
+  let lastError = null;
 
-  try {
-    connectionObj = await tryPgPool(targetDbName, targetDbPass);
-  } catch (err1) {
-    if (err1.message && err1.message.includes(`database "${targetDbName}" does not exist`)) {
-      try {
-        console.log(`ℹ️ La base de datos "${targetDbName}" no existe. Creándola automáticamente en PostgreSQL...`);
-        const adminConn = await tryPgPool('postgres', targetDbPass);
-        await adminConn.client.query(`CREATE DATABASE "${targetDbName}"`);
-        adminConn.client.release();
-        await adminConn.pool.end();
-        connectionObj = await tryPgPool(targetDbName, targetDbPass);
-      } catch (createErr) {
-        console.error(`⚠️ No se pudo crear la BD "${targetDbName}":`, createErr.message);
-        process.exit(1);
+  // 1. Intentar conectar a la base de datos principal con las contraseñas posibles
+  for (const pass of passwordsToTry) {
+    try {
+      connectionObj = await tryPgPool(targetDbName, pass);
+      if (connectionObj) break;
+    } catch (err) {
+      lastError = err;
+      if (err.message && err.message.includes(`database "${targetDbName}" does not exist`)) {
+        // La BD no existe pero la contraseña es correcta, intentar crearla
+        try {
+          console.log(`ℹ️ La base de datos "${targetDbName}" no existe. Creándola automáticamente en PostgreSQL...`);
+          const adminConn = await tryPgPool('postgres', pass);
+          await adminConn.client.query(`CREATE DATABASE "${targetDbName}"`);
+          adminConn.client.release();
+          await adminConn.pool.end();
+          connectionObj = await tryPgPool(targetDbName, pass);
+          if (connectionObj) break;
+        } catch (createErr) {
+          console.error(`⚠️ No se pudo crear la BD "${targetDbName}":`, createErr.message);
+        }
       }
     }
+  }
 
-    if (!connectionObj) {
-      try {
-        connectionObj = await tryPgPool('sdmaia', 'sdmaia1.');
-      } catch (err2) {
-        console.error('Fatal: Could not connect to PostgreSQL database.', err2.message);
-        process.exit(1);
+  // 2. Si aún no conectó, intentar con las otras bases de datos secundarias
+  if (!connectionObj) {
+    for (const db of dbsToTry) {
+      if (db === targetDbName) continue;
+      for (const pass of passwordsToTry) {
+        try {
+          connectionObj = await tryPgPool(db, pass);
+          if (connectionObj) break;
+        } catch (e) {
+          lastError = e;
+        }
       }
+      if (connectionObj) break;
     }
+  }
+
+  if (!connectionObj) {
+    console.error('Fatal: Could not connect to PostgreSQL database.', lastError ? lastError.message : '');
+    process.exit(1);
   }
 
   if (connectionObj) {
@@ -76,6 +102,8 @@ async function initDb() {
       `ALTER TABLE orders ADD COLUMN IF NOT EXISTS merged_from_orders TEXT[];`,
       `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_history_json JSONB;`,
       `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee_usd NUMERIC(10, 2) DEFAULT 0.00;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS debtor_name VARCHAR(128);`,
 
       `CREATE TABLE IF NOT EXISTS order_items (id VARCHAR(64) PRIMARY KEY, order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE, product_id VARCHAR(64) NOT NULL, product_name VARCHAR(128) NOT NULL, price NUMERIC(10, 2) NOT NULL, quantity INT NOT NULL DEFAULT 1, removed_ingredients TEXT[], extras_json JSONB, sugar_preference VARCHAR(32), is_takeaway BOOLEAN DEFAULT FALSE, notes TEXT);`,
       `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS size VARCHAR(32) DEFAULT 'Grande';`,
@@ -138,6 +166,19 @@ async function initDb() {
       `CREATE TABLE IF NOT EXISTS order_edits (id VARCHAR(64) PRIMARY KEY, order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE, order_number VARCHAR(32), edited_by VARCHAR(128) DEFAULT 'admin', edit_type VARCHAR(64) DEFAULT 'modificacion', edit_details TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`,
       `CREATE INDEX IF NOT EXISTS idx_order_edits_created_at ON order_edits(created_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_order_edits_order_id ON order_edits(order_id);`,
+      `CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`,
+      `INSERT INTO system_settings (key, value) VALUES ('admin_pin', '1234') ON CONFLICT (key) DO NOTHING;`,
+      `ALTER TABLE ingredients DROP CONSTRAINT IF EXISTS ingredients_name_key;`,
+      `INSERT INTO products (id, name, category, drink_type, price, price_small, description, image, badge, base_ingredients, shift)
+       SELECT id || '-noche', name, category, drink_type, price, price_small, description, image, badge, base_ingredients, 'noche'
+       FROM products WHERE shift = 'ambos' OR shift = 'manana'
+       ON CONFLICT (id) DO NOTHING;`,
+      `UPDATE products SET shift = 'manana' WHERE shift = 'ambos';`,
+      `INSERT INTO ingredients (id, name, price_usd, is_base_for_pizza, is_extra_for_pizza, category, available, shift)
+       SELECT id || '-noche', name, price_usd, is_base_for_pizza, is_extra_for_pizza, category, available, 'noche'
+       FROM ingredients WHERE shift = 'ambos' OR shift = 'manana'
+       ON CONFLICT (id) DO NOTHING;`,
+      `UPDATE ingredients SET shift = 'manana' WHERE shift = 'ambos';`,
     ];
 
     for (const q of migrationQueries) {

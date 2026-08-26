@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { OrderDetailModal } from '../components/OrderDetailModal';
 import { OrderEditModal } from '../components/OrderEditModal';
 import { PaymentLedgerModal } from '../components/PaymentLedgerModal';
 import { SplitPaymentSelectionModal } from '../components/SplitPaymentSelectionModal';
-import { useSearchParams } from 'react-router-dom';
+import { ExchangeRateModal } from '../components/ExchangeRateModal';
+import { AdminPinModal } from '../components/AdminPinModal';
+import { ChangeTableModal } from '../components/ChangeTableModal';
+import { OrderAppendModal } from '../components/OrderAppendModal';
+import { PrinterSelectModal } from '../components/PrinterSelectModal';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { PaymentMethod, Order } from '../data/mockData';
 import { reportService } from '../services/reportService';
@@ -15,18 +20,20 @@ import {
   IoTimeOutline,
   IoCheckmarkCircle,
   IoCloseCircle,
-  IoPrint,
   IoBarChartOutline,
   IoLockClosedOutline,
   IoDocumentTextOutline,
   IoPizza,
   IoTrendingUp,
   IoPersonOutline,
+  IoSwapHorizontal,
+  IoTrashOutline,
+  IoPrintOutline,
 } from 'react-icons/io5';
 
 const HISTORIC_PAYMENT_METHODS: PaymentMethod[] = [
   'Efectivo USD', 'Zelle', 'Binance', 'Efectivo COP', 'Bancolombia', 'Nequi',
-  'Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito', 'Mixto',
+  'Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito', 'Mixto', 'Crédito',
 ];
 const PHYSICAL_CASH_METHODS = new Set(['Efectivo USD', 'Efectivo COP']);
 
@@ -47,13 +54,14 @@ export const CajaPage: React.FC = () => {
     exchangeRates,
     cajaChicaApertura,
     cajaChicaTransactions,
-    ultimoCierre,
     updateOrderStatus,
+    deleteOrder,
     aperturarCajaChica,
     addCajaTransaction,
     realizarCierreCaja,
     fetchReporteIntervalo,
     printReporteIntervalo,
+    printOrderReceipt,
     userSession,
     editOrder,
     deletePaymentEntry,
@@ -62,16 +70,61 @@ export const CajaPage: React.FC = () => {
     ingredients,
   } = useApp();
 
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSubTab = searchParams.get('tab') || 'comandas';
 
   const filteredCajaTransactions = cajaChicaTransactions.filter(t => !t.shift || t.shift === 'ambos' || t.shift === userSession?.shift);
   const filteredApertura = cajaChicaApertura.shift && cajaChicaApertura.shift !== 'ambos' && cajaChicaApertura.shift !== userSession?.shift ? { usdCash: 0, copCash: 0 } : cajaChicaApertura;
-  const filteredUltimoCierre = ultimoCierre && (!ultimoCierre.shift || ultimoCierre.shift === 'ambos' || ultimoCierre.shift === userSession?.shift) ? ultimoCierre : null;
 
   const [activeOrderForPay, setActiveOrderForPay] = useState<Order | null>(null);
+  const [orderAppendModalOrder, setOrderAppendModalOrder] = useState<Order | null>(null);
   const [orderEditModalOrder, setOrderEditModalOrder] = useState<Order | null>(null);
   const [orderDetailModalOrder, setOrderDetailModalOrder] = useState<Order | null>(null);
+  const [printerSelectOrder, setPrinterSelectOrder] = useState<Order | null>(null);
+  const [isExchangeModalOpen, setIsExchangeModalOpen] = useState<boolean>(false);
+
+  // States para confirmación e impresión de reportes de intervalo
+  const [pendingReportChoice, setPendingReportChoice] = useState<{
+    type: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina';
+    title: string;
+    generator: () => void;
+  } | null>(null);
+
+  const [printerSelectReport, setPrinterSelectReport] = useState<{
+    type: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina';
+    title: string;
+    generator: () => void;
+  } | null>(null);
+
+  // Security PIN Modal State for Cashier Authorizations
+  const [pinModalState, setPinModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    description?: string;
+    actionName: string;
+    onSuccess: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    actionName: '',
+    onSuccess: () => {},
+  });
+
+  const requireAdminPin = (actionName: string, title: string, callback: () => void, description?: string) => {
+    if (userSession?.role === 'admin') {
+      callback();
+    } else {
+      setPinModalState({
+        isOpen: true,
+        title: title || '🔐 AUTORIZACIÓN DE ADMINISTRADOR',
+        description: description || 'Ingrese el PIN de seguridad de 4 dígitos para autorizar:',
+        actionName,
+        onSuccess: callback,
+      });
+    }
+  };
 
   // Multi-Order Table Payment & Merge state
   const [selectedOrderIdsForMultiPay, setSelectedOrderIdsForMultiPay] = useState<string[]>([]);
@@ -81,17 +134,32 @@ export const CajaPage: React.FC = () => {
   const [splitPaymentScope, setSplitPaymentScope] = useState<{ payerName: string; itemIds: string[] } | null>(null);
   const [isEditingSplitPayment, setIsEditingSplitPayment] = useState(false);
 
+  // Modal de Cambio de Mesa
+  const [tableChangeOrder, setTableChangeOrder] = useState<Order | null>(null);
+
   // Apertura de Caja Chica Modal
   const [isAperturaModalOpen, setIsAperturaModalOpen] = useState<boolean>(false);
-  const [initUSD, setInitUSD] = useState<string>(cajaChicaApertura.usdCash.toString());
-  const [initCOP, setInitCOP] = useState<string>(cajaChicaApertura.copCash.toString());
+  const [initUSD, setInitUSD] = useState<string>('');
+  const [initCOP, setInitCOP] = useState<string>('');
+
+  const handleOpenAperturaModal = () => {
+    setInitUSD(filteredApertura.usdCash > 0 ? filteredApertura.usdCash.toString() : (filteredApertura.usdCash === 0 ? '0' : ''));
+    setInitCOP(filteredApertura.copCash > 0 ? filteredApertura.copCash.toString() : (filteredApertura.copCash === 0 ? '0' : ''));
+    setIsAperturaModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (isAperturaModalOpen) {
+      setInitUSD(filteredApertura.usdCash > 0 ? filteredApertura.usdCash.toString() : (filteredApertura.usdCash === 0 ? '0' : ''));
+      setInitCOP(filteredApertura.copCash > 0 ? filteredApertura.copCash.toString() : (filteredApertura.copCash === 0 ? '0' : ''));
+    }
+  }, [isAperturaModalOpen, filteredApertura.usdCash, filteredApertura.copCash]);
 
   // Cierre de Caja Chica Modal
   const [isCierreModalOpen, setIsCierreModalOpen] = useState<boolean>(false);
   const [cierreActualUSD, setCierreActualUSD] = useState<string>('');
   const [cierreActualCOP, setCierreActualCOP] = useState<string>('');
   const [cierreNotes, setCierreNotes] = useState<string>('');
-  const [cierreResult, setCierreResult] = useState<any>(null);
   const [cierreError, setCierreError] = useState<string>('');
   const [isSubmittingCierre, setIsSubmittingCierre] = useState<boolean>(false);
 
@@ -103,6 +171,12 @@ export const CajaPage: React.FC = () => {
   const [manualPaymentMethod, setManualPaymentMethod] = useState<PaymentMethod>('Efectivo USD');
   const [manualDesc, setManualDesc] = useState<string>('');
 
+  // Paginación para listas largas (Caja Chica e Histórico)
+  const [cajaTxPage, setCajaTxPage] = useState<number>(1);
+  const CAJA_TX_PAGE_SIZE = 10;
+  const [historicoPage, setHistoricoPage] = useState<number>(1);
+  const HISTORICO_PAGE_SIZE = 10;
+
   // Reporte por Intervalo State
   const [intervaloFrom, setIntervaloFrom] = useState<string>('');
   const [intervaloTo, setIntervaloTo] = useState<string>('');
@@ -110,11 +184,11 @@ export const CajaPage: React.FC = () => {
   const [isLoadingReporte, setIsLoadingReporte] = useState<boolean>(false);
   const [reporteError, setReporteError] = useState<string>('');
 
-  // Comandas activas no finalizadas/pagadas totalmente (excluye canceladas y fusionadas)
+  // Comandas activas no finalizadas/pagadas totalmente (excluye canceladas, fusionadas, pagadas y créditos ya entregados)
   const activeComandas = orders.filter(
-    (o) => o.status !== 'cancelado' && o.status !== 'fusionada' && !(o.status === 'entregada' && o.paymentStatus === 'pagado') && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
+    (o) => o.status !== 'cancelado' && o.status !== 'fusionada' && !(o.status === 'entregada' && (o.paymentStatus === 'pagado' || o.paymentStatus === 'credito')) && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
   );
-  const paidOrdersToday = orders.filter((o) => o.paymentStatus === 'pagado' && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift));
+  const paidOrdersToday = orders.filter((o) => (o.paymentStatus === 'pagado' || o.paymentStatus === 'credito') && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift));
 
   // Historico Filters
   const [historicoSearch, setHistoricoSearch] = useState<string>('');
@@ -172,10 +246,8 @@ export const CajaPage: React.FC = () => {
 
   const handleConfirmMergeOrders = async () => {
     if (selectedOrderIdsForMultiPay.length < 2) return;
-    const targetId = selectedOrderIdsForMultiPay[0];
-    const sourceIds = selectedOrderIdsForMultiPay.slice(1);
-
-    await mergeOrders(targetId, sourceIds);
+    const [target, ...sources] = selectedOrderIdsForMultiPay;
+    await mergeOrders(target, sources);
     setSelectedOrderIdsForMultiPay([]);
   };
 
@@ -195,8 +267,11 @@ export const CajaPage: React.FC = () => {
     setIsSubmittingCierre(true);
     setCierreError('');
     try {
-      const res = await realizarCierreCaja(actualUSD, actualCOP, cierreNotes || 'Comprobación diaria de efectivo');
-      if (res) setCierreResult(res.summary);
+      await realizarCierreCaja(actualUSD, actualCOP, cierreNotes || 'Comprobación diaria de efectivo');
+      setIsCierreModalOpen(false);
+      setCierreActualUSD('');
+      setCierreActualCOP('');
+      setCierreNotes('');
     } catch (error) {
       setCierreError(error instanceof Error ? error.message : 'No se pudo registrar la comprobación de caja.');
     } finally {
@@ -222,20 +297,6 @@ export const CajaPage: React.FC = () => {
     setIsManualTxOpen(false);
   };
 
-  const handlePrintIntervalReport = async (
-    reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina',
-    openBrowserReport: () => void
-  ) => {
-    if (!reporteIntervaloData) return;
-    try {
-      setReporteError('');
-      openBrowserReport();
-      await printReporteIntervalo(reportType, reporteIntervaloData);
-    } catch (error) {
-      setReporteError(error instanceof Error ? error.message : 'No se pudo abrir o imprimir el reporte.');
-    }
-  };
-
   // Totales de Caja Chica
   const physicalCashTransactions = filteredCajaTransactions.filter((transaction) => PHYSICAL_CASH_METHODS.has(transaction.paymentMethod));
 
@@ -251,17 +312,24 @@ export const CajaPage: React.FC = () => {
     .filter((t) => t.type === 'ingreso')
     .reduce((sum, t) => sum + t.amountBs, 0);
 
-  const saldoEfectivoUSD = filteredApertura.usdCash + physicalCashTransactions
+  const cashIngresosUSD = physicalCashTransactions
     .filter((transaction) => transaction.type === 'ingreso')
-    .reduce((sum, transaction) => sum + transaction.amountUSD, 0) - physicalCashTransactions
+    .reduce((sum, transaction) => sum + transaction.amountUSD, 0);
+
+  const cashIngresosCOP = physicalCashTransactions
+    .filter((transaction) => transaction.type === 'ingreso')
+    .reduce((sum, transaction) => sum + transaction.amountCOP, 0);
+
+  const cashEgresosUSD = physicalCashTransactions
     .filter((transaction) => transaction.type === 'egreso')
     .reduce((sum, transaction) => sum + transaction.amountUSD, 0);
 
-  const saldoEfectivoCOP = filteredApertura.copCash + physicalCashTransactions
-    .filter((transaction) => transaction.type === 'ingreso')
-    .reduce((sum, transaction) => sum + transaction.amountCOP, 0) - physicalCashTransactions
+  const cashEgresosCOP = physicalCashTransactions
     .filter((transaction) => transaction.type === 'egreso')
     .reduce((sum, transaction) => sum + transaction.amountCOP, 0);
+
+  const saldoEfectivoUSD = filteredApertura.usdCash + cashIngresosUSD - cashEgresosUSD;
+  const saldoEfectivoCOP = filteredApertura.copCash + cashIngresosCOP - cashEgresosCOP;
 
   return (
     <div className="p-4 sm:p-8 space-y-8 max-w-7xl mx-auto text-white">
@@ -311,7 +379,10 @@ export const CajaPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setSearchParams({ tab: 'historico' })}
+            onClick={() => {
+              if (activeSubTab === 'historico') return;
+              requireAdminPin('Acceso a Histórico de Comandas', 'Autorizar Consulta de Historial', () => setSearchParams({ tab: 'historico' }));
+            }}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeSubTab === 'historico'
                 ? 'bg-emerald-500 text-black shadow-lg'
@@ -320,10 +391,14 @@ export const CajaPage: React.FC = () => {
           >
             <IoTimeOutline />
             <span>HISTÓRICO ({paidOrdersToday.length})</span>
+            {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" title="Requiere PIN de Administrador" />}
           </button>
 
           <button
-            onClick={() => setSearchParams({ tab: 'reportes' })}
+            onClick={() => {
+              if (activeSubTab === 'reportes') return;
+              requireAdminPin('Acceso a Reportes y Cierre Contable', 'Autorizar Consulta de Reportes', () => setSearchParams({ tab: 'reportes' }));
+            }}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeSubTab === 'reportes'
                 ? 'bg-emerald-500 text-black shadow-lg'
@@ -332,7 +407,19 @@ export const CajaPage: React.FC = () => {
           >
             <IoBarChartOutline />
             <span>REPORTES & CIERRE</span>
+            {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" title="Requiere PIN de Administrador" />}
           </button>
+
+          {(userSession?.role === 'admin' || userSession?.role === 'caja') && (
+            <button
+              onClick={() => setIsExchangeModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-500/40 shadow-lg hover:border-emerald-400"
+              title="Actualizar tasas de cambio del turno (COP y Bs)"
+            >
+              <IoSwapHorizontal className="text-emerald-400" />
+              <span>💱 TASAS: COP ${exchangeRates.COP.toLocaleString()} | {exchangeRates.Bs.toFixed(2)} Bs</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -363,10 +450,17 @@ export const CajaPage: React.FC = () => {
                 </button>
                 {selectedOrderIdsForMultiPay.length >= 2 && (
                   <button
-                    onClick={handleConfirmMergeOrders}
-                    className="px-4 py-2.5 rounded-xl bg-purple-900 text-purple-200 font-black text-xs hover:bg-purple-800 shadow-xl border border-purple-500/40"
+                    onClick={() => {
+                      requireAdminPin(
+                        `Unificar ${selectedOrderIdsForMultiPay.length} Comandas`,
+                        'Autorizar Fusión de Comandas',
+                        handleConfirmMergeOrders
+                      );
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-purple-900 text-purple-200 font-black text-xs hover:bg-purple-800 shadow-xl border border-purple-500/40 flex items-center gap-1.5"
                   >
-                    🔗 UNIFICAR EN 1 COMANDA MÁSTER
+                    <span>🔗 UNIFICAR EN 1 COMANDA MÁSTER</span>
+                    {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" />}
                   </button>
                 )}
               </div>
@@ -374,18 +468,33 @@ export const CajaPage: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-black text-white flex items-center gap-2">
               <IoCard className="text-emerald-400 text-xl" />
               <span>COMANDAS ACTIVAS EN SISTEMA</span>
             </h2>
-            <span className="text-xs text-gray-400">Total: {activeComandas.length} Comandas</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/mesonero')}
+                className="px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center gap-2 shadow-lg transition-all"
+                title="Ir a la pantalla de Mesero para tomar y enviar nuevos pedidos"
+              >
+                <span>🍽️ + CREAR PEDIDO (MESERO)</span>
+              </button>
+              <span className="text-xs text-gray-400">Total: {activeComandas.length} Comandas</span>
+            </div>
           </div>
 
           {activeComandas.length === 0 ? (
-            <div className="p-16 text-center rounded-3xl bg-white/[0.02] border border-white/10 space-y-3">
+            <div className="p-16 text-center rounded-3xl bg-white/[0.02] border border-white/10 space-y-4">
               <IoCheckmarkDone className="text-5xl text-emerald-400 mx-auto" />
               <p className="text-sm text-gray-400 font-bold">No hay comandas pendientes por cobrar en este momento.</p>
+              <button
+                onClick={() => navigate('/mesonero')}
+                className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs inline-flex items-center gap-2 shadow-xl transition-all"
+              >
+                <span>🍽️ Crear Primera Comanda</span>
+              </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -398,7 +507,7 @@ export const CajaPage: React.FC = () => {
                 return (
                   <div
                     key={ord.id}
-                    className={`p-6 rounded-3xl border backdrop-blur-xl shadow-2xl space-y-5 transition-all ${
+                    className={`p-4 sm:p-5 rounded-3xl border backdrop-blur-xl shadow-xl space-y-3.5 transition-all ${
                       isSelectedForMultiPay
                         ? 'bg-gradient-to-br from-amber-950/90 via-[#070707] to-amber-950/40 border-amber-400 ring-2 ring-amber-400/50'
                         : isDelivered
@@ -421,43 +530,66 @@ export const CajaPage: React.FC = () => {
                           />
                         )}
                         <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl font-black text-white">{ord.orderNumber}</span>
-                            <span className="text-xs px-2.5 py-0.5 rounded-md bg-white/10 font-extrabold uppercase text-gray-300">
-                              {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : ord.type.toUpperCase()}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-2xl md:text-3xl font-black text-white tracking-wide">#{ord.orderNumber}</span>
+                            <span className="text-xs px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black uppercase">
+                              {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : (ord.type || 'mesa').toUpperCase()}
                             </span>
+                            {ord.type === 'mesa' && !isPaid && !isDelivered && (
+                              <button
+                                type="button"
+                                onClick={() => setTableChangeOrder(ord)}
+                                className="px-2 py-0.5 rounded-lg bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-black border border-sky-400/40 text-[10px] font-black flex items-center gap-1 shadow-sm transition-all"
+                                title="Reubicar o cambiar mesa de salón"
+                              >
+                                <IoSwapHorizontal />
+                                <span>Cambiar Mesa</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
 
-
                       {/* Dual Status Badges */}
                       <div className="flex flex-col items-end gap-1.5">
                         <span
-                          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border flex items-center gap-1 ${
+                          className={`px-3 py-1 rounded-full text-[11px] font-black uppercase border flex items-center gap-1 ${
                             isPrepared
-                              ? 'bg-emerald-100 text-emerald-950 border-emerald-300 shadow-lg'
+                              ? 'bg-emerald-100 text-emerald-950 border-emerald-300 shadow-md'
                               : 'bg-amber-100 text-amber-950 border-amber-300 animate-pulse'
                           }`}
                         >
-                          {isPrepared ? <IoCheckmarkCircle /> : <IoTimeOutline />}
-                          <span>{isDelivered ? '📦 ENTREGADA' : isPrepared ? '🔥 PREPARADA (LISTA)' : '⏳ EN COCINA'}</span>
+                          {isPrepared ? <IoCheckmarkCircle className="text-emerald-800" /> : <IoTimeOutline className="text-amber-800" />}
+                          <span>{isDelivered ? '📦 ENTREGADA' : isPrepared ? '🔥 LISTA / COCINADA' : '⏳ EN COCINA'}</span>
                         </span>
 
                         <span
-                          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border flex items-center gap-1 ${
-                            isPaid
+                          className={`px-3 py-1 rounded-full text-[11px] font-black uppercase border flex items-center gap-1 ${
+                            ord.paymentStatus === 'credito'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : isPaid
                               ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                               : 'bg-red-500/20 text-red-300 border-red-500/40'
                           }`}
                         >
-                          {isPaid ? <IoCard /> : <IoCloseCircle />}
-                          <span>{isPaid ? `💳 PAGADO (${ord.paymentMethod})` : '❌ PENDIENTE PAGO'}</span>
+                          {ord.paymentStatus === 'credito' ? (
+                            <span>⚠️ A CRÉDITO</span>
+                          ) : isPaid ? (
+                            <>
+                              <IoCard />
+                              <span>💳 PAGADO ({ord.paymentMethod})</span>
+                            </>
+                          ) : (
+                            <>
+                              <IoCloseCircle />
+                              <span>❌ PENDIENTE PAGO</span>
+                            </>
+                          )}
                         </span>
                       </div>
                     </div>
 
-                    <p className="text-xs text-emerald-300 font-bold break-words flex items-center gap-1.5">
+                    <p className="text-sm text-emerald-300 font-extrabold break-words flex items-center gap-1.5">
                       <IoPersonOutline />
                       <span>👤 Cliente: {ord.customerName || (ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : ord.type === 'pickup' ? 'PickUp / Para Llevar' : 'Delivery')}</span>
                     </p>
@@ -470,49 +602,50 @@ export const CajaPage: React.FC = () => {
                     )}
 
                     {/* Order Items Breakdown with Individual Paid Flags */}
-                    <div className="space-y-2 bg-black/40 p-4 rounded-2xl border border-white/5">
+                    <div className="space-y-1.5 bg-black/40 p-3 sm:p-3.5 rounded-2xl border border-white/5 max-h-48 overflow-y-auto custom-scrollbar">
                       {(ord.items || []).map((it) => (
-                        <div key={it.id} className="space-y-1 text-xs border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                        <div key={it.id} className="space-y-1 text-xs border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
                           <div className="flex justify-between items-start font-bold text-white gap-2">
-                            <span className="break-words flex-1 flex items-center gap-1">
-                              • {it.quantity}x {it.productName}
-                              {it.isTakeaway && <span className="text-amber-400 font-bold ml-1.5">(📦 PARA LLEVAR)</span>}
+                            <span className="break-words flex-1 flex items-center gap-1.5 text-xs sm:text-sm">
+                              <span className="font-black text-amber-400">• {it.quantity}x</span>
+                              <span className="font-extrabold">{it.productName}</span>
+                              {it.isTakeaway && <span className="text-amber-400 font-bold ml-1 text-xs">(📦 LLEVAR)</span>}
                               {it.isPaidIndividually && (
                                 <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-black uppercase">
                                   ✓ PAGADO POR {it.paidByName || 'PERSONA'}
                                 </span>
                               )}
                             </span>
-                            <span className="text-emerald-400 font-extrabold shrink-0">
+                            <span className="text-emerald-400 font-black text-xs sm:text-sm shrink-0">
                               ${(it.price * it.quantity).toFixed(2)}
                             </span>
                           </div>
 
                           {it.sugarPreference && (
-                            <p className="text-[11px] text-cyan-300 font-medium ml-3">
+                            <p className="text-[11px] text-cyan-300 font-bold ml-3">
                               🥤 Preferencia: {it.sugarPreference}
                             </p>
                           )}
 
                           {it.isHalfHalf && it.halfDetails && (
-                            <div className="ml-3 my-1.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-1.5 font-bold">
-                              <div className="text-amber-300 text-[11px] uppercase tracking-wider font-black flex items-center gap-1">
-                                <span>🌓 DESGLOSE MITAD Y MITAD ({it.size || 'Grande'}):</span>
+                            <div className="ml-3 my-1 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-1 font-bold">
+                              <div className="text-amber-300 text-[10px] uppercase tracking-wider font-black flex items-center gap-1">
+                                <span>🌓 MITAD Y MITAD ({it.size || 'Grande'}):</span>
                               </div>
-                              <div className="text-white bg-black/40 p-2 rounded-lg border border-white/10 space-y-1">
+                              <div className="text-white bg-black/40 p-1.5 rounded-lg border border-white/10 space-y-0.5 text-[11px]">
                                 <div className="text-amber-400 font-black">
                                   • 1ra Mitad: <span className="text-white">{it.halfDetails.half1Name}</span>
                                 </div>
                                 {it.halfDetails.half1Removed && it.halfDetails.half1Removed.length > 0 && (
-                                  <div className="text-red-400 text-[11px] font-extrabold ml-2">
+                                  <div className="text-red-400 text-[10px] font-extrabold ml-2">
                                     🚫 SIN: {it.halfDetails.half1Removed.join(', ')}
                                   </div>
                                 )}
                                 {it.halfDetails.half1Extras && it.halfDetails.half1Extras.length > 0 && (
-                                  <div className="text-purple-300 text-[11px] font-extrabold ml-2 space-y-0.5">
+                                  <div className="text-purple-300 text-[10px] font-extrabold ml-2 space-y-0.5">
                                     {it.halfDetails.half1Extras.map((e, idx) => (
                                       <div key={idx} className="flex justify-between">
-                                        <span>➕ EXTRAS 1RA MITAD: {e.name}</span>
+                                        <span>➕ EXTRAS 1RA: {e.name}</span>
                                         {e.price > 0 && <span className="text-emerald-400">+${e.price.toFixed(2)}</span>}
                                       </div>
                                     ))}
@@ -520,20 +653,20 @@ export const CajaPage: React.FC = () => {
                                 )}
                               </div>
 
-                              <div className="text-white bg-black/40 p-2 rounded-lg border border-white/10 space-y-1">
+                              <div className="text-white bg-black/40 p-1.5 rounded-lg border border-white/10 space-y-0.5 text-[11px]">
                                 <div className="text-amber-400 font-black">
                                   • 2da Mitad: <span className="text-white">{it.halfDetails.half2Name}</span>
                                 </div>
                                 {it.halfDetails.half2Removed && it.halfDetails.half2Removed.length > 0 && (
-                                  <div className="text-red-400 text-[11px] font-extrabold ml-2">
+                                  <div className="text-red-400 text-[10px] font-extrabold ml-2">
                                     🚫 SIN: {it.halfDetails.half2Removed.join(', ')}
                                   </div>
                                 )}
                                 {it.halfDetails.half2Extras && it.halfDetails.half2Extras.length > 0 && (
-                                  <div className="text-purple-300 text-[11px] font-extrabold ml-2 space-y-0.5">
+                                  <div className="text-purple-300 text-[10px] font-extrabold ml-2 space-y-0.5">
                                     {it.halfDetails.half2Extras.map((e, idx) => (
                                       <div key={idx} className="flex justify-between">
-                                        <span>➕ EXTRAS 2DA MITAD: {e.name}</span>
+                                        <span>➕ EXTRAS 2DA: {e.name}</span>
                                         {e.price > 0 && <span className="text-emerald-400">+${e.price.toFixed(2)}</span>}
                                       </div>
                                     ))}
@@ -544,13 +677,13 @@ export const CajaPage: React.FC = () => {
                           )}
 
                           {!it.isHalfHalf && it.removedIngredients && it.removedIngredients.length > 0 && (
-                            <p className="text-[11px] text-red-400 font-semibold ml-3 break-words flex items-center gap-1">
+                            <p className="text-[11px] text-red-400 font-bold ml-3 break-words flex items-center gap-1">
                               <IoCloseCircle /> 🚫 SIN: {it.removedIngredients.join(', ')}
                             </p>
                           )}
 
                           {!it.isHalfHalf && it.extras && it.extras.length > 0 && (
-                            <div className="ml-3 text-[11px] text-emerald-400 font-medium space-y-0.5">
+                            <div className="ml-3 text-[11px] text-emerald-400 font-bold space-y-0.5">
                               {(it.extras || []).map((ex, exIdx) => (
                                 <div key={exIdx} className="flex justify-between">
                                   <span className="break-words">➕ EXTRA: {ex.name}</span>
@@ -563,35 +696,44 @@ export const CajaPage: React.FC = () => {
                       ))}
                     </div>
 
-                    {/* Pricing breakdown & Partial Payment Progress */}
+                    {/* Pricing breakdown & Multi-currency display */}
                     {(() => {
                       const paid = ord.paidAmountUSD || 0;
                       const remaining = Math.max(0, ord.totalUSD - paid);
                       return (
                         <div className="space-y-2">
-                          <div className="flex justify-between items-center bg-white/[0.02] p-3 rounded-xl border border-white/5 text-xs">
-                            <div>
-                              <div className="text-gray-400">
-                                Total COP: <strong className="text-white">${Math.round(ord.totalUSD * exchangeRates.COP).toLocaleString()}</strong>
+                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-black/60 p-3 sm:p-3.5 rounded-2xl border border-emerald-500/30 gap-2.5">
+                            <div className="space-y-1 w-full sm:w-auto">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs sm:text-sm font-black text-sky-300 bg-sky-950/80 border border-sky-500/40 px-2 py-0.5 rounded-lg shadow-sm">
+                                  🇨🇴 {Math.round(ord.totalUSD * exchangeRates.COP).toLocaleString()} COP
+                                </span>
+                                <span className="text-xs sm:text-sm font-black text-amber-300 bg-amber-950/80 border border-amber-500/40 px-2 py-0.5 rounded-lg shadow-sm">
+                                  🇻🇪 {(ord.totalUSD * exchangeRates.Bs).toFixed(2)} Bs
+                                </span>
                               </div>
                               {paid > 0 && (
-                                <div className="text-emerald-400 text-[10px] font-bold">
+                                <div className="text-[11px] font-black text-emerald-300">
                                   Abonado: ${paid.toFixed(2)} USD | Pendiente: ${remaining.toFixed(2)} USD
                                 </div>
                               )}
                             </div>
-                            <div className="text-right">
-                              <span className="text-base font-black text-emerald-400 block">${ord.totalUSD.toFixed(2)} USD</span>
+                            <div className="text-left sm:text-right w-full sm:w-auto">
+                              <div className="text-xl sm:text-2xl font-black text-emerald-400 leading-tight">
+                                ${ord.totalUSD.toFixed(2)} <span className="text-xs font-black text-emerald-200">USD</span>
+                              </div>
                               {remaining > 0 && paid > 0 && (
-                                <span className="text-xs font-black text-amber-300">Por Cobrar: ${remaining.toFixed(2)} USD</span>
+                                <span className="text-[11px] font-black text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-lg border border-amber-500/40 inline-block mt-0.5">
+                                  Resta: ${remaining.toFixed(2)} USD
+                                </span>
                               )}
                             </div>
                           </div>
 
                           {/* Audit Panel: Payment History & Change Breakdown */}
                           {ord.paymentHistory && ord.paymentHistory.length > 0 && (
-                            <div className="p-3 rounded-2xl bg-black/60 border border-emerald-500/30 space-y-1.5 text-[11px]">
-                              <div className="font-black text-emerald-400 uppercase tracking-wider text-[10px]">
+                            <div className="p-2.5 rounded-xl bg-black/60 border border-emerald-500/30 space-y-1 text-[10px]">
+                              <div className="font-black text-emerald-400 uppercase tracking-wider text-[9px]">
                                 📜 HISTORIAL AUDITABLE DE COBROS Y VUELTOS:
                               </div>
                               {ord.paymentHistory.map((pm, pmIdx) => (
@@ -614,17 +756,17 @@ export const CajaPage: React.FC = () => {
                     })()}
 
                     {/* Actions */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
                       {!isPrepared ? (
                         <button
                           onClick={() => updateOrderStatus(ord.id, 'preparada')}
-                          className="w-full py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-lg transition-all"
+                          className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition-all"
                         >
                           <IoCheckmarkCircle className="text-base" />
                           <span>🔥 MARCAR LISTA</span>
                         </button>
                       ) : (
-                        <div className="p-2.5 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-950 text-[11px] font-black text-center flex items-center justify-center gap-1">
+                        <div className="p-2 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-950 text-[11px] font-black text-center flex items-center justify-center gap-1">
                           <IoCheckmarkCircle className="text-sm" />
                           <span>🔥 LISTA</span>
                         </div>
@@ -635,13 +777,13 @@ export const CajaPage: React.FC = () => {
                           {(() => {
                             const hasIndividualPayments = ord.paymentHistory?.some((payment) => (payment.itemIds?.length || 0) > 0);
                             return hasIndividualPayments ? (
-                              <div className="w-full rounded-2xl border border-blue-400/40 bg-blue-500/15 px-3 py-3 text-center text-xs font-black text-blue-200" title="Los pagos restantes deben registrarse por persona">
-                                👥 COBRO POR PERSONAS ACTIVO
+                              <div className="w-full rounded-xl border border-blue-400/40 bg-blue-500/15 px-2 py-2.5 text-center text-xs font-black text-blue-200" title="Los pagos restantes deben registrarse por persona">
+                                👥 POR PERSONA
                               </div>
                             ) : (
                               <button
                                 onClick={() => handleOpenPayModal(ord)}
-                                className="w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-lg transition-all"
+                                className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition-all"
                               >
                                 <IoCashOutline className="text-base" />
                                 <span>💳 COBRAR (${(ord.totalUSD - (ord.paidAmountUSD || 0)).toFixed(2)})</span>
@@ -651,39 +793,92 @@ export const CajaPage: React.FC = () => {
 
                           <button
                             onClick={() => handleOpenSplitItemsModal(ord)}
-                            className="w-full py-3 rounded-2xl bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-black border border-blue-400 font-black text-xs flex items-center justify-center gap-1 transition-all"
+                            className="w-full py-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-black border border-blue-400 font-black text-xs flex items-center justify-center gap-1 transition-all"
                           >
-                            <span>👥 PAGAR POR PERSONAS</span>
+                            <span>👥 X PERSONAS</span>
                           </button>
                         </>
                       ) : (
-                        <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-black text-center flex items-center justify-center gap-1 sm:col-span-2">
+                        <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-black text-center flex items-center justify-center gap-1 sm:col-span-2">
                           <IoCheckmarkCircle className="text-sm" />
-                          <span>💳 PAGADO TOTALMENTE</span>
+                          <span>💳 PAGADO</span>
                         </div>
-                      )}
-
-                      {userSession?.role === 'admin' && (
-                        <button
-                          onClick={() => setOrderEditModalOrder(ord)}
-                          className="w-full py-3 rounded-2xl bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-black border border-blue-400 font-black text-xs flex items-center justify-center gap-1.5 transition-all"
-                        >
-                          <span>✏️ EDITAR COMANDA</span>
-                        </button>
                       )}
 
                       {!isDelivered ? (
                         <button
                           onClick={() => updateOrderStatus(ord.id, 'entregada')}
-                          className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-white/10 transition-all"
+                          className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-1.5 border border-white/10 transition-all"
                         >
                           <IoCheckmarkDone className="text-base text-emerald-400" />
                           <span>📦 ENTREGAR</span>
                         </button>
                       ) : (
-                        <div className="p-2.5 rounded-2xl bg-white/5 text-gray-400 text-[11px] font-bold text-center">
+                        <div className="p-2 rounded-xl bg-white/5 text-gray-400 text-[11px] font-bold text-center">
                           📦 ENTREGADA
                         </div>
+                      )}
+
+                      {/* Botón Adicionar Productos a Comanda (Sin Clave) */}
+                      {!isPaid && (
+                        <button
+                          onClick={() => setOrderAppendModalOrder(ord)}
+                          className="w-full py-2.5 rounded-xl bg-sky-500/25 hover:bg-sky-500 text-sky-200 hover:text-black border border-sky-400/60 font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                          title="Adicionar nuevos productos a la comanda activa"
+                        >
+                          <span>➕ ADICIONAR</span>
+                        </button>
+                      )}
+
+                      {/* Botón Imprimir Pre-Cuenta / Ticket Completo */}
+                      <button
+                        onClick={() => setPrinterSelectOrder(ord)}
+                        className="w-full py-2.5 rounded-xl bg-sky-600/20 hover:bg-sky-500 text-sky-300 hover:text-black border border-sky-400/50 font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                        title="Seleccionar impresora térmica para emitir ticket / pre-cuenta con precios en USD, COP y Bs"
+                      >
+                        <IoDocumentTextOutline className="text-base" />
+                        <span>🧾 PRE-CUENTA</span>
+                      </button>
+
+                      {(userSession?.role === 'admin' || userSession?.role === 'caja') && (
+                        <button
+                          onClick={() => {
+                            requireAdminPin(
+                              `Editar Comanda #${ord.orderNumber}`,
+                              'Autorizar Edición de Comanda',
+                              () => setOrderEditModalOrder(ord)
+                            );
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-purple-500/20 hover:bg-purple-500 text-purple-200 hover:text-black border border-purple-400 font-black text-xs flex items-center justify-center gap-1.5 transition-all"
+                        >
+                          <span>✏️ EDITAR</span>
+                          {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" />}
+                        </button>
+                      )}
+
+                      {(userSession?.role === 'admin' || userSession?.role === 'caja') && (
+                        <button
+                          onClick={() => {
+                            requireAdminPin(
+                              `Anular Comanda #${ord.orderNumber}`,
+                              'Autorizar Anulación de Comanda',
+                              async () => {
+                                if (!window.confirm(`¿Seguro que deseas anular y eliminar completamente la comanda ${ord.orderNumber}? Se liberará su número correlativo y se borrarán todos sus registros.`)) return;
+                                try {
+                                  await deleteOrder(ord.id);
+                                } catch (delError) {
+                                  alert(delError instanceof Error ? delError.message : 'No se pudo anular la comanda');
+                                }
+                              }
+                            );
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-red-950/40 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 font-black text-xs flex items-center justify-center gap-1.5 transition-all"
+                          title="Anular y borrar comanda por completo del sistema"
+                        >
+                          <IoTrashOutline className="text-sm" />
+                          <span>🗑️ ANULAR</span>
+                          {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" />}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -743,60 +938,105 @@ export const CajaPage: React.FC = () => {
               );
             }
 
-            return (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {filteredHistoric.map((ord) => (
-                  <div 
-                    key={ord.id} 
-                    onClick={() => setHistoricDetailOrder(ord)}
-                    className="p-6 rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-[#0B2A1A]/80 to-[#070707] shadow-2xl space-y-4 cursor-pointer hover:border-emerald-400 hover:scale-[1.02] transition-all"
-                  >
-                    <div className="flex items-center justify-between pb-3 border-b border-white/10">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-2xl font-black text-white">{ord.orderNumber}</span>
-                          <span className="text-xs px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black uppercase">
-                            {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : ord.type.toUpperCase()}
-                          </span>
-                        </div>
-                        <span className="text-xs text-gray-400 font-bold mt-1 block">👤 Cliente: {ord.customerName || 'General'}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="px-3 py-1 rounded-full text-xs font-black uppercase bg-emerald-500 text-black border border-emerald-400 shadow-lg">
-                          💳 {ord.paymentHistory?.map((payment) => payment.paymentMethod).filter((method, index, methods) => methods.indexOf(method) === index).join(' + ') || ord.paymentMethod || 'PAGADO'}
-                        </span>
-                        <span className="text-xl font-black text-emerald-400 block mt-1">${ord.totalUSD.toFixed(2)} USD</span>
-                      </div>
-                    </div>
+            const totalHistoricPages = Math.max(1, Math.ceil(filteredHistoric.length / HISTORICO_PAGE_SIZE));
+            const currentPage = Math.min(historicoPage, totalHistoricPages);
+            const paginatedHistoric = filteredHistoric.slice(
+              (currentPage - 1) * HISTORICO_PAGE_SIZE,
+              currentPage * HISTORICO_PAGE_SIZE
+            );
 
-                    {/* Items List */}
-                    <div className="space-y-2 bg-black/40 p-4 rounded-2xl border border-white/5">
-                      {(ord.items || []).map((it) => (
-                        <div key={it.id} className="text-xs font-bold text-white flex justify-between border-b border-white/5 pb-1.5 last:border-0">
-                          <span>• {it.quantity}x {it.productName} {it.size ? `(${it.size})` : ''}</span>
-                          <span className="text-emerald-400">${(it.price * it.quantity).toFixed(2)}</span>
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {paginatedHistoric.map((ord) => (
+                    <div 
+                      key={ord.id} 
+                      onClick={() => setHistoricDetailOrder(ord)}
+                      className="p-6 rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-[#0B2A1A]/80 to-[#070707] shadow-2xl space-y-4 cursor-pointer hover:border-emerald-400 hover:scale-[1.02] transition-all"
+                    >
+                      <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl font-black text-white">{ord.orderNumber}</span>
+                            <span className="text-xs px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black uppercase">
+                              {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : (ord.type || 'mesa').toUpperCase()}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400 font-bold mt-1 block">👤 Cliente: {ord.customerName || 'General'}</span>
                         </div>
-                      ))}
-                      {ord.type === 'delivery' && (ord.deliveryFeeUSD || 0) > 0 && (
-                        <div className="text-xs font-bold text-white flex justify-between border-t border-white/10 pt-1.5">
-                          <span>• Servicio delivery</span>
-                          <span className="text-emerald-400">${ord.deliveryFeeUSD!.toFixed(2)}</span>
+                        <div className="text-right">
+                          <span className="px-3 py-1 rounded-full text-xs font-black uppercase bg-emerald-500 text-black border border-emerald-400 shadow-lg">
+                            💳 {ord.paymentHistory?.map((payment) => payment.paymentMethod).filter((method, index, methods) => methods.indexOf(method) === index).join(' + ') || ord.paymentMethod || 'PAGADO'}
+                          </span>
+                          <span className="text-xl font-black text-emerald-400 block mt-1">${ord.totalUSD.toFixed(2)} USD</span>
                         </div>
+                      </div>
+
+                      {/* Items List */}
+                      <div className="space-y-2 bg-black/40 p-4 rounded-2xl border border-white/5">
+                        {(ord.items || []).map((it) => (
+                          <div key={it.id} className="text-xs font-bold text-white flex justify-between border-b border-white/5 pb-1.5 last:border-0">
+                            <span>• {it.quantity}x {it.productName} {it.size ? `(${it.size})` : ''}</span>
+                            <span className="text-emerald-400">${(it.price * it.quantity).toFixed(2)}</span>
+                          </div>
+                        ))}
+                        {ord.type === 'delivery' && (ord.deliveryFeeUSD || 0) > 0 && (
+                          <div className="text-xs font-bold text-white flex justify-between border-t border-white/10 pt-1.5">
+                            <span>• Servicio delivery</span>
+                            <span className="text-emerald-400">${ord.deliveryFeeUSD!.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {(userSession?.role === 'admin' || userSession?.role === 'caja') && (
+                        <button
+                          onClick={async (event) => {
+                            event.stopPropagation();
+                            requireAdminPin(
+                              `Reactivar Comanda #${ord.orderNumber}`,
+                              'Autorizar Reactivación de Comanda',
+                              async () => {
+                                await reopenOrder(ord.id);
+                                setSearchParams({ tab: 'comandas' });
+                              }
+                            );
+                          }}
+                          className="w-full rounded-xl border border-amber-400/50 bg-amber-400/15 px-3 py-2.5 text-xs font-black text-amber-200 hover:bg-amber-400 hover:text-black flex items-center justify-center gap-1.5"
+                        >
+                          <span>REACTIVAR COMANDA</span>
+                          {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" />}
+                        </button>
                       )}
                     </div>
+                  ))}
+                </div>
 
-                    <button
-                      onClick={async (event) => {
-                        event.stopPropagation();
-                        await reopenOrder(ord.id);
-                        setSearchParams({ tab: 'comandas' });
-                      }}
-                      className="w-full rounded-xl border border-amber-400/50 bg-amber-400/15 px-3 py-2.5 text-xs font-black text-amber-200 hover:bg-amber-400 hover:text-black"
-                    >
-                      REACTIVAR COMANDA
-                    </button>
+                {/* Controles de Paginación */}
+                {totalHistoricPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-black/40 border border-white/10 text-xs">
+                    <span className="text-gray-400 font-bold">
+                      Página <strong className="text-white">{currentPage}</strong> de <strong className="text-white">{totalHistoricPages}</strong> ({filteredHistoric.length} comandas cobradas)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={currentPage <= 1}
+                        onClick={() => setHistoricoPage((prev) => Math.max(1, prev - 1))}
+                        className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold transition-all"
+                      >
+                        ◀ Anterior
+                      </button>
+                      <button
+                        type="button"
+                        disabled={currentPage >= totalHistoricPages}
+                        onClick={() => setHistoricoPage((prev) => Math.min(totalHistoricPages, prev + 1))}
+                        className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold transition-all"
+                      >
+                        Siguiente ▶
+                      </button>
+                    </div>
                   </div>
-                ))}
+                )}
               </div>
             );
           })()}
@@ -811,12 +1051,21 @@ export const CajaPage: React.FC = () => {
               <span className="text-xs text-gray-400 font-bold block">APERTURA EN CAJA (USD / COP)</span>
               <div className="text-2xl font-black text-white">${filteredApertura.usdCash.toFixed(2)} USD</div>
               <div className="text-xs text-emerald-400 font-bold">${filteredApertura.copCash.toLocaleString()} COP</div>
-              <button
-                onClick={() => setIsAperturaModalOpen(true)}
-                className="mt-2 text-xs text-emerald-300 hover:underline font-bold"
-              >
-                + Modificar Apertura
-              </button>
+              {(userSession?.role === 'admin' || userSession?.role === 'caja') && (
+                <button
+                  onClick={() => {
+                    requireAdminPin(
+                      'Modificar Apertura de Caja',
+                      'Autorizar Apertura de Caja',
+                      () => handleOpenAperturaModal()
+                    );
+                  }}
+                  className="mt-2 text-xs text-emerald-300 hover:underline font-bold flex items-center gap-1"
+                >
+                  <span>+ Modificar Apertura</span>
+                  {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" />}
+                </button>
+              )}
             </div>
 
             <div className="p-6 rounded-3xl bg-gradient-to-br from-[#0B2A1A] to-[#070707] border border-emerald-500/30 shadow-xl space-y-2">
@@ -856,33 +1105,85 @@ export const CajaPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {filteredCajaTransactions.map((tx) => {
-                    const amounts = [
-                      tx.amountUSD > 0 ? `$${tx.amountUSD.toFixed(2)} USD` : null,
-                      tx.amountCOP > 0 ? `$${tx.amountCOP.toLocaleString()} COP` : null,
-                      tx.amountBs > 0 ? `${tx.amountBs.toLocaleString()} Bs` : null,
-                    ].filter(Boolean).join(' | ');
-
-                    return (
-                      <tr key={tx.id} className="hover:bg-white/[0.02]">
-                        <td className="p-4 font-mono text-gray-400">{new Date(tx.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
-                        <td className="p-4">
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${tx.type === 'ingreso' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
-                            {tx.type}
-                          </span>
-                        </td>
-                        <td className="p-4 font-bold">{tx.currency}</td>
-                        <td className="p-4 font-semibold">{tx.paymentMethod}</td>
-                        <td className="p-4 font-black text-white">{amounts || '$0.00 USD'}</td>
-                        <td className="p-4">
-                          <div className="font-bold">{tx.orderReference}</div>
-                          <div className="mt-0.5 text-[10px]">{tx.description}</div>
-                        </td>
-                      </tr>
+                  {(() => {
+                    const totalCajaTxPages = Math.max(1, Math.ceil(filteredCajaTransactions.length / CAJA_TX_PAGE_SIZE));
+                    const currentTxPage = Math.min(cajaTxPage, totalCajaTxPages);
+                    const paginatedTx = filteredCajaTransactions.slice(
+                      (currentTxPage - 1) * CAJA_TX_PAGE_SIZE,
+                      currentTxPage * CAJA_TX_PAGE_SIZE
                     );
-                  })}
+
+                    if (paginatedTx.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-gray-500 font-bold">
+                            No hay movimientos de caja chica registrados en este turno.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return paginatedTx.map((tx) => {
+                      const amounts = [
+                        tx.amountUSD > 0 ? `$${tx.amountUSD.toFixed(2)} USD` : null,
+                        tx.amountCOP > 0 ? `$${tx.amountCOP.toLocaleString()} COP` : null,
+                        tx.amountBs > 0 ? `${tx.amountBs.toLocaleString()} Bs` : null,
+                      ].filter(Boolean).join(' | ');
+
+                      return (
+                        <tr key={tx.id} className="hover:bg-white/[0.02]">
+                          <td className="p-4 font-mono text-gray-400">{new Date(tx.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                          <td className="p-4">
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${tx.type === 'ingreso' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                              {tx.type}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold">{tx.currency}</td>
+                          <td className="p-4 font-semibold">{tx.paymentMethod}</td>
+                          <td className="p-4 font-black text-white">{amounts || '$0.00 USD'}</td>
+                          <td className="p-4">
+                            <div className="font-bold">{tx.orderReference}</div>
+                            <div className="mt-0.5 text-[10px]">{tx.description}</div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
+
+              {/* Controles de Paginación Caja Chica */}
+              {(() => {
+                const totalCajaTxPages = Math.max(1, Math.ceil(filteredCajaTransactions.length / CAJA_TX_PAGE_SIZE));
+                const currentTxPage = Math.min(cajaTxPage, totalCajaTxPages);
+                if (totalCajaTxPages <= 1) return null;
+
+                return (
+                  <div className="flex items-center justify-between p-3.5 border-t border-white/10 text-xs bg-black/30">
+                    <span className="text-gray-400 font-bold">
+                      Página <strong className="text-white">{currentTxPage}</strong> de <strong className="text-white">{totalCajaTxPages}</strong> ({filteredCajaTransactions.length} movimientos)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={currentTxPage <= 1}
+                        onClick={() => setCajaTxPage((prev) => Math.max(1, prev - 1))}
+                        className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold transition-all"
+                      >
+                        ◀ Anterior
+                      </button>
+                      <button
+                        type="button"
+                        disabled={currentTxPage >= totalCajaTxPages}
+                        onClick={() => setCajaTxPage((prev) => Math.min(totalCajaTxPages, prev + 1))}
+                        className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold transition-all"
+                      >
+                        Siguiente ▶
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -902,7 +1203,14 @@ export const CajaPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => { setCierreResult(null); setCierreError(''); setIsCierreModalOpen(true); }}
+                onClick={() => {
+                  requireAdminPin(
+                    'Arqueo Diario y Cierre de Turno',
+                    '🔐 AUTORIZACIÓN PARA CIERRE DE TURNO',
+                    () => { setCierreError(''); setIsCierreModalOpen(true); },
+                    'Ingrese el PIN de seguridad de 4 dígitos para realizar el arqueo y cierre:'
+                  );
+                }}
                 className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center gap-2 shadow-xl"
               >
                 <IoLockClosedOutline className="text-base" />
@@ -949,7 +1257,17 @@ export const CajaPage: React.FC = () => {
                     setReporteIntervaloData(null);
                     try {
                       const data = await fetchReporteIntervalo(intervaloFrom, intervaloTo);
-                      setReporteIntervaloData(data);
+                      const resolvedData: ReporteIntervaloData = {
+                        ...data,
+                        apertura: (data.apertura && (data.apertura.usdCash > 0 || data.apertura.copCash > 0))
+                          ? data.apertura
+                          : {
+                              usdCash: filteredApertura.usdCash,
+                              copCash: filteredApertura.copCash,
+                              openedAt: filteredApertura.openedAt || new Date().toISOString()
+                            }
+                      };
+                      setReporteIntervaloData(resolvedData);
                     } catch (e: any) {
                       setReporteError(e.message || 'Error al obtener reporte.');
                     } finally {
@@ -983,54 +1301,75 @@ export const CajaPage: React.FC = () => {
 
               {reporteIntervaloData && (
                 <div className="border-t border-white/10 pt-5 space-y-3">
-                  <p className="text-xs text-gray-300">El reporte fue generado. Elige una variante para abrirla y enviarla a la térmica.</p>
+                  <p className="text-xs text-gray-300">El reporte fue generado. Haz clic para abrirlo y podrás revisarlo o imprimirlo según desees:</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                    <button onClick={() => void handlePrintIntervalReport('contable', () => reportService.generateReporteContable(reporteIntervaloData))} className="px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center justify-center gap-2"><IoPrint /> ABRIR / IMPRIMIR</button>
-                    <button onClick={() => void handlePrintIntervalReport('pizzas', () => reportService.generatePizzasSoldIntervalReport(reporteIntervaloData))} className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"><IoPizza /> PIZZAS</button>
-                    <button onClick={() => void handlePrintIntervalReport('ingresos', () => reportService.generateIncomeIntervalReport(reporteIntervaloData))} className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"><IoTrendingUp /> INGRESOS</button>
-                    <button onClick={() => void handlePrintIntervalReport('egresos', () => reportService.generateExpensesIntervalReport(reporteIntervaloData))} className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"><IoCashOutline /> VUELTOS</button>
-                    <button onClick={() => void handlePrintIntervalReport('cocina', () => reportService.generateKitchenTimesIntervalReport(reporteIntervaloData))} className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"><IoTimeOutline /> COCINA</button>
+                    <button
+                      onClick={() => {
+                        const dataForReport: ReporteIntervaloData = {
+                          ...reporteIntervaloData,
+                          apertura: (reporteIntervaloData.apertura && (reporteIntervaloData.apertura.usdCash > 0 || reporteIntervaloData.apertura.copCash > 0))
+                            ? reporteIntervaloData.apertura
+                            : {
+                                usdCash: filteredApertura.usdCash,
+                                copCash: filteredApertura.copCash,
+                                openedAt: filteredApertura.openedAt || new Date().toISOString()
+                              }
+                        };
+                        setPendingReportChoice({
+                          type: 'contable',
+                          title: 'Reporte Contable Consolidado',
+                          generator: () => reportService.generateReporteContable(dataForReport),
+                        });
+                      }}
+                      className="px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      <IoDocumentTextOutline /> REPORTE CONTABLE
+                    </button>
+                    <button
+                      onClick={() => setPendingReportChoice({
+                        type: 'pizzas',
+                        title: 'Pizzas Vendidas e Ítems Facturados',
+                        generator: () => reportService.generatePizzasSoldIntervalReport(reporteIntervaloData),
+                      })}
+                      className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"
+                    >
+                      <IoPizza /> PIZZAS
+                    </button>
+                    <button
+                      onClick={() => setPendingReportChoice({
+                        type: 'ingresos',
+                        title: 'Ingresos y Cobros por Método',
+                        generator: () => reportService.generateIncomeIntervalReport(reporteIntervaloData),
+                      })}
+                      className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"
+                    >
+                      <IoTrendingUp /> INGRESOS
+                    </button>
+                    <button
+                      onClick={() => setPendingReportChoice({
+                        type: 'egresos',
+                        title: 'Vueltos y Egresos de Caja Chica',
+                        generator: () => reportService.generateExpensesIntervalReport(reporteIntervaloData),
+                      })}
+                      className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"
+                    >
+                      <IoCashOutline /> VUELTOS
+                    </button>
+                    <button
+                      onClick={() => setPendingReportChoice({
+                        type: 'cocina',
+                        title: 'Tiempos y Comandas de Cocina',
+                        generator: () => reportService.generateKitchenTimesIntervalReport(reporteIntervaloData),
+                      })}
+                      className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs flex items-center justify-center gap-2"
+                    >
+                      <IoTimeOutline /> COCINA
+                    </button>
                   </div>
                 </div>
               )}
 
           </div>
-
-          {/* Historial de Cierres Anteriores */}
-          {filteredUltimoCierre && (
-            <div className="p-6 rounded-3xl bg-black/60 border border-emerald-500/40 space-y-3">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <span className="text-sm font-black text-emerald-400 flex items-center gap-2">
-                  <IoCheckmarkCircle /> ÚLTIMO CIERRE REGISTRADO
-                </span>
-                <span className="text-xs text-gray-400 font-mono">{new Date(filteredUltimoCierre.closedAt).toLocaleString()}</span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                <div>
-                  <span className="text-gray-400 block">Ingresos en efectivo:</span>
-                  <strong className="text-white font-black">${parseFloat(filteredUltimoCierre.totalSalesUSD as any || 0).toFixed(2)} USD</strong>
-                </div>
-                <div>
-                  <span className="text-gray-400 block">Esperado en caja:</span>
-                  <strong className="text-white font-black">${parseFloat(filteredUltimoCierre.expectedUSD as any || 0).toFixed(2)} USD</strong>
-                  <span className="block text-gray-400">{Math.round(filteredUltimoCierre.expectedCOP || 0).toLocaleString()} COP</span>
-                </div>
-                <div>
-                  <span className="text-gray-400 block">Contado por Cajero:</span>
-                  <strong className="text-emerald-400 font-black">${parseFloat(filteredUltimoCierre.actualUSD as any || 0).toFixed(2)} USD</strong>
-                  <span className="block text-gray-400">{Math.round(filteredUltimoCierre.actualCOP || 0).toLocaleString()} COP</span>
-                </div>
-                <div>
-                  <span className="text-gray-400 block">Cuadre / Diferencia:</span>
-                  <strong className={parseFloat(filteredUltimoCierre.differenceUSD as any || 0) >= 0 ? 'text-emerald-400 font-black' : 'text-red-400 font-black'}>
-                    ${parseFloat(filteredUltimoCierre.differenceUSD as any || 0).toFixed(2)} USD
-                  </strong>
-                  <span className={parseFloat(filteredUltimoCierre.differenceCOP as any || 0) >= 0 ? 'block text-emerald-400' : 'block text-red-400'}>{Math.round(filteredUltimoCierre.differenceCOP || 0).toLocaleString()} COP</span>
-                </div>
-              </div>
-            </div>
-          )}
 
         </div>
       )}
@@ -1103,75 +1442,116 @@ export const CajaPage: React.FC = () => {
 
       {/* MODAL DE ARQUEO DIARIO DE CAJA */}
       {isCierreModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="relative w-full max-w-md bg-gradient-to-br from-[#0B2A1A] to-[#070707] border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-6">
-            <h3 className="text-xl font-black text-white border-b border-white/10 pb-3 flex items-center gap-2">
-              <IoLockClosedOutline className="text-amber-400" />
-              <span>ARQUEO DIARIO DE EFECTIVO</span>
-            </h3>
-            <p className="-mt-3 text-xs text-gray-300">Compara el efectivo físico contra la apertura y los movimientos de caja confirmados de este turno.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="relative w-full max-w-lg bg-gradient-to-br from-[#062416] via-[#0b1b14] to-[#04100b] border border-amber-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-lg font-black text-white flex items-center gap-2">
+                <IoLockClosedOutline className="text-amber-400 text-xl" />
+                <span>ARQUEO DIARIO Y CIERRE DE TURNO</span>
+              </h3>
+              <button
+                onClick={() => { setIsCierreModalOpen(false); setCierreError(''); }}
+                className="p-1 rounded-lg text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
             
             <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-gray-300 block mb-1">Conteo físico en efectivo USD:</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="Ej: 150.00"
-                  value={cierreActualUSD}
-                  onChange={(e) => { setCierreActualUSD(e.target.value); setCierreError(''); }}
-                  className="w-full px-4 py-2.5 rounded-xl bg-black/60 border border-white/15 text-white text-sm outline-none focus:border-amber-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Conteo Físico USD */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-gray-200">
+                      Efectivo Contado en Físico (USD):
+                    </label>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={cierreActualUSD}
+                    onChange={(e) => { setCierreActualUSD(e.target.value); setCierreError(''); }}
+                    className="w-full px-4 py-2.5 rounded-xl bg-black/60 border border-white/20 text-white text-sm font-bold outline-none focus:border-amber-500"
+                  />
+                  {cierreActualUSD !== '' && (() => {
+                    const diffUSD = (parseFloat(cierreActualUSD) || 0) - saldoEfectivoUSD;
+                    const isExact = Math.abs(diffUSD) < 0.01;
+                    return (
+                      <div className={`text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center justify-between ${
+                        isExact ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                        diffUSD > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                        'bg-red-500/15 text-red-300 border border-red-500/30'
+                      }`}>
+                        <span>{isExact ? '✅ Cuadra Exacto' : diffUSD > 0 ? '🟢 Sobrante en USD' : '🔴 Faltante en USD'}:</span>
+                        <span className="font-mono">{diffUSD >= 0 ? '+' : ''}${diffUSD.toFixed(2)} USD</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Conteo Físico COP */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-gray-200">
+                      Efectivo Contado en Físico (COP):
+                    </label>
+                  </div>
+                  <input
+                    type="number"
+                    step="100"
+                    min="0"
+                    placeholder="0"
+                    value={cierreActualCOP}
+                    onChange={(e) => { setCierreActualCOP(e.target.value); setCierreError(''); }}
+                    className="w-full px-4 py-2.5 rounded-xl bg-black/60 border border-white/20 text-white text-sm font-bold outline-none focus:border-amber-500"
+                  />
+                  {cierreActualCOP !== '' && (() => {
+                    const diffCOP = (parseFloat(cierreActualCOP) || 0) - saldoEfectivoCOP;
+                    const isExact = Math.abs(diffCOP) < 1;
+                    return (
+                      <div className={`text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center justify-between ${
+                        isExact ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                        diffCOP > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                        'bg-red-500/15 text-red-300 border border-red-500/30'
+                      }`}>
+                        <span>{isExact ? '✅ Cuadra Exacto' : diffCOP > 0 ? '🟢 Sobrante en COP' : '🔴 Faltante en COP'}:</span>
+                        <span className="font-mono">{diffCOP >= 0 ? '+' : ''}{Math.round(diffCOP).toLocaleString()} COP</span>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-300 block mb-1">Conteo físico en efectivo COP:</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="Ej: 250000"
-                  value={cierreActualCOP}
-                  onChange={(e) => { setCierreActualCOP(e.target.value); setCierreError(''); }}
-                  className="w-full px-4 py-2.5 rounded-xl bg-black/60 border border-white/15 text-white text-sm outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-gray-300 block mb-1">Notas de Cierre / Observaciones:</label>
+                <label className="text-xs font-bold text-gray-300 block mb-1">Notas de Cierre / Observaciones (Opcional):</label>
                 <input
                   type="text"
-                  placeholder="Ej: Turno noche sin novedades"
+                  placeholder="Ej: Cierre de turno finalizado con normalidad"
                   value={cierreNotes}
                   onChange={(e) => setCierreNotes(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl bg-black/60 border border-white/15 text-white text-sm outline-none focus:border-amber-500"
                 />
               </div>
 
-              {cierreResult && (
-                <div className="p-4 rounded-2xl bg-black/60 border border-emerald-500/40 text-xs space-y-1">
-                  <div className="text-emerald-400 font-black">Comprobación registrada</div>
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <div className="space-y-1 text-gray-300"><div>Esperado: ${cierreResult.expectedUSD?.toFixed(2)} USD</div><div>Contado: ${cierreResult.actualUSD?.toFixed(2)} USD</div><div className={cierreResult.differenceUSD >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>Diferencia: ${cierreResult.differenceUSD?.toFixed(2)} USD</div></div>
-                    <div className="space-y-1 text-gray-300"><div>Esperado: {Math.round(cierreResult.expectedCOP || 0).toLocaleString()} COP</div><div>Contado: {Math.round(cierreResult.actualCOP || 0).toLocaleString()} COP</div><div className={cierreResult.differenceCOP >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>Diferencia: {Math.round(cierreResult.differenceCOP || 0).toLocaleString()} COP</div></div>
-                  </div>
-                </div>
-              )}
               {cierreError && <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs font-bold text-red-200">{cierreError}</div>}
             </div>
 
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => { setIsCierreModalOpen(false); setCierreResult(null); setCierreError(''); }}
-                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold text-xs"
+                onClick={() => { setIsCierreModalOpen(false); setCierreError(''); }}
+                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold text-xs hover:bg-white/15"
               >
-                CERRAR
+                CANCELAR
               </button>
               <button
                 onClick={handleCierreSubmit}
-                disabled={isSubmittingCierre}
-                className="flex-1 py-3 rounded-xl bg-amber-500 text-black font-black text-xs hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 shadow-lg"
+                disabled={isSubmittingCierre || cierreActualUSD === '' || cierreActualCOP === ''}
+                className="flex-1 py-3 rounded-xl bg-amber-500 text-black font-black text-xs hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 shadow-lg flex items-center justify-center gap-2"
               >
-                {isSubmittingCierre ? 'REGISTRANDO...' : 'REGISTRAR COMPROBACIÓN'}
+                <IoLockClosedOutline className="text-base" />
+                <span>{isSubmittingCierre ? 'CONFIRMANDO Y PURGANDO...' : 'CONFIRMAR ARQUEO Y CIERRE'}</span>
               </button>
             </div>
           </div>
@@ -1407,7 +1787,7 @@ export const CajaPage: React.FC = () => {
 
       {orderEditModalOrder && (
         <OrderEditModal
-          order={orderEditModalOrder}
+          order={orders.find(o => o.id === orderEditModalOrder.id) || orderEditModalOrder}
           isOpen={!!orderEditModalOrder}
           onClose={() => setOrderEditModalOrder(null)}
           products={products}
@@ -1424,8 +1804,122 @@ export const CajaPage: React.FC = () => {
             setOrderEditModalOrder(updatedOrder);
             return updatedOrder;
           }}
+          onDeleteOrder={deleteOrder}
         />
       )}
+
+      {isExchangeModalOpen && (
+        <ExchangeRateModal onClose={() => setIsExchangeModalOpen(false)} />
+      )}
+
+      {/* Modal de Autorización por PIN de Administrador */}
+      <AdminPinModal
+        isOpen={pinModalState.isOpen}
+        title={pinModalState.title}
+        description={pinModalState.description}
+        actionName={pinModalState.actionName}
+        onSuccess={pinModalState.onSuccess}
+        onClose={() => setPinModalState((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* Modal de Cambio / Reubicación de Mesa */}
+      <ChangeTableModal
+        order={tableChangeOrder}
+        isOpen={!!tableChangeOrder}
+        onClose={() => setTableChangeOrder(null)}
+      />
+
+      {/* Modal de Adición Rápida de Ítems a la Comanda */}
+      <OrderAppendModal
+        order={orderAppendModalOrder}
+        isOpen={!!orderAppendModalOrder}
+        onClose={() => setOrderAppendModalOrder(null)}
+      />
+
+      {/* Modal Selector de Impresora Térmica para Pre-Cuenta */}
+      <PrinterSelectModal
+        isOpen={printerSelectOrder !== null}
+        title={`🖨️ PRE-CUENTA COMANDA #${printerSelectOrder?.orderNumber}`}
+        jobDescription="Selecciona la impresora térmica donde deseas emitir el ticket de consumo"
+        defaultTarget="caja"
+        onClose={() => setPrinterSelectOrder(null)}
+        onSelectPrinter={async (target) => {
+          if (printerSelectOrder) {
+            reportService.generatePreCuentaTicket(printerSelectOrder, exchangeRates);
+            await printOrderReceipt(printerSelectOrder.id, target);
+          }
+        }}
+      />
+
+      {/* Modal de Confirmación de Impresión de Reporte */}
+      {pendingReportChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-md bg-gradient-to-br from-[#0B2A1A] to-[#070707] border border-emerald-500/40 rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-xl font-black">
+                <IoPrintOutline />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">¿Imprimir en Térmica?</h3>
+                <p className="text-xs text-gray-300 font-bold">{pendingReportChoice.title}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300">
+              ¿Deseas imprimir una copia física de este reporte en la impresora térmica además de abrir el PDF en pantalla?
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={() => {
+                  const choice = pendingReportChoice;
+                  setPendingReportChoice(null);
+                  choice.generator();
+                }}
+                className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-gray-200 hover:text-white font-black text-xs flex items-center justify-center gap-2 transition-all border border-white/10"
+              >
+                <span>❌ NO, SOLO ABRIR PDF</span>
+              </button>
+              <button
+                onClick={() => {
+                  const choice = pendingReportChoice;
+                  setPendingReportChoice(null);
+                  setPrinterSelectReport(choice);
+                }}
+                className="px-4 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+              >
+                <IoPrintOutline className="text-base" />
+                <span>🖨️ SÍ, IMPRIMIR</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Selector de Impresora Térmica para Reporte de Intervalo */}
+      <PrinterSelectModal
+        isOpen={printerSelectReport !== null}
+        title={`🖨️ ${printerSelectReport?.title.toUpperCase()}`}
+        jobDescription="Selecciona la impresora térmica de destino para emitir este reporte"
+        defaultTarget="caja"
+        onClose={() => setPrinterSelectReport(null)}
+        onSelectPrinter={async (target) => {
+          if (printerSelectReport && reporteIntervaloData) {
+            const dataForPrint: ReporteIntervaloData = {
+              ...reporteIntervaloData,
+              apertura: (reporteIntervaloData.apertura && (reporteIntervaloData.apertura.usdCash > 0 || reporteIntervaloData.apertura.copCash > 0))
+                ? reporteIntervaloData.apertura
+                : {
+                    usdCash: filteredApertura.usdCash,
+                    copCash: filteredApertura.copCash,
+                    openedAt: filteredApertura.openedAt || new Date().toISOString()
+                  }
+            };
+            printerSelectReport.generator();
+            await printReporteIntervalo(printerSelectReport.type, dataForPrint, target);
+          }
+        }}
+      />
 
     </div>
   );

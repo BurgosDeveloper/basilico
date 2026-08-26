@@ -81,7 +81,7 @@ const MainAppLayout: React.FC = () => {
             <Route
               path="/mesonero"
               element={
-                <ProtectedRoute allowedRoles={['mesero', 'admin']}>
+                <ProtectedRoute allowedRoles={['mesero', 'caja', 'admin']}>
                   <MeseroPage />
                 </ProtectedRoute>
               }

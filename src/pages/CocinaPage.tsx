@@ -179,7 +179,7 @@ export const CocinaPage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <span className="text-2xl font-black text-slate-900">{ord.orderNumber}</span>
                           <span className="text-xs px-2.5 py-0.5 rounded-md bg-slate-100 font-black uppercase text-amber-700 border border-amber-200">
-                            {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : ord.type.toUpperCase()}
+                            {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : (ord.type || 'mesa').toUpperCase()}
                           </span>
                         </div>
                         <div className="text-xs text-emerald-700 font-bold mt-1.5 flex items-center gap-1.5 break-words">

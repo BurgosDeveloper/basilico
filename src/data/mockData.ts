@@ -68,7 +68,7 @@ export interface OrderItem {
   modifiers?: string[];
   removedIngredients?: string[];
   extras?: OrderItemExtra[];
-  sugarPreference?: 'Con azúcar' | 'Sin azúcar';
+  sugarPreference?: 'Con azúcar' | 'Sin azúcar' | 'Poca azúcar' | string;
   isTakeaway?: boolean;
   isNewOrModified?: boolean;
   isPaidIndividually?: boolean;
@@ -77,8 +77,8 @@ export interface OrderItem {
 }
 
 export type OrderStatus = 'en_preparacion' | 'preparada' | 'entregada' | 'cancelado' | 'fusionada';
-export type PaymentStatus = 'no_pagado' | 'pagado';
-export type PaymentMethod = 'Efectivo USD' | 'Efectivo COP' | 'Zelle' | 'Binance' | 'Bancolombia' | 'Nequi' | 'Pago Móvil' | 'Tarjeta de Crédito' | 'Tarjeta de Débito' | 'Mixto';
+export type PaymentStatus = 'no_pagado' | 'pagado' | 'credito';
+export type PaymentMethod = 'Efectivo USD' | 'Efectivo COP' | 'Zelle' | 'Binance' | 'Bancolombia' | 'Nequi' | 'Pago Móvil' | 'Tarjeta de Crédito' | 'Tarjeta de Débito' | 'Mixto' | 'Crédito';
 
 export interface SplitPayment {
   method: PaymentMethod;
@@ -108,7 +108,7 @@ export interface OrderPaymentBreakdown {
 export interface Order {
   id: string;
   orderNumber: string;
-  type: 'mesa' | 'delivery' | 'pickup';
+  type: 'mesa' | 'delivery' | 'pickup' | 'credito';
   tableNumber?: number;
   customerName?: string;
   customerPhone?: string;
@@ -178,6 +178,20 @@ export interface CajaChicaCierre {
 export interface ExchangeRates {
   COP: number;
   Bs: number;
+}
+
+export interface PrinterUnitConfig {
+  name: string;
+  enabled: boolean;
+  host: string;
+  port: number;
+  timeoutMs: number;
+  copies: number;
+}
+
+export interface DualPrintersConfig {
+  cocina: PrinterUnitConfig;
+  caja: PrinterUnitConfig;
 }
 
 export const INITIAL_EXCHANGE_RATES: ExchangeRates = {

@@ -262,7 +262,7 @@ const NativeAppContent: React.FC = () => {
     }
   };
 
-  const addSimpleItemToCart = (product: Product, sugarPreference?: 'Con azúcar' | 'Sin azúcar') => {
+  const addSimpleItemToCart = (product: Product, sugarPreference?: 'Con azúcar' | 'Sin azúcar' | 'Poca azúcar' | string) => {
     const newItem: OrderItem = {
       id: `item-${Date.now()}-${Math.random()}`,
       productId: product.id,
@@ -461,7 +461,7 @@ const NativeAppContent: React.FC = () => {
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 110 }}>
         
         {/* ROL 1: MESERO */}
-        {(activeRole === 'mesero' || activeRole === 'admin') && (
+        {(activeRole === 'mesero' || activeRole === 'admin' || activeRole === 'caja') && (
           <View style={styles.screenSection}>
             <View style={styles.bannerCardWeb}>
               <View style={styles.bannerIconSquare}>
@@ -540,7 +540,7 @@ const NativeAppContent: React.FC = () => {
             <View style={styles.tableGridWeb}>
               {tables.map((t) => {
                 const activeOrder = orders.find(
-                  (o) => o.tableNumber === t.number && o.status !== 'entregada' && o.status !== 'cancelado'
+                  (o) => o.tableNumber === t.number && o.status !== 'entregada' && o.status !== 'cancelado' && o.status !== 'fusionada' && o.paymentStatus !== 'credito'
                 );
                 const isReady = activeOrder?.status === 'preparada';
                 const isOccupied = !!activeOrder;
@@ -1407,6 +1407,110 @@ const NativeAppContent: React.FC = () => {
             <TouchableOpacity style={styles.logoutBtn} onPress={() => { setIsSidebarOpen(false); logout(); }}>
               <Ionicons name="log-out-outline" size={18} color="#0A4E36" style={{ marginRight: 6 }} />
               <Text style={{ color: '#0A4E36', fontWeight: 'bold', fontSize: 13 }}>CERRAR SESIÓN</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* MODAL PREFERENCIA DE AZÚCAR EN JUGOS (MOBILE) */}
+      <Modal visible={!!configuringJugo} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <SafeAreaView style={[styles.modalContainer, { maxHeight: 380 }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={{ color: '#10b981', fontSize: 10, fontWeight: '900', textTransform: 'uppercase' }}>
+                  PREFERENCIA DE AZÚCAR
+                </Text>
+                <Text style={styles.modalTitle}>{configuringJugo?.name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setConfiguringJugo(null)}>
+                <Ionicons name="close" size={24} color="#173D2D" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ paddingVertical: 12, gap: 10 }}>
+              <Text style={{ color: '#28513E', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                Selecciona cómo desea el cliente preparar este jugo:
+              </Text>
+
+              <TouchableOpacity
+                onPress={() => {
+                  if (configuringJugo) {
+                    addSimpleItemToCart(configuringJugo, 'Con azúcar');
+                    setConfiguringJugo(null);
+                  }
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 14,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  borderWidth: 1,
+                  borderColor: '#10b981',
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 20 }}>🍬</Text>
+                <View>
+                  <Text style={{ color: '#0A4E36', fontWeight: '900', fontSize: 13 }}>CON AZÚCAR</Text>
+                  <Text style={{ color: '#28513E', fontSize: 10, fontWeight: 'bold' }}>Preparación normal con azúcar</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  if (configuringJugo) {
+                    addSimpleItemToCart(configuringJugo, 'Poca azúcar');
+                    setConfiguringJugo(null);
+                  }
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 14,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  borderWidth: 1,
+                  borderColor: '#f59e0b',
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 20 }}>🥄</Text>
+                <View>
+                  <Text style={{ color: '#78350f', fontWeight: '900', fontSize: 13 }}>POCA AZÚCAR</Text>
+                  <Text style={{ color: '#92400e', fontSize: 10, fontWeight: 'bold' }}>Toque ligero de azúcar</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  if (configuringJugo) {
+                    addSimpleItemToCart(configuringJugo, 'Sin azúcar');
+                    setConfiguringJugo(null);
+                  }
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 14,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  borderWidth: 1,
+                  borderColor: '#ef4444',
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 20 }}>🍋</Text>
+                <View>
+                  <Text style={{ color: '#7f1d1d', fontWeight: '900', fontSize: 13 }}>SIN AZÚCAR</Text>
+                  <Text style={{ color: '#991b1b', fontSize: 10, fontWeight: 'bold' }}>100% natural, sin añadir azúcar</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={[styles.cancelIpBtn, { marginTop: 4 }]} onPress={() => setConfiguringJugo(null)}>
+              <Text style={styles.cancelIpBtnText}>Cancelar</Text>
             </TouchableOpacity>
           </SafeAreaView>
         </View>

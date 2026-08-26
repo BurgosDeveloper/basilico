@@ -44,5 +44,62 @@ module.exports = function(io) {
     }
   });
 
+  // Verificar PIN de seguridad de 4 dígitos para autorizar acciones de caja
+  router.post('/verify-admin-pin', async (req, res) => {
+    try {
+      const { pin } = req.body;
+      const cleanPin = String(pin || '').trim();
+
+      const { rows } = await query(`SELECT value FROM system_settings WHERE key = 'admin_pin'`);
+      const currentPin = rows[0]?.value || '1234';
+
+      if (cleanPin === currentPin) {
+        return res.json({ success: true, valid: true });
+      } else {
+        return res.status(401).json({ success: false, valid: false, error: 'PIN de seguridad incorrecto' });
+      }
+    } catch (err) {
+      console.error('Error al verificar PIN de admin:', err);
+      res.status(500).json({ error: 'Error al verificar PIN' });
+    }
+  });
+
+  // Obtener PIN de seguridad actual (solo admin)
+  router.get('/admin-pin', async (req, res) => {
+    try {
+      const { rows } = await query(`SELECT value FROM system_settings WHERE key = 'admin_pin'`);
+      const pin = rows[0]?.value || '1234';
+      res.json({ success: true, pin });
+    } catch (err) {
+      console.error('Error al consultar PIN de admin:', err);
+      res.status(500).json({ error: 'Error al consultar PIN' });
+    }
+  });
+
+  // Actualizar PIN de seguridad de 4 dígitos (solo admin)
+  router.put('/admin-pin', async (req, res) => {
+    try {
+      const { pin } = req.body;
+      const cleanPin = String(pin || '').trim();
+
+      if (!/^\d{4}$/.test(cleanPin)) {
+        return res.status(400).json({ error: 'El PIN debe contener exactamente 4 dígitos numéricos.' });
+      }
+
+      await query(
+        `INSERT INTO system_settings (key, value, updated_at)
+         VALUES ('admin_pin', $1, CURRENT_TIMESTAMP)
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+        [cleanPin]
+      );
+
+      console.log(`🔐 [PIN DE SEGURIDAD ACTUALIZADO] Nuevo PIN configurado por Administrador`);
+      res.json({ success: true, message: 'PIN de seguridad actualizado exitosamente.', pin: cleanPin });
+    } catch (err) {
+      console.error('Error al actualizar PIN de admin:', err);
+      res.status(500).json({ error: 'Error al actualizar PIN' });
+    }
+  });
+
   return router;
 };

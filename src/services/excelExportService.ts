@@ -66,6 +66,7 @@ export interface ReporteIntervaloData {
   }>;
   exchangeRates: { COP: number; Bs: number };
   dateRange: { from: string; to: string };
+  apertura?: { usdCash: number; copCash: number; openedAt?: string };
 }
 
 function formatDate(dateStr: string): string {
@@ -217,6 +218,35 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   const ws4 = XLSX.utils.aoa_to_sheet(historialData);
   ws4['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 18 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, ws4, 'Historial Pagos');
+
+  // --- Hoja 5: Cuentas a Crédito / Deudas ---
+  const creditOrdersList = data.orders.filter((o) => o.paymentStatus === 'credito' || o.paymentMethod === 'Crédito');
+  const creditRows = creditOrdersList.map((ord) => {
+    const orderItems = data.items
+      .filter((it) => it.orderId === ord.id)
+      .map((it) => `${it.quantity}x ${it.productName}`)
+      .join(', ');
+    return [
+      formatDate(ord.createdAt),
+      `#${ord.orderNumber}`,
+      ord.customerName || 'Cliente Deudor',
+      orderItems || 'Consumo general',
+      ord.totalUSD.toFixed(2),
+      Math.round(ord.totalUSD * (ord.copRateAtPayment || data.exchangeRates.COP)).toLocaleString(),
+      (ord.totalUSD * (ord.bsRateAtPayment || data.exchangeRates.Bs)).toFixed(2),
+    ];
+  });
+
+  const creditData = [
+    ['DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR'],
+    ['Desde:', formatDate(data.dateRange.from), 'Hasta:', formatDate(data.dateRange.to)],
+    [],
+    ['Fecha / Hora', 'Comanda #', 'Cliente / Deudor', 'Ítems Solicitados', 'Deuda USD', 'Equivalente COP', 'Equivalente Bs'],
+    ...creditRows,
+  ];
+  const ws5 = XLSX.utils.aoa_to_sheet(creditData);
+  ws5['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 25 }, { wch: 40 }, { wch: 15 }, { wch: 18 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, ws5, 'Créditos');
 
   // Generar y descargar
   const fromFormatted = new Date(data.dateRange.from).toISOString().slice(0, 10);

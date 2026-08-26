@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query, getClient } = require('../db');
-const { fetchAllOrders } = require('../helpers/fetchAll');
+const { fetchAllOrders, fetchAllTables } = require('../helpers/fetchAll');
 const {
   isValidPaymentMethod,
   toUsd,
@@ -101,31 +101,31 @@ module.exports = function(io) {
           client = null;
           return res.status(409).json({ error: 'Uno o más ítems seleccionados ya fueron cobrados.' });
         }
+        const scopedRows = paymentRows.filter((payment) => Array.isArray(payment.item_ids)
+          && payment.item_ids.some((itemId) => normalizedItemIds.includes(itemId)));
+        const scopedTotals = paymentHistoryTotals(scopedRows);
+        scopedPaidUSD = scopedTotals.paidUSD;
+
         if (entryType === 'change') {
-          const scopedRows = paymentRows.filter((payment) => Array.isArray(payment.item_ids)
-            && payment.item_ids.some((itemId) => normalizedItemIds.includes(itemId)));
-          const scopedTotals = paymentHistoryTotals(scopedRows);
           pendingChangeUSD = Math.max(0, scopedTotals.tenderedUSD - selectedTotalUSD - scopedTotals.changeGivenUSD);
         }
       }
 
       if (entryType === 'payment') {
-        amountPaidUSD = selectedTotalUSD > 0
-          ? selectedTotalUSD
-          : Math.min(amountUSD, Math.max(0, orderTotal - totals.paidUSD));
-        if (amountPaidUSD <= 0.01) {
+        const scopePendingDebtUSD = selectedTotalUSD > 0
+          ? Math.max(0, selectedTotalUSD - scopedPaidUSD)
+          : Math.max(0, orderTotal - totals.paidUSD);
+
+        if (scopePendingDebtUSD <= 0.01) {
           await client.query('ROLLBACK');
           client.release();
           client = null;
-          return res.status(409).json({ error: 'La comanda ya está cubierta. Registra únicamente el vuelto pendiente o anula un movimiento.' });
+          return res.status(409).json({ error: 'El monto a pagar para esta selección ya está cubierto. Registra únicamente el vuelto pendiente si aplica.' });
         }
+
+        // El monto imputado al pago (principal) es el mínimo entre lo entregado (amountUSD) y la deuda pendiente
+        amountPaidUSD = Math.min(amountUSD, scopePendingDebtUSD);
         tendered = paymentAmounts(localAmount, currency);
-        if (selectedTotalUSD > 0 && (amountUSD + 0.01 < selectedTotalUSD || amountPaidUSD + 0.01 < selectedTotalUSD)) {
-          await client.query('ROLLBACK');
-          client.release();
-          client = null;
-          return res.status(400).json({ error: 'El pago no cubre el total de los ítems seleccionados.' });
-        }
       } else {
         if (amountUSD > pendingChangeUSD + 0.01) {
           await client.query('ROLLBACK');
@@ -157,10 +157,14 @@ module.exports = function(io) {
       );
 
       if (entryType === 'payment' && normalizedItemIds.length > 0) {
-        await client.query(
-          `UPDATE order_items SET is_paid_individually = true, paid_by_name = $1 WHERE order_id = $2 AND id = ANY($3::text[])`,
-          [payerName || 'Cliente General', id, normalizedItemIds]
-        );
+        const newScopedPaidUSD = scopedPaidUSD + amountPaidUSD;
+        // Solo marcar los ítems como pagados individualmente si la suma de pagos cubre la totalidad de los ítems seleccionados
+        if (newScopedPaidUSD >= selectedTotalUSD - 0.01) {
+          await client.query(
+            `UPDATE order_items SET is_paid_individually = true, paid_by_name = $1 WHERE order_id = $2 AND id = ANY($3::text[])`,
+            [payerName || 'Cliente General', id, normalizedItemIds]
+          );
+        }
       }
 
       const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
@@ -233,6 +237,93 @@ module.exports = function(io) {
       }
       console.error('Error al finalizar comanda:', error);
       return res.status(500).json({ error: 'No se pudo finalizar la comanda.' });
+    }
+  });
+
+  router.post('/:id/credit', requireRole('caja', 'admin'), async (req, res) => {
+    const { id } = req.params;
+    const { debtorName, notes } = req.body || {};
+
+    if (!debtorName || typeof debtorName !== 'string' || !debtorName.trim() || debtorName.trim().toLowerCase() === 'cliente general') {
+      return res.status(400).json({ error: 'El nombre del cliente o deudor es obligatorio para cerrar la cuenta a crédito.' });
+    }
+
+    const cleanDebtorName = debtorName.trim();
+    let client;
+    try {
+      client = await getClient();
+      await client.query('BEGIN');
+      const { rows: orderRows } = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [id]);
+      const order = orderRows[0];
+      if (!order) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Comanda no encontrada.' });
+      }
+      assertPaymentOrderAccess(req.user, order);
+
+      const { COP: copRate, Bs: bsRate } = await getRatesForShift(client, req.user.shift);
+      const totalUSD = Number(order.total_usd) || 0;
+
+      // Liberar mesa si corresponde antes de desligarla (las comandas a crédito no bloquean mesas)
+      if (order.type === 'mesa' && order.table_number) {
+        const { rows: otherOrders } = await client.query(
+          `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito'`,
+          [order.table_number, id]
+        );
+        if (otherOrders.length === 0) {
+          await client.query(`UPDATE tables_config SET status = 'libre' WHERE number = $1`, [order.table_number]);
+        }
+      }
+
+      await client.query(
+        `UPDATE orders SET
+          status = 'entregada',
+          payment_status = 'credito',
+          payment_method = 'Crédito',
+          type = 'credito',
+          table_number = NULL,
+          customer_name = $1,
+          cop_rate_at_payment = $2,
+          bs_rate_at_payment = $3,
+          notes = CASE WHEN notes IS NULL OR notes = '' THEN $4 ELSE notes || ' | ' || $4 END,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5`,
+        [cleanDebtorName, copRate, bsRate, `Cuenta a Crédito: ${cleanDebtorName}${notes ? ' - ' + notes : ''}`, id]
+      );
+
+      const paymentId = `pm-cred-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      await client.query(
+        `INSERT INTO order_payments
+          (id, order_id, payer_name, payment_method, amount_paid_usd, cash_tendered_usd, cash_tendered_cop, cash_tendered_bs, change_given_usd, change_given_cop, change_given_bs, item_ids, cop_rate, bs_rate)
+         VALUES ($1, $2, $3, 'Crédito', $4, 0, 0, 0, 0, 0, 0, $5, $6, $7)`,
+        [paymentId, id, cleanDebtorName, totalUSD, [], copRate, bsRate]
+      );
+
+      await client.query(
+        `DELETE FROM caja_chica_transactions
+         WHERE order_id = $1
+           AND (description LIKE 'Cobro de comanda finalizada %' OR description LIKE 'Vuelto de comanda finalizada %')`,
+        [id]
+      );
+
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+
+      const allOrders = await fetchAllOrders(req.user);
+      const allTables = await fetchAllTables(req.user);
+      const updatedOrder = allOrders.find((currentOrder) => currentOrder.id === id);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', allOrders);
+      io.to(`shift:${req.user.shift}`).emit('tables:sync', allTables);
+      io.to(`shift:${req.user.shift}`).emit('caja:updated');
+      return res.json(updatedOrder);
+    } catch (error) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch (rollbackError) {}
+        client.release();
+      }
+      console.error('Error al cerrar comanda a crédito:', error);
+      return res.status(500).json({ error: 'No se pudo cerrar la comanda a crédito.' });
     }
   });
 

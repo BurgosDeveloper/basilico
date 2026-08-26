@@ -13,6 +13,7 @@ import {
   CajaChicaApertura,
   CajaChicaTransaction,
   CajaChicaCierre,
+  DualPrintersConfig,
 } from '../data/mockData';
 
 export type UserRole = 'mesero' | 'caja' | 'cocina' | 'admin';
@@ -52,7 +53,8 @@ interface AppContextType {
   
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   cancelOrder: (orderId: string) => Promise<void>;
-  editOrder: (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup'; }) => Promise<Order>;
+  deleteOrder: (orderId: string) => Promise<void>;
+  editOrder: (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => Promise<Order>;
   processPayment: (
 
     orderId: string,
@@ -80,20 +82,29 @@ interface AppContextType {
     itemIds?: string[];
   }) => Promise<void>;
   finalizeOrder: (orderId: string) => Promise<void>;
+  closeOrderAsCredit: (orderId: string, debtorName: string, notes?: string) => Promise<Order>;
   reopenOrder: (orderId: string) => Promise<void>;
   deletePaymentEntry: (orderId: string, paymentId: string) => Promise<Order>;
   mergeOrders: (targetOrderId: string, sourceOrderIds: string[]) => Promise<void>;
+  changeOrderTable: (orderId: string, newTableNumber: number) => Promise<Order>;
+  appendOrderItems: (orderId: string, addedItems: OrderItem[], removedItemIds?: string[]) => Promise<void>;
 
   aperturarCajaChica: (usdCash: number, copCash: number) => Promise<void>;
   addCajaTransaction: (trans: { type: 'ingreso' | 'egreso'; amountUSD: number; amountCOP: number; amountBs: number; paymentMethod: string; description: string }) => Promise<void>;
   realizarCierreCaja: (actualUSD: number, actualCOP: number, notes?: string) => Promise<any>;
   obtenerReporteDiario: () => Promise<any>;
   fetchReporteIntervalo: (from: string, to: string) => Promise<any>;
-  printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina', data: any) => Promise<void>;
+  printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina', data: any, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
+  printOrderReceipt: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
+  getPrintersConfig: () => Promise<DualPrintersConfig>;
+  updatePrintersConfig: (config: Partial<DualPrintersConfig>) => Promise<DualPrintersConfig>;
+  testPrinter: (targetPrinter: 'cocina' | 'caja' | 'ambas') => Promise<any>;
   updateExchangeRates: (newRates: Partial<ExchangeRates>) => Promise<void>;
   queryCajaAI: (message: string) => Promise<string>;
+  verifyAdminPin: (pin: string) => Promise<boolean>;
+  getAdminPin: () => Promise<string>;
+  updateAdminPin: (newPin: string) => Promise<void>;
 
-  
   // Admin CRUD Actions (Persisted to Database / JSON)
   addProduct: (product: Omit<Product, 'id'> & { id?: string }) => Promise<void>;
   updateProduct: (id: string, data: Omit<Product, 'id'>) => Promise<void>;
@@ -374,9 +385,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       soundService.playOrderCancelledSound();
     });
 
-    socket.on('order:cancelled', (cancelledOrder: Order) => {
-      setOrders((prev) => prev.map((o) => (o.id === cancelledOrder.id ? cancelledOrder : o)));
+    socket.on('order:cancelled', (cancelledOrder: any) => {
+      if (!cancelledOrder || !cancelledOrder.id) return;
+      if (cancelledOrder.status === 'cancelado' && cancelledOrder.type) {
+        setOrders((prev) => prev.map((o) => (o.id === cancelledOrder.id ? { ...o, ...cancelledOrder } : o)));
+      } else {
+        setOrders((prev) => prev.filter((o) => o.id !== cancelledOrder.id));
+      }
       soundService.playOrderCancelledSound();
+    });
+
+    socket.on('order:deleted', (deletedData: { id: string }) => {
+      if (deletedData && deletedData.id) {
+        setOrders((prev) => prev.filter((o) => o.id !== deletedData.id));
+        soundService.playOrderCancelledSound();
+      }
     });
 
     socket.on('order:edited', (editedOrder: Order) => {
@@ -464,14 +487,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     soundService.playOrderCancelledSound();
   };
 
-  const editOrder = async (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup'; }) => {
-    if (userSession?.role !== 'admin') {
-      throw new Error('Solo un administrador puede editar una comanda.');
+  const deleteOrder = async (orderId: string) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}`, {
+      method: 'DELETE',
+    });
+    await requireApiSuccess(res, 'No se pudo anular la comanda.');
+    setOrders((prev) => prev.filter((order) => order.id !== orderId));
+    soundService.playOrderCancelledSound();
+  };
+
+  const editOrder = async (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => {
+    if (userSession?.role !== 'admin' && userSession?.role !== 'caja') {
+      throw new Error('Solo un administrador o usuario de caja puede editar una comanda.');
     }
     const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/edit`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...editData, actorRole: userSession.role }),
+      body: JSON.stringify({ ...editData, actorRole: userSession?.role || 'caja' }),
     });
     const response = await requireApiSuccess(res, 'No se pudo editar la comanda.');
     setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
@@ -561,6 +593,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) => prev.map((order) => (order.id === orderId ? updated : order)));
   };
 
+  const closeOrderAsCredit = async (orderId: string, debtorName: string, notes?: string) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/credit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ debtorName, notes }),
+    });
+    const response = await requireApiSuccess(res, 'No se pudo cerrar la cuenta a crédito.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
+    fetchCajaChica();
+    return response as Order;
+  };
+
   const deletePaymentEntry = async (orderId: string, paymentId: string) => {
     const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/payments/${paymentId}`, {
       method: 'DELETE',
@@ -579,6 +623,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     await requireApiSuccess(res, 'No se pudieron unificar las comandas.');
     fetchOrders();
+  };
+
+  const changeOrderTable = async (orderId: string, newTableNumber: number) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/change-table`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newTableNumber }),
+    });
+    const response = await requireApiSuccess(res, 'No se pudo cambiar la mesa de la comanda.');
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? response : order)));
+    fetchTables();
+    return response as Order;
+  };
+
+  const appendOrderItems = async (orderId: string, addedItems: OrderItem[], removedItemIds: string[] = []) => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/append-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addedItems, removedItemIds }),
+    });
+    const response = await requireApiSuccess(res, 'No se pudo adicionar productos a la comanda.');
+    if (response?.order) {
+      setOrders((prev) => prev.map((order) => (order.id === orderId ? response.order : order)));
+    } else {
+      fetchOrders();
+    }
   };
 
   const aperturarCajaChica = async (usdCash: number, copCash: number) => {
@@ -640,13 +710,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const printReporteIntervalo = async (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina', data: any) => {
+  const printReporteIntervalo = async (
+    reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina',
+    data: any,
+    targetPrinter: 'cocina' | 'caja' | 'ambas' = 'caja'
+  ) => {
     const res = await apiFetch(`${backendUrl}/api/caja/reporte-intervalo/imprimir`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reportType, data }),
+      body: JSON.stringify({ reportType, data, targetPrinter }),
     });
     await requireApiSuccess(res, 'No se pudo imprimir el reporte térmico.');
+  };
+
+  const printOrderReceipt = async (orderId: string, targetPrinter: 'cocina' | 'caja' | 'ambas' = 'caja') => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/print-receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetPrinter, rates: exchangeRates }),
+    });
+    await requireApiSuccess(res, 'No se pudo enviar la pre-cuenta a la impresora térmica.');
+  };
+
+  const getPrintersConfig = async (): Promise<DualPrintersConfig> => {
+    const res = await apiFetch(`${backendUrl}/api/printers/config`);
+    return await requireApiSuccess(res, 'No se pudo obtener la configuración de impresoras.');
+  };
+
+  const updatePrintersConfig = async (config: Partial<DualPrintersConfig>): Promise<DualPrintersConfig> => {
+    const res = await apiFetch(`${backendUrl}/api/printers/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    const data = await requireApiSuccess(res, 'No se pudo guardar la configuración de impresoras.');
+    return data.config;
+  };
+
+  const testPrinter = async (targetPrinter: 'cocina' | 'caja' | 'ambas' = 'caja') => {
+    const res = await apiFetch(`${backendUrl}/api/printers/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetPrinter }),
+    });
+    return await requireApiSuccess(res, `No se pudo conectar con la impresora (${targetPrinter}).`);
+  };
+
+  const verifyAdminPin = async (pin: string): Promise<boolean> => {
+    try {
+      const res = await apiFetch(`${backendUrl}/api/auth/verify-admin-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return !!data.valid;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const getAdminPin = async (): Promise<string> => {
+    const res = await apiFetch(`${backendUrl}/api/auth/admin-pin`);
+    const data = await requireApiSuccess(res, 'No se pudo consultar el PIN de administrador.');
+    return data.pin || '1234';
+  };
+
+  const updateAdminPin = async (newPin: string): Promise<void> => {
+    const res = await apiFetch(`${backendUrl}/api/auth/admin-pin`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: newPin }),
+    });
+    await requireApiSuccess(res, 'No se pudo actualizar el PIN de administrador.');
   };
 
   const updateExchangeRates = async (newRates: Partial<ExchangeRates>) => {
@@ -798,21 +937,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createOrder,
         updateOrderStatus,
         cancelOrder,
+        deleteOrder,
         editOrder,
         processPayment,
         registerLedgerEntry,
         finalizeOrder,
+        closeOrderAsCredit,
         reopenOrder,
         deletePaymentEntry,
         mergeOrders,
+        changeOrderTable,
+        appendOrderItems,
         aperturarCajaChica,
         addCajaTransaction,
         realizarCierreCaja,
         obtenerReporteDiario,
         fetchReporteIntervalo,
         printReporteIntervalo,
+        printOrderReceipt,
+        getPrintersConfig,
+        updatePrintersConfig,
+        testPrinter,
         updateExchangeRates,
         queryCajaAI,
+        verifyAdminPin,
+        getAdminPin,
+        updateAdminPin,
         addProduct,
         updateProduct,
         deleteProduct,

@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
-const { fetchAllOrders } = require('../helpers/fetchAll');
+const { fetchAllOrders, fetchAllTables } = require('../helpers/fetchAll');
 const { requireRole } = require('../helpers/sessionAuth');
+const { printCierreShiftTicket } = require('../helpers/thermalPrinter');
 
 module.exports = function(io) {
   router.get('/', requireRole('caja', 'admin'), async (req, res) => {
@@ -67,7 +68,7 @@ module.exports = function(io) {
     }
   });
 
-  router.post('/apertura', requireRole('admin'), async (req, res) => {
+  router.post('/apertura', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { usdCash, copCash } = req.body;
       const apId = `ap-${Date.now()}`;
@@ -152,8 +153,45 @@ module.exports = function(io) {
       const expectedCOP = openedCOP + totalIngresosCOP - totalEgresosCOP;
       const diffUSD = normalizedActualUSD - expectedUSD;
       const diffCOP = normalizedActualCOP - expectedCOP;
+
+      // 1. Obtener desglose por método de pago de los pedidos del turno
+      const { rows: paymentMethodRows } = await query(
+        `SELECT op.payment_method, 
+                SUM(op.amount_paid_usd) as total_usd,
+                SUM(op.cash_tendered_cop) as total_cop,
+                SUM(op.cash_tendered_bs) as total_bs,
+                COUNT(op.id) as count
+         FROM order_payments op
+         INNER JOIN orders o ON o.id = op.order_id
+         WHERE o.shift = $1
+         GROUP BY op.payment_method
+         ORDER BY total_usd DESC`,
+        [req.user.shift]
+      );
+
+      // 2. Obtener resumen de créditos y órdenes procesadas
+      const { rows: creditSummaryRows } = await query(
+        `SELECT COUNT(id) as count, COALESCE(SUM(total_usd), 0) as total_usd
+         FROM orders
+         WHERE shift = $1 AND payment_status = 'credito'`,
+        [req.user.shift]
+      );
+
+      const { rows: shiftOrdersRows } = await query(
+        `SELECT id, order_number, type, customer_name, total_usd, payment_status, status, table_number, created_at
+         FROM orders
+         WHERE shift = $1
+         ORDER BY created_at ASC`,
+        [req.user.shift]
+      );
+
+      const totalSalesUSD = shiftOrdersRows
+        .filter((o) => o.payment_status === 'pagado')
+        .reduce((sum, o) => sum + (parseFloat(o.total_usd) || 0), 0);
+
       const cierreId = `cierre-${Date.now()}`;
 
+      // 3. Guardar registro en histórico de cierres
       await query(
         `INSERT INTO caja_chica_cierres (id, opened_usd, opened_cop, total_sales_usd, expected_usd, expected_cop, actual_usd, actual_cop, difference_usd, difference_cop, closed_by, notes, shift)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
@@ -161,22 +199,80 @@ module.exports = function(io) {
           cierreId,
           openedUSD,
           openedCOP,
-          totalIngresosUSD,
+          totalSalesUSD,
           expectedUSD,
           expectedCOP,
           normalizedActualUSD,
           normalizedActualCOP,
           diffUSD,
           diffCOP,
-          req.user.username,
+          req.user.username || 'Caja',
           notes || 'Cierre de turno realizado',
           req.user.shift
         ]
       );
 
+      // 4. Impresión Térmica Automática del Cierre y Arqueo
+      try {
+        await printCierreShiftTicket({
+          shift: req.user.shift,
+          closedBy: req.user.username || 'Caja',
+          notes: notes || 'Cierre de turno',
+          openedUSD,
+          openedCOP,
+          expectedUSD,
+          expectedCOP,
+          actualUSD: normalizedActualUSD,
+          actualCOP: normalizedActualCOP,
+          differenceUSD: diffUSD,
+          differenceCOP: diffCOP,
+          totalSalesUSD,
+          totalOrdersCount: shiftOrdersRows.length,
+          paymentMethods: paymentMethodRows,
+          creditsUSD: parseFloat(creditSummaryRows[0]?.total_usd || 0),
+          creditsCount: parseInt(creditSummaryRows[0]?.count || 0, 10),
+        });
+        console.log(`🖨️ [IMPRESIÓN AUTOMÁTICA DE CIERRE] Ticket de cierre emitido exitosamente.`);
+      } catch (printErr) {
+        console.warn(`⚠️ Aviso: no se pudo imprimir ticket de cierre térmico:`, printErr.message);
+      }
+
+      // 5. Purga limpia del turno: Eliminar órdenes cobradas y transacciones, PRESERVANDO créditos
+      const creditOrders = shiftOrdersRows.filter((o) => o.payment_status === 'credito');
+      const nonCreditIds = shiftOrdersRows.filter((o) => o.payment_status !== 'credito').map((o) => o.id);
+
+      if (nonCreditIds.length > 0) {
+        await query('DELETE FROM order_payments WHERE order_id = ANY($1::text[])', [nonCreditIds]);
+        await query('DELETE FROM order_items WHERE order_id = ANY($1::text[])', [nonCreditIds]);
+        await query('DELETE FROM orders WHERE id = ANY($1::text[])', [nonCreditIds]);
+        console.log(`🧹 [PURGA DE TURNO] Se eliminaron ${nonCreditIds.length} comandas finalizadas/canceladas.`);
+      }
+
+      // 6. Renumerar las comandas a crédito restantes a las primeras posiciones (#1, #2, ...)
+      for (let i = 0; i < creditOrders.length; i++) {
+        await query('UPDATE orders SET order_number = $1 WHERE id = $2', [`#${i + 1}`, creditOrders[i].id]);
+      }
+      if (creditOrders.length > 0) {
+        console.log(`📌 [CRÉDITOS PRESERVADOS] Se mantuvieron ${creditOrders.length} cuentas a crédito reasignadas a #${1}..#${creditOrders.length}.`);
+      }
+
+      // 7. Limpiar movimientos y apertura de caja chica del turno cerrado
+      await query('DELETE FROM caja_chica_transactions WHERE shift = $1', [req.user.shift]);
+      await query('DELETE FROM caja_chica_apertura WHERE shift = $1', [req.user.shift]);
+
+      // 8. Liberar todas las mesas al cierre del turno (las comandas a crédito preservadas no bloquean mesas)
+      await query("UPDATE tables_config SET status = 'libre'");
+
+      // 9. Sincronización en tiempo real vía WebSocket
+      const remainingOrders = await fetchAllOrders(req.user);
+      const allTables = await fetchAllTables(req.user);
+      io.to(`shift:${req.user.shift}`).emit('orders:sync', remainingOrders);
+      io.to(`shift:${req.user.shift}`).emit('tables:sync', allTables);
       io.to(`shift:${req.user.shift}`).emit('caja:updated');
+
       res.json({
         success: true,
+        message: 'Cierre de turno y purga completados exitosamente.',
         summary: {
           openedUSD,
           openedCOP,
@@ -190,10 +286,13 @@ module.exports = function(io) {
           actualCOP: normalizedActualCOP,
           differenceUSD: diffUSD,
           differenceCOP: diffCOP,
+          totalSalesUSD,
+          purgedOrdersCount: nonCreditIds.length,
+          preservedCreditsCount: creditOrders.length,
         },
       });
     } catch (err) {
-      console.error(err);
+      console.error('Error al realizar cierre de caja:', err);
       res.status(500).json({ error: 'Error al realizar cierre de caja' });
     }
   });

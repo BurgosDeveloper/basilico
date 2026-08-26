@@ -7,7 +7,7 @@ const { requireRole } = require('../helpers/sessionAuth');
 module.exports = function(io) {
   router.get('/', async (req, res) => {
     try {
-      const tables = await fetchAllTables();
+      const tables = await fetchAllTables(req.user);
       res.json(tables);
     } catch (err) {
       res.status(500).json({ error: 'Error al obtener mesas' });
@@ -31,9 +31,13 @@ module.exports = function(io) {
         [id, numInt, tableName, tableCap, tableZone]
       );
 
-      const allTables = await fetchAllTables();
-      io.emit('tables:sync', allTables);
-      res.status(201).json(allTables.find(t => t.number === numInt));
+      const shiftTables = await fetchAllTables(req.user);
+      io.to(`shift:${req.user.shift}`).emit('tables:sync', shiftTables);
+      if (req.user.shift !== 'ambos') {
+        const ambosTables = await fetchAllTables({ shift: 'ambos' });
+        io.to('shift:ambos').emit('tables:sync', ambosTables);
+      }
+      res.status(201).json(shiftTables.find((t) => t.number === numInt));
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al crear mesa' });
@@ -53,9 +57,13 @@ module.exports = function(io) {
         [numInt, name, tableCap, zone, id]
       );
 
-      const allTables = await fetchAllTables();
-      io.emit('tables:sync', allTables);
-      res.json(allTables.find((t) => t.id === id) || { success: true });
+      const shiftTables = await fetchAllTables(req.user);
+      io.to(`shift:${req.user.shift}`).emit('tables:sync', shiftTables);
+      if (req.user.shift !== 'ambos') {
+        const ambosTables = await fetchAllTables({ shift: 'ambos' });
+        io.to('shift:ambos').emit('tables:sync', ambosTables);
+      }
+      res.json(shiftTables.find((t) => t.id === id) || { success: true });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al actualizar mesa' });
@@ -67,8 +75,12 @@ module.exports = function(io) {
       const { id } = req.params;
       await query(`DELETE FROM tables_config WHERE id = $1`, [id]);
       
-      const allTables = await fetchAllTables();
-      io.emit('tables:sync', allTables);
+      const shiftTables = await fetchAllTables(req.user);
+      io.to(`shift:${req.user.shift}`).emit('tables:sync', shiftTables);
+      if (req.user.shift !== 'ambos') {
+        const ambosTables = await fetchAllTables({ shift: 'ambos' });
+        io.to('shift:ambos').emit('tables:sync', ambosTables);
+      }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Error al eliminar mesa' });

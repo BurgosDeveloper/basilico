@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { Product, OrderItem, ExtraIngredient } from '../data/mockData';
+import { Product, OrderItem, ExtraIngredient, Order } from '../data/mockData';
+import { ChangeTableModal } from '../components/ChangeTableModal';
+import { OrderAppendModal } from '../components/OrderAppendModal';
 
 import {
   IoRestaurant,
@@ -22,6 +24,7 @@ import {
   IoTimeOutline,
   IoPersonOutline,
   IoDocumentTextOutline,
+  IoSwapHorizontal,
 } from 'react-icons/io5';
 
 export const MeseroPage: React.FC = () => {
@@ -46,6 +49,8 @@ export const MeseroPage: React.FC = () => {
   const [deliveryFeeUSD, setDeliveryFeeUSD] = useState<number>(0);
   const [sentAlert, setSentAlert] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [tableChangeOrder, setTableChangeOrder] = useState<Order | null>(null);
+  const [orderAppendModalOrder, setOrderAppendModalOrder] = useState<Order | null>(null);
 
   // Modal 1: Pizza Customization Modal State
   const [configuringPizza, setConfiguringPizza] = useState<Product | null>(null);
@@ -68,10 +73,10 @@ export const MeseroPage: React.FC = () => {
   // Modal 3: Jugo Preference Modal State
   const [configuringJugo, setConfiguringJugo] = useState<Product | null>(null);
 
-  const categories = ['Todas', ...Array.from(new Set(products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).map(p => p.category)))];
-  const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift);
-  const allPizzaProducts = shiftProducts.filter((p) => p.category === 'Pizzas');
-  const availableExtras = ingredients.filter((i) => i.isExtraForPizza && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift));
+  const categories = ['Todas', ...Array.from(new Set(products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).map(p => p.category))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))];
+  const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const allPizzaProducts = shiftProducts.filter((p) => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const availableExtras = ingredients.filter((i) => i.isExtraForPizza && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift)).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
   const handleOpenMenuModal = (type: 'mesa' | 'delivery' | 'pickup', tableNumber?: number, title?: string) => {
     setActiveOrderTarget({
@@ -107,7 +112,7 @@ export const MeseroPage: React.FC = () => {
     }
   };
 
-  const addSimpleItemToCart = (product: Product, sugarPreference?: 'Con azúcar' | 'Sin azúcar') => {
+  const addSimpleItemToCart = (product: Product, sugarPreference?: 'Con azúcar' | 'Sin azúcar' | 'Poca azúcar' | string) => {
     const newItem: OrderItem = {
       id: `item-${Date.now()}-${Math.random()}`,
       productId: product.id,
@@ -211,12 +216,34 @@ export const MeseroPage: React.FC = () => {
 
   const handleConfirmOrder = async () => {
     if (!activeOrderTarget || cartItems.length === 0 || isSubmittingOrder) return;
+
+    if (activeOrderTarget.type === 'delivery') {
+      if (!customerName.trim()) {
+        setOrderError('⚠️ Para Delivery es OBLIGATORIO ingresar el Nombre del Cliente.');
+        setTimeout(() => setOrderError(null), 4000);
+        return;
+      }
+      if (deliveryFeeUSD <= 0) {
+        setOrderError('⚠️ Para Delivery es OBLIGATORIO seleccionar o ingresar el Monto del Delivery ($ USD > 0).');
+        setTimeout(() => setOrderError(null), 4000);
+        return;
+      }
+    }
+
+    if (activeOrderTarget.type === 'pickup') {
+      if (!customerName.trim()) {
+        setOrderError('⚠️ Para PickUp / Para Llevar es OBLIGATORIO ingresar el Nombre o Referencia del Cliente.');
+        setTimeout(() => setOrderError(null), 4000);
+        return;
+      }
+    }
+
     setIsSubmittingOrder(true);
     try {
       await createOrder({
         type: activeOrderTarget.type,
         tableNumber: activeOrderTarget.tableNumber,
-        customerName: customerName || undefined,
+        customerName: customerName.trim() || undefined,
         kitchenNotes: kitchenNotes || undefined,
         items: cartItems,
         totalUSD: cartTotalUSD,
@@ -228,6 +255,9 @@ export const MeseroPage: React.FC = () => {
       setTimeout(() => setSentAlert(null), 4000);
       setActiveOrderTarget(null);
       setCartItems([]);
+      setCustomerName('');
+      setKitchenNotes('');
+      setDeliveryFeeUSD(0);
     } catch (error) {
       setOrderError(error instanceof Error ? error.message : 'No se pudo enviar la comanda. Intenta nuevamente.');
       setTimeout(() => setOrderError(null), 4000);
@@ -243,7 +273,7 @@ export const MeseroPage: React.FC = () => {
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
   return (
     <div className="p-4 sm:p-8 space-y-8 max-w-7xl mx-auto text-slate-900">
@@ -354,7 +384,7 @@ export const MeseroPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {tables.map((t) => {
                 const activeOrder = orders.find(
-                  (o) => o.tableNumber === t.number && o.status !== 'entregada' && o.status !== 'cancelado' && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
+                  (o) => o.tableNumber === t.number && o.status !== 'entregada' && o.status !== 'cancelado' && o.status !== 'fusionada' && o.paymentStatus !== 'credito' && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
                 );
                 const isReady = activeOrder?.status === 'preparada';
                 const isOccupied = !!activeOrder;
@@ -362,17 +392,23 @@ export const MeseroPage: React.FC = () => {
                 return (
                   <div
                     key={t.id}
-                    onClick={() => handleOpenMenuModal('mesa', t.number, `Mesa #${t.number}`)}
+                    onClick={() => {
+                      if (isOccupied && activeOrder) {
+                        setOrderAppendModalOrder(activeOrder);
+                      } else {
+                        handleOpenMenuModal('mesa', t.number, `Mesa #${t.number}`);
+                      }
+                    }}
                     className={`cursor-pointer p-5 rounded-3xl border backdrop-blur-xl transition-all duration-300 shadow-2xl flex flex-col justify-between space-y-4 hover:scale-[1.02] ${
                       isReady
                         ? 'bg-gradient-to-br from-emerald-50 via-slate-50 to-emerald-100 border-emerald-300 shadow-emerald-950/50'
                         : isOccupied
-                        ? 'bg-gradient-to-br from-white via-slate-50 to-slate-100 border-amber-300'
+                        ? 'bg-gradient-to-br from-amber-50/50 via-slate-50 to-amber-100/50 border-amber-300 hover:border-amber-400 shadow-amber-900/10'
                         : 'bg-gradient-to-br from-white via-slate-50 to-slate-100 border-slate-200 hover:border-emerald-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-xs">
                         <IoPizza className={isReady ? 'text-emerald-700 text-xl' : isOccupied ? 'text-amber-600 text-xl' : 'text-emerald-700 text-xl'} />
                       </div>
                       <span
@@ -389,13 +425,33 @@ export const MeseroPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <h3 className="text-xl font-black text-slate-900">Mesa #{t.number}</h3>
-                      <p className="text-xs text-slate-500">Capacidad: {t.capacity} Personas</p>
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-black text-slate-900">Mesa #{t.number}</h3>
+                        {isOccupied && activeOrder && (
+                          <span className="text-[11px] font-black px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-200">
+                            #{activeOrder.orderNumber}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">Capacidad: {t.capacity} Personas</p>
                     </div>
 
-                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs font-bold text-emerald-700">
-                      <span>ABRIR PEDIDO</span>
-                      <IoAdd className="text-lg" />
+                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs font-bold">
+                      {isOccupied && activeOrder ? (
+                        <>
+                          <span className="text-amber-700 flex items-center gap-1 font-black">
+                            <IoAdd className="text-base" /> ADICIONAR
+                          </span>
+                          <span className="text-xs text-slate-800 font-black bg-white px-2 py-1 rounded-lg border border-amber-200 shadow-xs">
+                            ${(activeOrder.totalUSD || 0).toFixed(2)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-emerald-700 font-bold">ABRIR PEDIDO</span>
+                          <IoAdd className="text-lg text-emerald-700" />
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -422,13 +478,26 @@ export const MeseroPage: React.FC = () => {
               {orders.filter((o) => o.status !== 'cancelado' && o.status !== 'fusionada' && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)).map((ord) => (
                 <div key={ord.id} className="p-6 rounded-3xl bg-gradient-to-br from-white to-[#070707] border border-slate-200 space-y-4 shadow-xl">
                   <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                    <div>
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-2xl font-black text-slate-900">{ord.orderNumber}</span>
-                      <span className="text-xs text-emerald-700 font-bold ml-2">({ord.type.toUpperCase()})</span>
+                      <span className="text-xs text-emerald-700 font-bold">
+                        {ord.type === 'mesa' ? `Mesa #${ord.tableNumber}` : (ord.type || 'mesa').toUpperCase()}
+                      </span>
+                      {ord.type === 'mesa' && ord.status !== 'entregada' && ord.status !== 'cancelado' && (
+                        <button
+                          type="button"
+                          onClick={() => setTableChangeOrder(ord)}
+                          className="px-2 py-0.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-300 text-[10px] font-black flex items-center gap-1 shadow-sm transition-all"
+                          title="Reubicar o cambiar mesa"
+                        >
+                          <IoSwapHorizontal />
+                          <span>Cambiar Mesa</span>
+                        </button>
+                      )}
                     </div>
                     <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 border border-emerald-200 text-xs font-bold uppercase flex items-center gap-1">
                       {ord.status === 'en_preparacion' ? <IoTimeOutline /> : <IoCheckmarkCircle />}
-                      <span>{ord.status === 'en_preparacion' ? '⏳ EN COCINA' : ord.status === 'preparada' ? '🔥 ¡LISTA!' : ord.status.toUpperCase()}</span>
+                      <span>{ord.status === 'en_preparacion' ? '⏳ EN COCINA' : ord.status === 'preparada' ? '🔥 ¡LISTA!' : (ord.status || '').toUpperCase()}</span>
                     </span>
                   </div>
 
@@ -547,9 +616,19 @@ export const MeseroPage: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  {ord.status !== 'cancelado' && (
-                    <div className="grid grid-cols-1 gap-2 pt-2">
+                  {ord.status !== 'cancelado' && ord.paymentStatus !== 'pagado' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                       <button
+                        type="button"
+                        onClick={() => setOrderAppendModalOrder(ord)}
+                        className="py-2.5 px-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition-all"
+                      >
+                        <IoAdd className="text-base" />
+                        <span>➕ ADICIONAR</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => {
                           if (window.confirm(`¿Confirmas cancelar la comanda ${ord.orderNumber}? Sonará una alarma en cocina.`)) {
                             cancelOrder(ord.id);
@@ -557,7 +636,7 @@ export const MeseroPage: React.FC = () => {
                         }}
                         className="py-2.5 px-3 rounded-xl bg-red-500/20 hover:bg-red-500 hover:text-slate-900 border border-red-300 text-red-700 font-black text-xs flex items-center justify-center gap-1 transition-all"
                       >
-                        🚫 CANCELAR
+                        <span>🚫 CANCELAR</span>
                       </button>
                     </div>
                   )}
@@ -599,13 +678,27 @@ export const MeseroPage: React.FC = () => {
               {/* Customer Reference & Kitchen Notes Inputs */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-2xl bg-white/60 border border-slate-200">
                 <div>
-                  <label className="text-xs font-bold text-slate-600 block mb-1">Nombre o Referencia del Cliente:</label>
+                  <label className="text-xs font-black text-slate-700 block mb-1">
+                    {activeOrderTarget.type === 'delivery' ? (
+                      <span>Nombre del Cliente <span className="text-red-600">(*Obligatorio)</span>:</span>
+                    ) : activeOrderTarget.type === 'pickup' ? (
+                      <span>Nombre / Referencia del Cliente <span className="text-red-600">(*Obligatorio)</span>:</span>
+                    ) : (
+                      <span>Nombre o Referencia de Mesa <span className="text-slate-400 font-normal">(Opcional)</span>:</span>
+                    )}
+                  </label>
                   <input
                     type="text"
-                    placeholder="Ej: Juan Pérez / Mesa Ventana"
+                    placeholder={
+                      activeOrderTarget.type === 'delivery'
+                        ? 'Ej: Juan Pérez / Dirección y Contacto'
+                        : activeOrderTarget.type === 'pickup'
+                        ? 'Ej: Carlos (Retira en 20 min)'
+                        : 'Ej: Juan Pérez'
+                    }
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full px-4 py-2 rounded-xl bg-white/80 border border-slate-300 text-slate-900 placeholder-gray-500 text-xs outline-none focus:border-emerald-500 font-bold"
+                    className="w-full px-4 py-2 rounded-xl bg-white/80 border border-slate-300 text-slate-900 placeholder-gray-400 text-xs outline-none focus:border-emerald-500 font-bold"
                   />
                 </div>
 
@@ -616,14 +709,27 @@ export const MeseroPage: React.FC = () => {
                     placeholder="Ej: Poco dorada / Sin servilletas"
                     value={kitchenNotes}
                     onChange={(e) => setKitchenNotes(e.target.value)}
-                    className="w-full px-4 py-2 rounded-xl bg-white/80 border border-slate-300 text-slate-900 placeholder-gray-500 text-xs outline-none focus:border-emerald-500 font-bold"
+                    className="w-full px-4 py-2 rounded-xl bg-white/80 border border-slate-300 text-slate-900 placeholder-gray-400 text-xs outline-none focus:border-emerald-500 font-bold"
                   />
                 </div>
 
                 {/* Delivery Fee Selector */}
                 {activeOrderTarget.type === 'delivery' && (
-                  <div className="md:col-span-2 p-4 bg-emerald-50 rounded-xl border border-emerald-200 mt-2">
-                    <label className="text-xs font-bold text-emerald-800 block mb-2">Precio del Delivery (USD):</label>
+                  <div className="md:col-span-2 p-4 bg-emerald-50 rounded-xl border border-emerald-200 mt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-emerald-900 block">
+                        Precio del Delivery (USD) <span className="text-red-600">(*Obligatorio mayor a $0)</span>:
+                      </label>
+                      {deliveryFeeUSD > 0 ? (
+                        <span className="text-xs font-black text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-lg border border-emerald-300">
+                          + ${deliveryFeeUSD.toFixed(2)} USD
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-lg border border-red-200 animate-pulse">
+                          ⚠️ Seleccione monto de delivery
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
                       <div className="flex flex-wrap gap-2">
                         {[1, 1.5, 2, 2.5, 3, 4, 5].map(fee => (
@@ -631,10 +737,10 @@ export const MeseroPage: React.FC = () => {
                             key={fee}
                             type="button"
                             onClick={() => setDeliveryFeeUSD(fee)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all border ${
                               deliveryFeeUSD === fee
                                 ? 'bg-emerald-500 text-black border-emerald-400 shadow-md scale-[1.05]'
-                                : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                             }`}
                           >
                             ${fee}
@@ -642,11 +748,11 @@ export const MeseroPage: React.FC = () => {
                         ))}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-600">Otro:</span>
+                        <span className="text-xs font-bold text-slate-700">Otro monto:</span>
                         <input
                           type="number"
                           step="0.5"
-                          min="0"
+                          min="0.5"
                           value={deliveryFeeUSD || ''}
                           onChange={(e) => setDeliveryFeeUSD(parseFloat(e.target.value) || 0)}
                           className="w-24 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs font-bold outline-none focus:border-emerald-500"
@@ -788,30 +894,55 @@ export const MeseroPage: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-6 border-t border-slate-200 bg-white/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="p-6 border-t border-slate-200 bg-white/90 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
-                <div className="text-xs text-slate-500">Total Comanda:</div>
-                <div className="text-2xl font-black text-emerald-700">
-                  ${cartTotalUSD.toFixed(2)} USD{' '}
-                  <span className="text-xs text-slate-500">(${(cartTotalUSD * exchangeRates.COP).toLocaleString()} COP)</span>
+                <div className="text-xs font-black text-slate-600 uppercase">Total de la Comanda:</div>
+                <div className="text-3xl font-black text-emerald-600 leading-tight flex items-baseline gap-1">
+                  <span>${cartTotalUSD.toFixed(2)}</span>
+                  <span className="text-xs font-black text-emerald-950 uppercase px-1.5 py-0.5 rounded bg-emerald-200">USD</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                  <span className="text-xs font-black text-sky-800 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-lg shadow-sm">
+                    🇨🇴 {Math.round(cartTotalUSD * exchangeRates.COP).toLocaleString()} COP
+                  </span>
+                  <span className="text-xs font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-lg shadow-sm">
+                    🇻🇪 {(cartTotalUSD * exchangeRates.Bs).toFixed(2)} Bs
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <button
-                  onClick={() => setActiveOrderTarget(null)}
-                  className="px-5 py-3 rounded-xl bg-slate-100 text-slate-900 font-bold text-xs hover:bg-slate-200"
-                >
-                  CANCELAR
-                </button>
-                <button
-                  onClick={handleConfirmOrder}
-                  disabled={cartItems.length === 0 || isSubmittingOrder}
-                  className={`flex-1 sm:flex-none px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg ${isSubmittingOrder || cartItems.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <IoPaperPlane />
-                  <span>{isSubmittingOrder ? 'ENVIANDO...' : 'ENVIAR COMANDA A COCINA'}</span>
-                </button>
+              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 w-full sm:w-auto">
+                {activeOrderTarget.type === 'delivery' && (!customerName.trim() || deliveryFeeUSD <= 0) && (
+                  <span className="text-[11px] font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
+                    ⚠️ Ingrese Nombre y Monto de Delivery
+                  </span>
+                )}
+                {activeOrderTarget.type === 'pickup' && !customerName.trim() && (
+                  <span className="text-[11px] font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
+                    ⚠️ Ingrese Nombre del Cliente
+                  </span>
+                )}
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <button
+                    onClick={() => setActiveOrderTarget(null)}
+                    className="px-5 py-3 rounded-xl bg-slate-100 text-slate-900 font-bold text-xs hover:bg-slate-200"
+                  >
+                    CANCELAR
+                  </button>
+                  <button
+                    onClick={handleConfirmOrder}
+                    disabled={
+                      cartItems.length === 0 ||
+                      isSubmittingOrder ||
+                      (activeOrderTarget.type === 'delivery' && (!customerName.trim() || deliveryFeeUSD <= 0)) ||
+                      (activeOrderTarget.type === 'pickup' && !customerName.trim())
+                    }
+                    className={`flex-1 sm:flex-none px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all`}
+                  >
+                    <IoPaperPlane />
+                    <span>{isSubmittingOrder ? 'ENVIANDO...' : 'ENVIAR COMANDA A COCINA'}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1165,22 +1296,50 @@ export const MeseroPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 4: PREFERENCIA DE AZÚCAR EN JUGOS */}
+      {/* MODAL 4: PREFERENCIA DE AZÚCAR EN JUGOS (3 OPCIONES) */}
       {configuringJugo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md">
-          <div className="relative w-full max-w-sm bg-gradient-to-br from-white to-[#070707] border border-sky-200 rounded-3xl p-6 shadow-2xl space-y-5 text-slate-900 text-center">
-            <h3 className="text-lg font-black text-slate-900">{configuringJugo.name}</h3>
-            <p className="text-xs text-slate-600">¿Cómo prefiere el cliente preparar este jugo natural?</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-3xl p-6 shadow-2xl space-y-5 text-center text-white">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
+              <div className="text-left">
+                <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider">PREFERENCIA DE AZÚCAR</span>
+                <h3 className="text-lg font-black text-white">{configuringJugo.name}</h3>
+              </div>
+              <button
+                onClick={() => setConfiguringJugo(null)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+              >
+                <IoCloseCircle size={22} />
+              </button>
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <p className="text-xs text-slate-300 font-medium">
+              Selecciona cómo desea el cliente preparar este jugo natural:
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <button
                 onClick={() => {
                   addSimpleItemToCart(configuringJugo, 'Con azúcar');
                   setConfiguringJugo(null);
                 }}
-                className="py-4 rounded-2xl bg-sky-500/20 hover:bg-sky-500 hover:text-black border border-sky-300 text-sky-800 font-black text-xs transition-all shadow-lg"
+                className="py-4 px-3 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/40 font-black text-xs transition-all shadow-lg flex flex-col items-center justify-center gap-1.5"
               >
-                🧊 CON AZÚCAR
+                <span className="text-xl">🍬</span>
+                <span>CON AZÚCAR</span>
+                <span className="text-[10px] font-semibold opacity-80">(Normal)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  addSimpleItemToCart(configuringJugo, 'Poca azúcar');
+                  setConfiguringJugo(null);
+                }}
+                className="py-4 px-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 font-black text-xs transition-all shadow-lg flex flex-col items-center justify-center gap-1.5"
+              >
+                <span className="text-xl">🥄</span>
+                <span>POCA AZÚCAR</span>
+                <span className="text-[10px] font-semibold opacity-80">(Ligero)</span>
               </button>
 
               <button
@@ -1188,14 +1347,37 @@ export const MeseroPage: React.FC = () => {
                   addSimpleItemToCart(configuringJugo, 'Sin azúcar');
                   setConfiguringJugo(null);
                 }}
-                className="py-4 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500 hover:text-black border border-emerald-300 text-emerald-200 font-black text-xs transition-all shadow-lg"
+                className="py-4 px-3 rounded-2xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-black border border-rose-500/40 font-black text-xs transition-all shadow-lg flex flex-col items-center justify-center gap-1.5"
               >
-                🌿 SIN AZÚCAR
+                <span className="text-xl">🍋</span>
+                <span>SIN AZÚCAR</span>
+                <span className="text-[10px] font-semibold opacity-80">(Natural 100%)</span>
               </button>
             </div>
+
+            <button
+              onClick={() => setConfiguringJugo(null)}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white font-bold text-xs transition-colors"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
+
+      {/* Modal de Cambio / Reubicación de Mesa */}
+      <ChangeTableModal
+        order={tableChangeOrder}
+        isOpen={!!tableChangeOrder}
+        onClose={() => setTableChangeOrder(null)}
+      />
+
+      {/* Modal de Adición Rápida de Ítems a la Comanda */}
+      <OrderAppendModal
+        order={orderAppendModalOrder}
+        isOpen={!!orderAppendModalOrder}
+        onClose={() => setOrderAppendModalOrder(null)}
+      />
 
     </div>
   );

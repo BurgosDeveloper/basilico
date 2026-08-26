@@ -13,7 +13,7 @@ module.exports = function(io) {
     }
   });
 
-  router.post('/', requireRole('admin'), async (req, res) => {
+  router.post('/', requireRole('caja', 'admin'), async (req, res) => {
     const COP = Number(req.body.COP);
     const Bs = Number(req.body.Bs);
     if (!Number.isFinite(COP) || !Number.isFinite(Bs) || COP <= 0 || Bs <= 0) {

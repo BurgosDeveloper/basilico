@@ -7,7 +7,7 @@ const { printReportTicket } = require('../helpers/thermalPrinter');
 module.exports = function (io) {
   router.post('/reporte-intervalo/imprimir', requireRole('caja', 'admin'), async (req, res) => {
     try {
-      const { reportType, data } = req.body || {};
+      const { reportType, data, targetPrinter = 'caja' } = req.body || {};
       if (!['contable', 'pizzas', 'ingresos', 'egresos', 'cocina'].includes(reportType)) {
         return res.status(400).json({ error: 'El tipo de reporte no es válido.' });
       }
@@ -15,11 +15,25 @@ module.exports = function (io) {
         return res.status(400).json({ error: 'No se recibió un reporte válido para imprimir.' });
       }
 
-      const result = await printReportTicket(reportType, data);
-      if (!result.printed) {
-        return res.status(409).json({ error: 'La impresión térmica está deshabilitada.' });
+      if (!data.apertura || (Number(data.apertura.usdCash) === 0 && Number(data.apertura.copCash) === 0)) {
+        const { rows: apRows } = await query(
+          `SELECT * FROM caja_chica_apertura${req.user.shift === 'ambos' ? '' : ' WHERE shift = $1'} ORDER BY timestamp DESC LIMIT 1`,
+          req.user.shift === 'ambos' ? [] : [req.user.shift]
+        );
+        if (apRows[0]) {
+          data.apertura = {
+            usdCash: parseFloat(apRows[0].usd_cash) || 0,
+            copCash: parseFloat(apRows[0].cop_cash) || 0,
+            openedAt: apRows[0].timestamp,
+          };
+        }
       }
-      return res.json({ success: true, copies: result.copies });
+
+      const result = await printReportTicket(reportType, data, targetPrinter);
+      if (!result.printed) {
+        return res.status(409).json({ error: 'La impresión térmica no se pudo completar (verifique configuración de impresora).' });
+      }
+      return res.json({ success: true, copies: result.copies, results: result.results });
     } catch (error) {
       console.error('Error imprimiendo reporte térmico:', error);
       return res.status(502).json({ error: `No se pudo imprimir el reporte: ${error.message}` });
@@ -42,18 +56,31 @@ module.exports = function (io) {
       if (fromDate > toDate) {
         return res.status(400).json({ error: 'Fecha inicio debe ser menor o igual a fecha fin.' });
       }
-      const shiftScope = req.user.shift === 'ambos' ? '' : ' AND orders.shift = $3';
-      const shiftParams = req.user.shift === 'ambos' ? [from, to] : [from, to, req.user.shift];
 
-      // 1. Órdenes pagadas con al menos un cobro registrado en el rango.
+      // Asegurar que toDate cubra hasta el final del minuto o día indicado
+      if (typeof to === 'string' && to.length === 16) {
+        toDate.setSeconds(59, 999);
+      } else if (typeof to === 'string' && to.length === 10) {
+        toDate.setHours(23, 59, 59, 999);
+      }
+      const fromIso = fromDate.toISOString();
+      const toIso = toDate.toISOString();
+
+      const shiftScope = req.user.shift === 'ambos' ? '' : ' AND orders.shift = $3';
+      const shiftParams = req.user.shift === 'ambos' ? [fromIso, toIso] : [fromIso, toIso, req.user.shift];
+
+      // 1. Órdenes pagadas o a crédito en el rango.
       const { rows: orderRows } = await query(
         `SELECT * FROM orders
-         WHERE payment_status = 'pagado'
+         WHERE payment_status IN ('pagado', 'credito')
            AND status != 'cancelado'
-           AND EXISTS (
-             SELECT 1 FROM order_payments op
-             WHERE op.order_id = orders.id
-               AND op.created_at >= $1 AND op.created_at <= $2
+           AND (
+             EXISTS (
+               SELECT 1 FROM order_payments op
+               WHERE op.order_id = orders.id
+                 AND op.created_at >= $1 AND op.created_at <= $2
+             )
+             OR (orders.created_at >= $1 AND orders.created_at <= $2)
            )
            ${shiftScope}
          ORDER BY created_at ASC`,
@@ -96,6 +123,30 @@ module.exports = function (io) {
         shiftParams
       );
 
+      // Asegurar que cualquier vuelto registrado en order_payments esté incluido en las transacciones de egreso
+      for (const pm of paymentRows) {
+        const changeUSD = parseFloat(pm.change_given_usd) || 0;
+        const changeCOP = parseFloat(pm.change_given_cop) || 0;
+        const changeBs = parseFloat(pm.change_given_bs) || 0;
+        if (changeUSD > 0 || changeCOP > 0 || changeBs > 0) {
+          const hasTx = txRows.some((t) => t.description && (t.description.includes(pm.id) || (t.id && t.id.includes(pm.id))));
+          if (!hasTx) {
+            txRows.push({
+              id: `vuelto-${pm.id}`,
+              type: 'egreso',
+              amount_usd: changeUSD,
+              amount_cop: changeCOP,
+              amount_bs: changeBs,
+              payment_method: pm.payment_method || 'Efectivo USD',
+              description: `Vuelto de comanda finalizada #${pm.order_number} [${pm.id}]`,
+              order_id: pm.order_id,
+              order_number: pm.order_number,
+              timestamp: pm.created_at,
+            });
+          }
+        }
+      }
+
       // 5. Ediciones de órdenes en el rango
       let editRows = [];
       try {
@@ -120,6 +171,17 @@ module.exports = function (io) {
       );
       const copRate = Number(rateRows[0]?.cop_rate) || 3950;
       const bsRate = Number(rateRows[0]?.bs_rate) || 36.5;
+
+      // 7. Fondo de apertura de caja chica para el turno
+      const { rows: aperturaRows } = await query(
+        `SELECT * FROM caja_chica_apertura${req.user.shift === 'ambos' ? '' : ' WHERE shift = $1'} ORDER BY timestamp DESC LIMIT 1`,
+        req.user.shift === 'ambos' ? [] : [req.user.shift]
+      );
+      const apertura = aperturaRows[0] ? {
+        usdCash: parseFloat(aperturaRows[0].usd_cash) || 0,
+        copCash: parseFloat(aperturaRows[0].cop_cash) || 0,
+        openedAt: aperturaRows[0].timestamp,
+      } : { usdCash: 0, copCash: 0 };
 
       // Construir respuesta estructurada
       const orders = orderRows.map((ord) => ({
@@ -198,6 +260,7 @@ module.exports = function (io) {
         edits,
         exchangeRates: { COP: copRate, Bs: bsRate },
         dateRange: { from, to },
+        apertura,
       });
     } catch (err) {
       console.error('Error generando reporte por intervalo:', err);

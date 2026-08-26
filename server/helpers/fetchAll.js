@@ -57,6 +57,7 @@ async function fetchAllOrders(user) {
     bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
     waiterName: ord.waiter_name || 'Mesero',
     kitchenNotes: ord.kitchen_notes,
+    notes: ord.notes || undefined,
     isEdited: !!ord.is_edited,
     mergedFromOrders: ord.merged_from_orders || [],
     deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
@@ -103,8 +104,10 @@ async function fetchAllOrders(user) {
   }));
 }
 
-async function fetchAllProducts() {
-  const { rows } = await query(`SELECT * FROM products ORDER BY created_at DESC`);
+async function fetchAllProducts(user) {
+  const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
+  const whereClause = parameters.length ? "WHERE (shift = $1 OR shift = 'ambos' OR shift IS NULL)" : '';
+  const { rows } = await query(`SELECT * FROM products ${whereClause} ORDER BY name ASC`, parameters);
   return rows.map((p) => ({
     id: p.id,
     name: p.name,
@@ -117,11 +120,14 @@ async function fetchAllProducts() {
     badge: p.badge || undefined,
     baseIngredients: p.base_ingredients || [],
     recipe: [],
+    shift: p.shift || 'ambos',
   }));
 }
 
-async function fetchAllIngredients() {
-  const { rows } = await query(`SELECT * FROM ingredients ORDER BY name ASC`);
+async function fetchAllIngredients(user) {
+  const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
+  const whereClause = parameters.length ? "WHERE (shift = $1 OR shift = 'ambos' OR shift IS NULL)" : '';
+  const { rows } = await query(`SELECT * FROM ingredients ${whereClause} ORDER BY name ASC`, parameters);
   return rows.map((i) => ({
     id: i.id,
     name: i.name,
@@ -130,17 +136,31 @@ async function fetchAllIngredients() {
     isExtraForPizza: !!i.is_extra_for_pizza,
     category: i.category || 'Ingredientes',
     available: i.available !== false,
+    shift: i.shift || 'ambos',
   }));
 }
 
-async function fetchAllTables() {
-  const { rows } = await query(`SELECT * FROM tables_config ORDER BY number ASC`);
-  return rows.map((t) => ({
+async function fetchAllTables(user) {
+  const { rows: tables } = await query(`SELECT * FROM tables_config ORDER BY number ASC`);
+
+  // Calcular ocupación dinámica por turno
+  let activeOccupiedTables = new Set();
+  try {
+    const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
+    const shiftFilter = parameters.length ? 'AND shift = $1' : '';
+    const { rows: activeOrders } = await query(
+      `SELECT table_number FROM orders WHERE type = 'mesa' AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' ${shiftFilter}`,
+      parameters
+    );
+    activeOccupiedTables = new Set(activeOrders.map((o) => o.table_number).filter(Boolean));
+  } catch (e) {}
+
+  return tables.map((t) => ({
     id: t.id,
     number: t.number,
     name: t.name,
     capacity: t.capacity,
-    status: t.status,
+    status: activeOccupiedTables.has(t.number) ? 'ocupada' : 'libre',
     zone: t.zone,
   }));
 }

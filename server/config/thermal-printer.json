@@ -1,7 +1,18 @@
 {
-  "enabled": true,
-  "host": "192.168.1.2",
-  "port": 9100,
-  "timeoutMs": 5000,
-  "copies": 1
+  "cocina": {
+    "name": "Impresora Cocina / KDS",
+    "enabled": true,
+    "host": "192.168.1.8",
+    "port": 9100,
+    "timeoutMs": 5000,
+    "copies": 1
+  },
+  "caja": {
+    "name": "Impresora Caja / Mostrador",
+    "enabled": true,
+    "host": "192.168.1.8",
+    "port": 9100,
+    "timeoutMs": 5000,
+    "copies": 1
+  }
 }

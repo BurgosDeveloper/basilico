@@ -10,7 +10,6 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "horizon-ui-tailwind-react-ts": "file:..",
     "pg": "^8.11.5",
     "socket.io": "^4.7.5",
     "sqlite3": "^6.0.1"

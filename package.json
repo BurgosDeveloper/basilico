@@ -45,7 +45,6 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "postinstall": "cd server && npm install",
     "prebuild": "node scripts/print-lan.js",
     "prestart": "node scripts/print-lan.js",
     "start": "react-scripts start",

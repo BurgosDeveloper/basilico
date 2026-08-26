@@ -76,6 +76,9 @@ async function initDb() {
 
   if (connectionObj) {
     pool = connectionObj.pool;
+    pool.on('error', (err) => {
+      console.error('⚠️ PG Pool Error (idle client):', err.message);
+    });
     const client = connectionObj.client;
     console.log(`✅ Conectado exitosamente a PostgreSQL (${connectionObj.dbName})`);
     

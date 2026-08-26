@@ -150,3 +150,11 @@ initDb().then(() => {
 }).catch((err) => {
   console.error('Error inicializando DB:', err);
 });
+
+// Production crash guards - prevent silent server termination
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('🔴 Uncaught Exception:', err.message, err.stack);
+});

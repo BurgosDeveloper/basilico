@@ -106,7 +106,7 @@ async function fetchAllOrders(user) {
 
 async function fetchAllProducts(user) {
   const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
-  const whereClause = parameters.length ? "WHERE (shift = $1 OR shift = 'ambos' OR shift IS NULL)" : '';
+  const whereClause = parameters.length ? "WHERE shift = $1" : '';
   const { rows } = await query(`SELECT * FROM products ${whereClause} ORDER BY name ASC`, parameters);
   return rows.map((p) => ({
     id: p.id,
@@ -120,13 +120,13 @@ async function fetchAllProducts(user) {
     badge: p.badge || undefined,
     baseIngredients: p.base_ingredients || [],
     recipe: [],
-    shift: p.shift || 'ambos',
+    shift: p.shift || 'manana',
   }));
 }
 
 async function fetchAllIngredients(user) {
   const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
-  const whereClause = parameters.length ? "WHERE (shift = $1 OR shift = 'ambos' OR shift IS NULL)" : '';
+  const whereClause = parameters.length ? "WHERE shift = $1" : '';
   const { rows } = await query(`SELECT * FROM ingredients ${whereClause} ORDER BY name ASC`, parameters);
   return rows.map((i) => ({
     id: i.id,
@@ -136,7 +136,7 @@ async function fetchAllIngredients(user) {
     isExtraForPizza: !!i.is_extra_for_pizza,
     category: i.category || 'Ingredientes',
     available: i.available !== false,
-    shift: i.shift || 'ambos',
+    shift: i.shift || 'manana',
   }));
 }
 

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Order, OrderItem, Product } from '../data/mockData';
+import { getIngredientExtraPrice } from '../utils/pizzaPricing';
 import { useApp } from '../context/AppContext';
 import { AdminPinModal } from './AdminPinModal';
 import {
@@ -112,6 +113,28 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
     setConfiguringDrink(null);
     setDrinkSugar('Con Azúcar');
     setDrinkNotes('');
+  };
+
+  const handlePizzaSizeChange = (newSize: 'Grande' | 'Pequeña') => {
+    setPizzaSize(newSize);
+    setPizzaExtras((prev) =>
+      prev.map((e) => {
+        const ing = ingredients.find((i) => i.name === e.name);
+        return { name: e.name, price: getIngredientExtraPrice(ing, newSize, false) };
+      })
+    );
+    setPizzaHalf1Extras((prev) =>
+      prev.map((e) => {
+        const ing = ingredients.find((i) => i.name === e.name);
+        return { name: e.name, price: getIngredientExtraPrice(ing, newSize, true) };
+      })
+    );
+    setPizzaHalf2Extras((prev) =>
+      prev.map((e) => {
+        const ing = ingredients.find((i) => i.name === e.name);
+        return { name: e.name, price: getIngredientExtraPrice(ing, newSize, true) };
+      })
+    );
   };
 
   // Listas ordenadas alfabéticamente A-Z
@@ -589,7 +612,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           type="button"
-                          onClick={() => setPizzaSize('Grande')}
+                          onClick={() => handlePizzaSizeChange('Grande')}
                           className={`p-3 rounded-2xl border text-left transition-all ${
                             pizzaSize === 'Grande'
                               ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg font-black'
@@ -601,7 +624,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setPizzaSize('Pequeña')}
+                          onClick={() => handlePizzaSizeChange('Pequeña')}
                           className={`p-3 rounded-2xl border text-left transition-all ${
                             pizzaSize === 'Pequeña'
                               ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg font-black'
@@ -734,6 +757,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
                                 {availableExtras.map((extra) => {
                                   const isSelected = pizzaHalf1Extras.some((e) => e.name === extra.name);
+                                  const extraPrice = getIngredientExtraPrice(extra, pizzaSize, true);
                                   return (
                                     <button
                                       key={extra.id}
@@ -742,7 +766,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                         setPizzaHalf1Extras((prev) =>
                                           isSelected
                                             ? prev.filter((e) => e.name !== extra.name)
-                                            : [...prev, { name: extra.name, price: extra.priceUSD }]
+                                            : [...prev, { name: extra.name, price: extraPrice }]
                                         );
                                       }}
                                       className={`p-2 rounded-xl text-left border text-[11px] font-bold transition-all flex items-center justify-between ${
@@ -752,7 +776,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                       }`}
                                     >
                                       <span className="line-clamp-1">{extra.name}</span>
-                                      <span className="text-[10px] font-mono text-emerald-400">+${extra.priceUSD.toFixed(2)}</span>
+                                      <span className="text-[10px] font-mono text-emerald-400">+${extraPrice.toFixed(2)}</span>
                                     </button>
                                   );
                                 })}
@@ -799,6 +823,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
                                 {availableExtras.map((extra) => {
                                   const isSelected = pizzaHalf2Extras.some((e) => e.name === extra.name);
+                                  const extraPrice = getIngredientExtraPrice(extra, pizzaSize, true);
                                   return (
                                     <button
                                       key={extra.id}
@@ -807,7 +832,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                         setPizzaHalf2Extras((prev) =>
                                           isSelected
                                             ? prev.filter((e) => e.name !== extra.name)
-                                            : [...prev, { name: extra.name, price: extra.priceUSD }]
+                                            : [...prev, { name: extra.name, price: extraPrice }]
                                         );
                                       }}
                                       className={`p-2 rounded-xl text-left border text-[11px] font-bold transition-all flex items-center justify-between ${
@@ -817,7 +842,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                       }`}
                                     >
                                       <span className="line-clamp-1">{extra.name}</span>
-                                      <span className="text-[10px] font-mono text-emerald-400">+${extra.priceUSD.toFixed(2)}</span>
+                                      <span className="text-[10px] font-mono text-emerald-400">+${extraPrice.toFixed(2)}</span>
                                     </button>
                                   );
                                 })}
@@ -867,6 +892,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
                             {availableExtras.map((extra) => {
                               const isSelected = pizzaExtras.some((e) => e.name === extra.name);
+                              const extraPrice = getIngredientExtraPrice(extra, pizzaSize, false);
                               return (
                                 <button
                                   key={extra.id}
@@ -875,7 +901,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                     setPizzaExtras((prev) =>
                                       isSelected
                                         ? prev.filter((e) => e.name !== extra.name)
-                                        : [...prev, { name: extra.name, price: extra.priceUSD }]
+                                        : [...prev, { name: extra.name, price: extraPrice }]
                                     );
                                   }}
                                   className={`p-2.5 rounded-xl text-left border text-xs font-bold transition-all flex items-center justify-between ${
@@ -885,7 +911,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                   }`}
                                 >
                                   <span className="line-clamp-1">{extra.name}</span>
-                                  <span className="text-xs font-mono text-emerald-400 font-black">+${extra.priceUSD.toFixed(2)}</span>
+                                  <span className="text-xs font-mono text-emerald-400 font-black">+${extraPrice.toFixed(2)}</span>
                                 </button>
                               );
                             })}

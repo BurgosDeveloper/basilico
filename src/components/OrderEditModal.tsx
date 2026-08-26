@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Order, OrderItem, Product, Ingredient } from '../data/mockData';
+import { getIngredientExtraPrice } from '../utils/pizzaPricing';
 import { IoClose, IoCreateOutline, IoTrashOutline, IoAddCircleOutline, IoCheckmarkCircleOutline, IoChevronDownOutline, IoChevronUpOutline } from 'react-icons/io5';
 
 interface OrderEditModalProps {
@@ -357,17 +358,45 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
                         {isPizza && (
                           <div className="space-y-4 pt-2 border-t border-slate-700">
                             <div className="flex flex-wrap gap-4">
-                              <div>
-                                <label className="block text-[11px] font-black text-emerald-400 uppercase mb-1">Tamaño</label>
-                                <select
-                                  value={item.size || 'Grande'}
-                                  onChange={(e) => updateItem(idx, it => ({ ...it, size: e.target.value as any }))}
-                                  className="px-3 py-1.5 rounded-xl border border-emerald-500/50 bg-[#1e293b] font-bold text-xs text-white outline-none"
-                                >
-                                  <option value="Grande">Grande</option>
-                                  <option value="Pequeña">Pequeña</option>
-                                </select>
-                              </div>
+                                <div>
+                                  <label className="block text-[11px] font-black text-emerald-400 uppercase mb-1">Tamaño</label>
+                                  <select
+                                    value={item.size || 'Grande'}
+                                    onChange={(e) => {
+                                      const newSize = e.target.value as 'Grande' | 'Pequeña';
+                                      updateItem(idx, (it) => {
+                                        const updatedExtras = (it.extras || []).map((ex) => {
+                                          const ing = ingredients.find((i) => i.name === ex.name);
+                                          return { name: ex.name, price: getIngredientExtraPrice(ing, newSize, false) };
+                                        });
+                                        const updatedHalf1Extras = (it.halfDetails?.half1Extras || []).map((ex) => {
+                                          const ing = ingredients.find((i) => i.name === ex.name);
+                                          return { name: ex.name, price: getIngredientExtraPrice(ing, newSize, true) };
+                                        });
+                                        const updatedHalf2Extras = (it.halfDetails?.half2Extras || []).map((ex) => {
+                                          const ing = ingredients.find((i) => i.name === ex.name);
+                                          return { name: ex.name, price: getIngredientExtraPrice(ing, newSize, true) };
+                                        });
+                                        return {
+                                          ...it,
+                                          size: newSize,
+                                          extras: updatedExtras,
+                                          halfDetails: it.halfDetails
+                                            ? {
+                                                ...it.halfDetails,
+                                                half1Extras: updatedHalf1Extras,
+                                                half2Extras: updatedHalf2Extras,
+                                              }
+                                            : undefined,
+                                        };
+                                      });
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl border border-emerald-500/50 bg-[#1e293b] font-bold text-xs text-white outline-none"
+                                  >
+                                    <option value="Grande">Grande</option>
+                                    <option value="Pequeña">Pequeña</option>
+                                  </select>
+                                </div>
 
                               {!item.isHalfHalf && (
                                 <div>
@@ -464,6 +493,7 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
                                   <div className="flex flex-wrap gap-2">
                                     {availableExtras.map(ext => {
                                       const hasExtra = item.extras?.some(e => e.name === ext.name);
+                                      const extraPrice = getIngredientExtraPrice(ext, item.size === 'Pequeña' ? 'Pequeña' : 'Grande', false);
                                       return (
                                         <button
                                           key={ext.id}
@@ -473,14 +503,14 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
                                               ...it,
                                               extras: hasExtra 
                                                 ? extras.filter(e => e.name !== ext.name)
-                                                : [...extras, { name: ext.name, price: ext.priceUSD }]
+                                                : [...extras, { name: ext.name, price: extraPrice }]
                                             };
                                           })}
                                           className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
                                             hasExtra ? 'bg-emerald-900/50 border-emerald-500 text-emerald-400' : 'bg-[#1e293b] border-slate-600 text-slate-300 hover:bg-slate-700'
                                           }`}
                                         >
-                                          {ext.name} (+${ext.priceUSD})
+                                          {ext.name} (+${extraPrice.toFixed(2)})
                                         </button>
                                       );
                                     })}
@@ -552,20 +582,21 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
                                         <div className="flex flex-wrap gap-1">
                                           {availableExtras.map(ext => {
                                             const hasExtra = currentExtras.some(e => e.name === ext.name);
+                                            const extraPrice = getIngredientExtraPrice(ext, item.size === 'Pequeña' ? 'Pequeña' : 'Grande', true);
                                             return (
                                               <button
                                                 key={ext.id}
                                                 onClick={() => updateItem(idx, it => {
                                                   const newExtras = hasExtra 
                                                     ? currentExtras.filter(e => e.name !== ext.name)
-                                                    : [...currentExtras, { name: ext.name, price: ext.priceUSD }];
+                                                    : [...currentExtras, { name: ext.name, price: extraPrice }];
                                                   return { ...it, halfDetails: { ...it.halfDetails!, [halfKeyExtras]: newExtras } };
                                                 })}
                                                 className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition-colors ${
                                                   hasExtra ? 'bg-emerald-900/50 border-emerald-500 text-emerald-400' : 'bg-[#0f172a] border-slate-600 text-slate-300'
                                                 }`}
                                               >
-                                                {ext.name} (+${ext.priceUSD})
+                                                {ext.name} (+${extraPrice.toFixed(2)})
                                               </button>
                                             );
                                           })}

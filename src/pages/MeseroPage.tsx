@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Product, OrderItem, ExtraIngredient, Order } from '../data/mockData';
+import { getIngredientExtraPrice } from '../utils/pizzaPricing';
 import { ChangeTableModal } from '../components/ChangeTableModal';
 import { OrderAppendModal } from '../components/OrderAppendModal';
 
@@ -182,9 +183,35 @@ export const MeseroPage: React.FC = () => {
     );
   };
 
-  // Toggle Extra Ingredient (Add/Remove from Pizza or targeted Half)
+  // Handle Pizza Size Change with dynamic extra price recalculation
+  const handlePizzaSizeChange = (newSize: 'Grande' | 'Pequeña') => {
+    setPizzaSize(newSize);
+    setPizzaExtras((prev) =>
+      prev.map((e) => {
+        const ing = ingredients.find((i) => i.name === e.name);
+        return { name: e.name, price: getIngredientExtraPrice(ing, newSize, false) };
+      })
+    );
+    setPizzaHalf1Extras((prev) =>
+      prev.map((e) => {
+        const ing = ingredients.find((i) => i.name === e.name);
+        return { name: e.name, price: getIngredientExtraPrice(ing, newSize, true) };
+      })
+    );
+    setPizzaHalf2Extras((prev) =>
+      prev.map((e) => {
+        const ing = ingredients.find((i) => i.name === e.name);
+        return { name: e.name, price: getIngredientExtraPrice(ing, newSize, true) };
+      })
+    );
+  };
+
+  // Toggle Extra Ingredient (Add/Remove from Pizza or targeted Half with dynamic 4-tier pricing)
   const toggleExtraIngredient = (extra: ExtraIngredient) => {
-    const extraObj = { name: extra.name, price: extra.priceUSD };
+    const isHalfTarget = extrasTargetHalf === 'half1' || extrasTargetHalf === 'half2';
+    const effectivePrice = getIngredientExtraPrice(extra, pizzaSize, isHalfTarget);
+    const extraObj = { name: extra.name, price: effectivePrice };
+
     if (extrasTargetHalf === 'half1') {
       setPizzaHalf1Extras((prev) =>
         prev.some((e) => e.name === extra.name)
@@ -974,14 +1001,14 @@ export const MeseroPage: React.FC = () => {
                   <button
                     key={sz}
                     type="button"
-                    onClick={() => setPizzaSize(sz)}
+                    onClick={() => handlePizzaSizeChange(sz)}
                     className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
                       pizzaSize === sz
                         ? 'bg-emerald-500 text-black border-emerald-300 font-black shadow-lg scale-[1.02]'
                         : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    {sz === 'Grande' ? '🍕 Grande (12" - Familiar)' : '🍕 Pequeña (8" - Personal -$4)'}
+                    {sz === 'Grande' ? '🍕 Grande (12" - Familiar)' : '🍕 Pequeña (8" - Personal)'}
                   </button>
                 ))}
               </div>
@@ -1263,6 +1290,8 @@ export const MeseroPage: React.FC = () => {
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
               {availableExtras.map((extra) => {
+                const isHalfTarget = extrasTargetHalf === 'half1' || extrasTargetHalf === 'half2';
+                const calculatedPrice = getIngredientExtraPrice(extra, pizzaSize, isHalfTarget);
                 const isSelected =
                   extrasTargetHalf === 'half1'
                     ? pizzaHalf1Extras.some((e) => e.name === extra.name)
@@ -1280,7 +1309,7 @@ export const MeseroPage: React.FC = () => {
                     }`}
                   >
                     <span>{extra.name}</span>
-                    <span className="text-emerald-700 font-black text-xs">+${extra.priceUSD.toFixed(2)} USD</span>
+                    <span className="text-emerald-700 font-black text-xs">+${calculatedPrice.toFixed(2)} USD</span>
                   </div>
                 );
               })}

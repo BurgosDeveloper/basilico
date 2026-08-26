@@ -105,7 +105,10 @@ export const MenuManagementPage: React.FC = () => {
   const [isAddIngOpen, setIsAddIngOpen] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null);
   const [ingName, setIngName] = useState('');
-  const [ingPrice, setIngPrice] = useState('2.00');
+  const [ingPriceGrandeCompleta, setIngPriceGrandeCompleta] = useState('2.00');
+  const [ingPriceGrandeMitad, setIngPriceGrandeMitad] = useState('1.00');
+  const [ingPricePequenaCompleta, setIngPricePequenaCompleta] = useState('1.00');
+  const [ingPricePequenaMitad, setIngPricePequenaMitad] = useState('0.50');
   const [ingIsBase, setIngIsBase] = useState(true);
   const [ingIsExtra, setIngIsExtra] = useState(true);
   const [ingCategory, setIngCategory] = useState('Ingredientes');
@@ -220,7 +223,15 @@ export const MenuManagementPage: React.FC = () => {
   const handleStartEditIngredient = (ing: Ingredient) => {
     setEditingIngredientId(ing.id);
     setIngName(ing.name);
-    setIngPrice(ing.priceUSD.toString());
+    const pComp = (ing.priceGrandeCompleta !== undefined ? ing.priceGrandeCompleta : (ing.priceUSD || 0)).toString();
+    const pMit = (ing.priceGrandeMitad !== undefined ? ing.priceGrandeMitad : (parseFloat(pComp) > 0 ? parseFloat(pComp) / 2 : 0)).toString();
+    const pPeqComp = (ing.pricePequenaCompleta !== undefined ? ing.pricePequenaCompleta : (parseFloat(pComp) > 0 ? parseFloat(pComp) / 2 : 0)).toString();
+    const pPeqMit = (ing.pricePequenaMitad !== undefined ? ing.pricePequenaMitad : (parseFloat(pPeqComp) > 0 ? parseFloat(pPeqComp) / 2 : 0)).toString();
+    
+    setIngPriceGrandeCompleta(pComp);
+    setIngPriceGrandeMitad(pMit);
+    setIngPricePequenaCompleta(pPeqComp);
+    setIngPricePequenaMitad(pPeqMit);
     setIngIsBase(ing.isBaseForPizza);
     setIngIsExtra(ing.isExtraForPizza);
     setIngCategory(ing.category || 'Ingredientes');
@@ -231,9 +242,18 @@ export const MenuManagementPage: React.FC = () => {
     e.preventDefault();
     if (!ingName) return;
 
+    const pGrandeComp = parseFloat(ingPriceGrandeCompleta) || 0;
+    const pGrandeMit = parseFloat(ingPriceGrandeMitad) || 0;
+    const pPequenaComp = parseFloat(ingPricePequenaCompleta) || 0;
+    const pPequenaMit = parseFloat(ingPricePequenaMitad) || 0;
+
     const ingData = {
       name: ingName,
-      priceUSD: parseFloat(ingPrice) || 0,
+      priceUSD: pGrandeComp,
+      priceGrandeCompleta: pGrandeComp,
+      priceGrandeMitad: pGrandeMit,
+      pricePequenaCompleta: pPequenaComp,
+      pricePequenaMitad: pPequenaMit,
       isBaseForPizza: ingIsBase,
       isExtraForPizza: ingIsExtra,
       category: ingCategory || 'Ingredientes',
@@ -248,7 +268,10 @@ export const MenuManagementPage: React.FC = () => {
 
     setEditingIngredientId(null);
     setIngName('');
-    setIngPrice('2.00');
+    setIngPriceGrandeCompleta('2.00');
+    setIngPriceGrandeMitad('1.00');
+    setIngPricePequenaCompleta('1.00');
+    setIngPricePequenaMitad('0.50');
     setIngIsBase(true);
     setIngIsExtra(true);
     setIsAddIngOpen(false);
@@ -519,7 +542,17 @@ export const MenuManagementPage: React.FC = () => {
             </h2>
 
             <button
-              onClick={() => { setEditingIngredientId(null); setIngName(''); setIngPrice('2.00'); setIngIsBase(true); setIngIsExtra(true); setIsAddIngOpen(true); }}
+              onClick={() => {
+                setEditingIngredientId(null);
+                setIngName('');
+                setIngPriceGrandeCompleta('2.00');
+                setIngPriceGrandeMitad('1.00');
+                setIngPricePequenaCompleta('1.00');
+                setIngPricePequenaMitad('0.50');
+                setIngIsBase(true);
+                setIngIsExtra(true);
+                setIsAddIngOpen(true);
+              }}
               className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900 font-black text-xs transition-all flex items-center gap-1.5 shadow-lg"
             >
               <IoAdd className="text-lg" />
@@ -532,49 +565,62 @@ export const MenuManagementPage: React.FC = () => {
               <thead className="bg-slate-100 text-slate-900 uppercase text-[10px] font-black border-b border-slate-200">
                 <tr>
                   <th className="p-4">Nombre del Ingrediente</th>
-                  <th className="p-4">Costo Adicional (USD)</th>
-                  <th className="p-4">Base para Pizza</th>
-                  <th className="p-4">Adicional / Extra</th>
+                  <th className="p-4">🍕 Grande Completa</th>
+                  <th className="p-4">🌓 Grande Mitad</th>
+                  <th className="p-4">🍕 Pequeña Completa</th>
+                  <th className="p-4">🌓 Pequeña Mitad</th>
+                  <th className="p-4">Base</th>
+                  <th className="p-4">Extra</th>
                   <th className="p-4 text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
-                {shiftIngredients.map((ing) => (
-                  <tr key={ing.id} className="hover:bg-slate-100">
-                    <td className="p-4 font-bold text-slate-900 flex items-center gap-2">
-                      <IoSparkles className="text-emerald-600" />
-                      <span>{ing.name}</span>
-                    </td>
-                    <td className="p-4 font-black text-emerald-700">+${ing.priceUSD.toFixed(2)} USD</td>
-                    <td className="p-4">
-                      {ing.isBaseForPizza ? (
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 border border-emerald-200 text-[10px] font-bold">✓ SÍ</span>
-                      ) : (
-                        <span className="text-slate-400">NO</span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      {ing.isExtraForPizza ? (
-                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 border border-amber-200 text-[10px] font-bold">✓ SÍ</span>
-                      ) : (
-                        <span className="text-slate-400">NO</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleStartEditIngredient(ing)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500 hover:text-slate-900 border border-emerald-500/30 transition-all text-xs font-bold flex items-center gap-1"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button onClick={() => deleteIngredient(ing.id)} className="p-2 rounded-xl bg-red-500/20 text-red-600 hover:bg-red-500 hover:text-slate-900 border border-red-500/30 transition-all">
-                          <IoTrash size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-slate-200">
+                {shiftIngredients.map((ing) => {
+                  const pComp = ing.priceGrandeCompleta !== undefined ? ing.priceGrandeCompleta : (ing.priceUSD || 0);
+                  const pMit = ing.priceGrandeMitad !== undefined ? ing.priceGrandeMitad : (pComp > 0 ? pComp / 2 : 0);
+                  const pPeqComp = ing.pricePequenaCompleta !== undefined ? ing.pricePequenaCompleta : (pComp > 0 ? pComp / 2 : 0);
+                  const pPeqMit = ing.pricePequenaMitad !== undefined ? ing.pricePequenaMitad : (pPeqComp > 0 ? pPeqComp / 2 : 0);
+
+                  return (
+                    <tr key={ing.id} className="hover:bg-slate-100">
+                      <td className="p-4 font-bold text-slate-900 flex items-center gap-2">
+                        <IoSparkles className="text-emerald-600" />
+                        <span>{ing.name}</span>
+                      </td>
+                      <td className="p-4 font-black text-emerald-700">+${pComp.toFixed(2)} USD</td>
+                      <td className="p-4 font-bold text-emerald-600">+${pMit.toFixed(2)} USD</td>
+                      <td className="p-4 font-bold text-teal-700">+${pPeqComp.toFixed(2)} USD</td>
+                      <td className="p-4 font-bold text-teal-600">+${pPeqMit.toFixed(2)} USD</td>
+                      <td className="p-4">
+                        {ing.isBaseForPizza ? (
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 border border-emerald-200 text-[10px] font-bold">✓ SÍ</span>
+                        ) : (
+                          <span className="text-slate-400">NO</span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        {ing.isExtraForPizza ? (
+                          <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 border border-amber-200 text-[10px] font-bold">✓ SÍ</span>
+                        ) : (
+                          <span className="text-slate-400">NO</span>
+                        )}
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleStartEditIngredient(ing)}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500 hover:text-slate-900 border border-emerald-500/30 transition-all text-xs font-bold flex items-center gap-1"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button onClick={() => deleteIngredient(ing.id)} className="p-2 rounded-xl bg-red-500/20 text-red-600 hover:bg-red-500 hover:text-slate-900 border border-red-500/30 transition-all">
+                            <IoTrash size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1320,17 +1366,68 @@ export const MenuManagementPage: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1">Costo Adicional en USD ($):</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  required
-                  value={ingPrice}
-                  onChange={(e) => setIngPrice(e.target.value)}
-                  placeholder="2.00"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
-                />
+              <div className="p-3 bg-white/60 rounded-2xl border border-slate-200 space-y-3">
+                <span className="text-[11px] font-black uppercase text-emerald-800 tracking-wider block">
+                  Matriz de Precios Adicionales ($ USD):
+                </span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🍕 Grande Completa ($):</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      required
+                      value={ingPriceGrandeCompleta}
+                      onChange={(e) => setIngPriceGrandeCompleta(e.target.value)}
+                      placeholder="2.00"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🌓 Grande Mitad ($):</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      required
+                      value={ingPriceGrandeMitad}
+                      onChange={(e) => setIngPriceGrandeMitad(e.target.value)}
+                      placeholder="1.00"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🍕 Pequeña Completa ($):</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      required
+                      value={ingPricePequenaCompleta}
+                      onChange={(e) => setIngPricePequenaCompleta(e.target.value)}
+                      placeholder="1.00"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🌓 Pequeña Mitad ($):</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      required
+                      value={ingPricePequenaMitad}
+                      onChange={(e) => setIngPricePequenaMitad(e.target.value)}
+                      placeholder="0.50"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div>

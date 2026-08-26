@@ -128,16 +128,28 @@ async function fetchAllIngredients(user) {
   const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
   const whereClause = parameters.length ? "WHERE shift = $1" : '';
   const { rows } = await query(`SELECT * FROM ingredients ${whereClause} ORDER BY name ASC`, parameters);
-  return rows.map((i) => ({
-    id: i.id,
-    name: i.name,
-    priceUSD: parseFloat(i.price_usd),
-    isBaseForPizza: !!i.is_base_for_pizza,
-    isExtraForPizza: !!i.is_extra_for_pizza,
-    category: i.category || 'Ingredientes',
-    available: i.available !== false,
-    shift: i.shift || 'manana',
-  }));
+  return rows.map((i) => {
+    const rawPriceUsd = parseFloat(i.price_usd) || 0;
+    const priceGrandeCompleta = i.price_grande_completa !== null && i.price_grande_completa !== undefined ? parseFloat(i.price_grande_completa) : rawPriceUsd;
+    const priceGrandeMitad = i.price_grande_mitad !== null && i.price_grande_mitad !== undefined ? parseFloat(i.price_grande_mitad) : (priceGrandeCompleta > 0 ? priceGrandeCompleta / 2 : 0);
+    const pricePequenaCompleta = i.price_pequena_completa !== null && i.price_pequena_completa !== undefined ? parseFloat(i.price_pequena_completa) : (priceGrandeCompleta > 0 ? priceGrandeCompleta / 2 : 0);
+    const pricePequenaMitad = i.price_pequena_mitad !== null && i.price_pequena_mitad !== undefined ? parseFloat(i.price_pequena_mitad) : (pricePequenaCompleta > 0 ? pricePequenaCompleta / 2 : 0);
+
+    return {
+      id: i.id,
+      name: i.name,
+      priceUSD: priceGrandeCompleta,
+      priceGrandeCompleta,
+      priceGrandeMitad,
+      pricePequenaCompleta,
+      pricePequenaMitad,
+      isBaseForPizza: !!i.is_base_for_pizza,
+      isExtraForPizza: !!i.is_extra_for_pizza,
+      category: i.category || 'Ingredientes',
+      available: i.available !== false,
+      shift: i.shift || 'manana',
+    };
+  });
 }
 
 async function fetchAllTables(user) {

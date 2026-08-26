@@ -34,7 +34,7 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
     }
   };
 
-  const extraPrice = selectedModifiers.reduce((sum, m) => sum + m.priceUSD, 0);
+  const extraPrice = selectedModifiers.reduce((sum, m) => sum + (m.priceGrandeCompleta !== undefined ? m.priceGrandeCompleta : m.priceUSD), 0);
   const unitPrice = product.price + extraPrice;
   const totalPrice = unitPrice * quantity;
 
@@ -113,7 +113,7 @@ export const ProductModifierModal: React.FC<ProductModifierModalProps> = ({
                       <span>{mod.name}</span>
                     </div>
                     <span className="text-[11px] text-emerald-700 font-semibold">
-                      +${mod.priceUSD.toFixed(2)}
+                      +${(mod.priceGrandeCompleta !== undefined ? mod.priceGrandeCompleta : mod.priceUSD).toFixed(2)}
                     </span>
                   </button>
                 );

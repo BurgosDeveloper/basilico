@@ -91,6 +91,10 @@ async function initDb() {
       `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS is_extra_for_pizza BOOLEAN DEFAULT TRUE;`,
       `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS category VARCHAR(64) DEFAULT 'Ingredientes';`,
       `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS available BOOLEAN DEFAULT TRUE;`,
+      `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS price_grande_completa NUMERIC(10, 2) DEFAULT 0.00;`,
+      `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS price_grande_mitad NUMERIC(10, 2) DEFAULT 0.00;`,
+      `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS price_pequena_completa NUMERIC(10, 2) DEFAULT 0.00;`,
+      `ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS price_pequena_mitad NUMERIC(10, 2) DEFAULT 0.00;`,
 
       `CREATE TABLE IF NOT EXISTS products (id VARCHAR(64) PRIMARY KEY, name VARCHAR(128) NOT NULL, category VARCHAR(64) NOT NULL, drink_type VARCHAR(32), price NUMERIC(10, 2) NOT NULL DEFAULT 0.00, description TEXT, image TEXT, badge VARCHAR(64), base_ingredients TEXT[], created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`,
       `ALTER TABLE products ADD COLUMN IF NOT EXISTS price_small NUMERIC(10, 2);`,

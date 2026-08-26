@@ -23,9 +23,14 @@ export interface Ingredient {
   id: string;
   name: string;
   priceUSD: number;
+  priceGrandeCompleta?: number;
+  priceGrandeMitad?: number;
+  pricePequenaCompleta?: number;
+  pricePequenaMitad?: number;
   isBaseForPizza: boolean;
   isExtraForPizza: boolean;
   category?: string;
+  available?: boolean;
   shift?: 'manana' | 'noche' | 'ambos';
 }
 

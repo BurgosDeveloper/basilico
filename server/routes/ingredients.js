@@ -16,14 +16,44 @@ module.exports = function(io) {
 
   router.post('/', requireRole('admin'), async (req, res) => {
     try {
-      const { name, priceUSD, isBaseForPizza, isExtraForPizza, category, available, shift } = req.body;
+      const {
+        name,
+        priceUSD,
+        priceGrandeCompleta,
+        priceGrandeMitad,
+        pricePequenaCompleta,
+        pricePequenaMitad,
+        isBaseForPizza,
+        isExtraForPizza,
+        category,
+        available,
+        shift
+      } = req.body;
       const id = `ing-${Date.now()}`;
       const targetShift = shift || req.user.shift || 'manana';
 
+      const pGrandeComp = priceGrandeCompleta !== undefined ? (parseFloat(priceGrandeCompleta) || 0) : (parseFloat(priceUSD) || 0);
+      const pGrandeMit = priceGrandeMitad !== undefined ? (parseFloat(priceGrandeMitad) || 0) : (pGrandeComp > 0 ? pGrandeComp / 2 : 0);
+      const pPequenaComp = pricePequenaCompleta !== undefined ? (parseFloat(pricePequenaCompleta) || 0) : (pGrandeComp > 0 ? pGrandeComp / 2 : 0);
+      const pPequenaMit = pricePequenaMitad !== undefined ? (parseFloat(pricePequenaMitad) || 0) : (pPequenaComp > 0 ? pPequenaComp / 2 : 0);
+
       await query(
-        `INSERT INTO ingredients (id, name, price_usd, is_base_for_pizza, is_extra_for_pizza, category, available, shift)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [id, name, priceUSD || 0, isBaseForPizza !== false, isExtraForPizza !== false, category || 'Ingredientes', available !== false, targetShift]
+        `INSERT INTO ingredients (id, name, price_usd, price_grande_completa, price_grande_mitad, price_pequena_completa, price_pequena_mitad, is_base_for_pizza, is_extra_for_pizza, category, available, shift)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          id,
+          name,
+          pGrandeComp,
+          pGrandeComp,
+          pGrandeMit,
+          pPequenaComp,
+          pPequenaMit,
+          isBaseForPizza !== false,
+          isExtraForPizza !== false,
+          category || 'Ingredientes',
+          available !== false,
+          targetShift
+        ]
       );
 
       const shiftIngredients = await fetchAllIngredients(req.user);
@@ -42,8 +72,25 @@ module.exports = function(io) {
   router.put('/:id', requireRole('admin'), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, category, priceUSD, isBaseForPizza, isExtraForPizza, available, shift } = req.body;
+      const {
+        name,
+        category,
+        priceUSD,
+        priceGrandeCompleta,
+        priceGrandeMitad,
+        pricePequenaCompleta,
+        pricePequenaMitad,
+        isBaseForPizza,
+        isExtraForPizza,
+        available,
+        shift
+      } = req.body;
       const targetShift = shift || req.user.shift || 'manana';
+
+      const pGrandeComp = priceGrandeCompleta !== undefined ? (parseFloat(priceGrandeCompleta) || 0) : (parseFloat(priceUSD) || 0);
+      const pGrandeMit = priceGrandeMitad !== undefined ? (parseFloat(priceGrandeMitad) || 0) : (pGrandeComp > 0 ? pGrandeComp / 2 : 0);
+      const pPequenaComp = pricePequenaCompleta !== undefined ? (parseFloat(pricePequenaCompleta) || 0) : (pGrandeComp > 0 ? pGrandeComp / 2 : 0);
+      const pPequenaMit = pricePequenaMitad !== undefined ? (parseFloat(pricePequenaMitad) || 0) : (pPequenaComp > 0 ? pPequenaComp / 2 : 0);
 
       let oldName = null;
       const { rows } = await query(`SELECT name FROM ingredients WHERE id = $1`, [id]);
@@ -52,12 +99,18 @@ module.exports = function(io) {
       await query(
         `UPDATE ingredients 
          SET name = $1, category = $2, price_usd = $3, 
-             is_base_for_pizza = $4, is_extra_for_pizza = $5, available = $6, shift = $7
-         WHERE id = $8`,
+             price_grande_completa = $4, price_grande_mitad = $5,
+             price_pequena_completa = $6, price_pequena_mitad = $7,
+             is_base_for_pizza = $8, is_extra_for_pizza = $9, available = $10, shift = $11
+         WHERE id = $12`,
         [
           name, 
           category || 'Ingredientes', 
-          priceUSD || 0, 
+          pGrandeComp, 
+          pGrandeComp,
+          pGrandeMit,
+          pPequenaComp,
+          pPequenaMit,
           isBaseForPizza !== false, 
           isExtraForPizza !== false, 
           available !== false, 

@@ -379,10 +379,7 @@ export const CajaPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => {
-              if (activeSubTab === 'historico') return;
-              requireAdminPin('Acceso a Histórico de Comandas', 'Autorizar Consulta de Historial', () => setSearchParams({ tab: 'historico' }));
-            }}
+            onClick={() => setSearchParams({ tab: 'historico' })}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeSubTab === 'historico'
                 ? 'bg-emerald-500 text-black shadow-lg'
@@ -391,14 +388,10 @@ export const CajaPage: React.FC = () => {
           >
             <IoTimeOutline />
             <span>HISTÓRICO ({paidOrdersToday.length})</span>
-            {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" title="Requiere PIN de Administrador" />}
           </button>
 
           <button
-            onClick={() => {
-              if (activeSubTab === 'reportes') return;
-              requireAdminPin('Acceso a Reportes y Cierre Contable', 'Autorizar Consulta de Reportes', () => setSearchParams({ tab: 'reportes' }));
-            }}
+            onClick={() => setSearchParams({ tab: 'reportes' })}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeSubTab === 'reportes'
                 ? 'bg-emerald-500 text-black shadow-lg'
@@ -407,7 +400,6 @@ export const CajaPage: React.FC = () => {
           >
             <IoBarChartOutline />
             <span>REPORTES & CIERRE</span>
-            {userSession?.role === 'caja' && <IoLockClosedOutline className="text-amber-400 text-xs" title="Requiere PIN de Administrador" />}
           </button>
 
           {(userSession?.role === 'admin' || userSession?.role === 'caja') && (

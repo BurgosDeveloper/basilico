@@ -195,21 +195,32 @@ module.exports = function (io) {
         paymentMethod: ord.payment_method,
         totalUSD: parseFloat(ord.total_usd) || 0,
         paidAmountUSD: parseFloat(ord.paid_amount_usd) || 0,
+        deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
         copRateAtPayment: parseFloat(ord.cop_rate_at_payment) || copRate,
         bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || bsRate,
         createdAt: ord.created_at,
+        archivedAt: ord.archived_at || null,
         isEdited: !!ord.is_edited,
       }));
 
-      const items = itemRows.map((it) => ({
-        id: it.id,
-        orderId: it.order_id,
-        orderNumber: it.order_number,
-        productName: it.product_name,
-        price: parseFloat(it.price) || 0,
-        quantity: it.quantity || 1,
-        category: it.category || 'Sin categoría',
-      }));
+      const items = itemRows.map((it) => {
+        let extras = [];
+        try {
+          if (it.extras_json) {
+            extras = typeof it.extras_json === 'string' ? JSON.parse(it.extras_json) : it.extras_json;
+          }
+        } catch (e) {}
+        return {
+          id: it.id,
+          orderId: it.order_id,
+          orderNumber: it.order_number,
+          productName: it.product_name,
+          price: parseFloat(it.price) || 0,
+          quantity: it.quantity || 1,
+          category: it.category || 'Sin categoría',
+          extras,
+        };
+      });
 
       const payments = paymentRows.map((pm) => ({
         id: pm.id,

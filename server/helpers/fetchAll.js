@@ -34,7 +34,7 @@ function normalizeImageUrl(url) {
 
 async function fetchAllOrders(user) {
   const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
-  const whereClause = parameters.length ? 'WHERE shift = $1' : '';
+  const whereClause = parameters.length ? 'WHERE shift = $1 AND archived_at IS NULL' : 'WHERE archived_at IS NULL';
   const { rows: orders } = await query(`SELECT * FROM orders ${whereClause} ORDER BY created_at DESC`, parameters);
   const orderIds = orders.map((order) => order.id);
   if (orderIds.length === 0) return [];
@@ -161,7 +161,7 @@ async function fetchAllTables(user) {
     const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
     const shiftFilter = parameters.length ? 'AND shift = $1' : '';
     const { rows: activeOrders } = await query(
-      `SELECT table_number FROM orders WHERE type = 'mesa' AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' ${shiftFilter}`,
+      `SELECT table_number FROM orders WHERE type = 'mesa' AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL ${shiftFilter}`,
       parameters
     );
     activeOccupiedTables = new Set(activeOrders.map((o) => o.table_number).filter(Boolean));

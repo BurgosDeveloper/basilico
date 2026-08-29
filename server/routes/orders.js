@@ -85,12 +85,12 @@ module.exports = function(io) {
       let nextNum = 1;
       try {
         const maxRes = await client.query(
-          `SELECT COALESCE(MAX(CAST(NULLIF(regexp_replace(order_number, '\\D', '', 'g'), '') AS INTEGER)), 0) AS max_num FROM orders WHERE shift = $1`,
+          `SELECT COALESCE(MAX(CAST(NULLIF(regexp_replace(order_number, '\\D', '', 'g'), '') AS INTEGER)), 0) AS max_num FROM orders WHERE shift = $1 AND archived_at IS NULL`,
           [req.user.shift]
         );
         nextNum = 1 + parseInt(maxRes.rows[0]?.max_num || '0', 10);
       } catch (e) {
-        const countRes = await client.query(`SELECT COUNT(*) FROM orders WHERE shift = $1`, [req.user.shift]);
+        const countRes = await client.query(`SELECT COUNT(*) FROM orders WHERE shift = $1 AND archived_at IS NULL`, [req.user.shift]);
         nextNum = 1 + parseInt(countRes.rows[0]?.count || '0', 10);
       }
       const orderNumber = `#${nextNum}`;
@@ -211,7 +211,7 @@ module.exports = function(io) {
         const { rows: ordRows } = await client.query('SELECT table_number, type FROM orders WHERE id = $1', [id]);
         if (ordRows[0]?.type === 'mesa' && ordRows[0]?.table_number) {
           const { rows: otherOrders } = await client.query(
-            `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito'`,
+            `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL`,
             [ordRows[0].table_number, id]
           );
           if (otherOrders.length === 0) {
@@ -694,7 +694,7 @@ module.exports = function(io) {
       // Verificar si la mesa anterior todavía tiene otras órdenes activas
       if (oldTableNumber) {
         const { rows: otherOrders } = await client.query(
-          "SELECT id FROM orders WHERE table_number = $1 AND id != $2 AND status NOT IN ('cancelado', 'fusionada') AND payment_status != 'pagado' AND shift = $3",
+          "SELECT id FROM orders WHERE table_number = $1 AND id != $2 AND status NOT IN ('cancelado', 'fusionada') AND payment_status != 'pagado' AND archived_at IS NULL AND shift = $3",
           [oldTableNumber, id, order.shift]
         );
         if (otherOrders.length === 0) {

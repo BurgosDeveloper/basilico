@@ -10,6 +10,7 @@ module.exports = function(io) {
     try {
       const params = req.user.shift === 'ambos' ? [] : [req.user.shift];
       const scope = params.length ? ' WHERE shift = $1' : '';
+      const txScope = params.length ? ' WHERE tx.shift = $1 AND tx.cierre_id IS NULL' : ' WHERE tx.cierre_id IS NULL';
       const { rows: aperturaRows } = await query(
         `SELECT * FROM caja_chica_apertura${scope} ORDER BY timestamp DESC LIMIT 1`, params
       );
@@ -17,7 +18,7 @@ module.exports = function(io) {
         `SELECT tx.*, o.order_number
          FROM caja_chica_transactions tx
          LEFT JOIN orders o ON o.id = tx.order_id
-         ${scope ? 'WHERE tx.shift = $1' : ''}
+         ${txScope}
          ORDER BY tx.timestamp DESC`, params
       );
       const { rows: cierreRows } = await query(
@@ -154,7 +155,7 @@ module.exports = function(io) {
       const diffUSD = normalizedActualUSD - expectedUSD;
       const diffCOP = normalizedActualCOP - expectedCOP;
 
-      // 1. Obtener desglose por método de pago de los pedidos del turno
+      // 1. Obtener desglose por método de pago de los pedidos del turno activo
       const { rows: paymentMethodRows } = await query(
         `SELECT op.payment_method, 
                 SUM(op.amount_paid_usd) as total_usd,
@@ -163,24 +164,24 @@ module.exports = function(io) {
                 COUNT(op.id) as count
          FROM order_payments op
          INNER JOIN orders o ON o.id = op.order_id
-         WHERE o.shift = $1
+         WHERE o.shift = $1 AND o.archived_at IS NULL
          GROUP BY op.payment_method
          ORDER BY total_usd DESC`,
         [req.user.shift]
       );
 
-      // 2. Obtener resumen de créditos y órdenes procesadas
+      // 2. Obtener resumen de créditos y órdenes procesadas del turno activo
       const { rows: creditSummaryRows } = await query(
         `SELECT COUNT(id) as count, COALESCE(SUM(total_usd), 0) as total_usd
          FROM orders
-         WHERE shift = $1 AND payment_status = 'credito'`,
+         WHERE shift = $1 AND payment_status = 'credito' AND archived_at IS NULL`,
         [req.user.shift]
       );
 
       const { rows: shiftOrdersRows } = await query(
         `SELECT id, order_number, type, customer_name, total_usd, payment_status, status, table_number, created_at
          FROM orders
-         WHERE shift = $1
+         WHERE shift = $1 AND archived_at IS NULL
          ORDER BY created_at ASC`,
         [req.user.shift]
       );
@@ -237,15 +238,13 @@ module.exports = function(io) {
         console.warn(`⚠️ Aviso: no se pudo imprimir ticket de cierre térmico:`, printErr.message);
       }
 
-      // 5. Purga limpia del turno: Eliminar órdenes cobradas y transacciones, PRESERVANDO créditos
+      // 5. Archivado de turno: Archivar comandas pagadas/finalizadas/canceladas (data 100% persistente en BD)
       const creditOrders = shiftOrdersRows.filter((o) => o.payment_status === 'credito');
       const nonCreditIds = shiftOrdersRows.filter((o) => o.payment_status !== 'credito').map((o) => o.id);
 
       if (nonCreditIds.length > 0) {
-        await query('DELETE FROM order_payments WHERE order_id = ANY($1::text[])', [nonCreditIds]);
-        await query('DELETE FROM order_items WHERE order_id = ANY($1::text[])', [nonCreditIds]);
-        await query('DELETE FROM orders WHERE id = ANY($1::text[])', [nonCreditIds]);
-        console.log(`🧹 [PURGA DE TURNO] Se eliminaron ${nonCreditIds.length} comandas finalizadas/canceladas.`);
+        await query('UPDATE orders SET archived_at = CURRENT_TIMESTAMP WHERE id = ANY($1::text[]) AND archived_at IS NULL', [nonCreditIds]);
+        console.log(`📦 [ARCHIVADO DE TURNO] Se archivaron ${nonCreditIds.length} comandas finalizadas/canceladas (data 100% preservada en BD).`);
       }
 
       // 6. Renumerar las comandas a crédito restantes a las primeras posiciones (#1, #2, ...)
@@ -256,8 +255,8 @@ module.exports = function(io) {
         console.log(`📌 [CRÉDITOS PRESERVADOS] Se mantuvieron ${creditOrders.length} cuentas a crédito reasignadas a #${1}..#${creditOrders.length}.`);
       }
 
-      // 7. Limpiar movimientos y apertura de caja chica del turno cerrado
-      await query('DELETE FROM caja_chica_transactions WHERE shift = $1', [req.user.shift]);
+      // 7. Marcar movimientos de caja chica con el cierreId (preservados en BD) y reiniciar apertura
+      await query('UPDATE caja_chica_transactions SET cierre_id = $1 WHERE shift = $2 AND cierre_id IS NULL', [cierreId, req.user.shift]);
       await query('DELETE FROM caja_chica_apertura WHERE shift = $1', [req.user.shift]);
 
       // 8. Liberar todas las mesas al cierre del turno (las comandas a crédito preservadas no bloquean mesas)
@@ -272,7 +271,7 @@ module.exports = function(io) {
 
       res.json({
         success: true,
-        message: 'Cierre de turno y purga completados exitosamente.',
+        message: 'Cierre de turno y archivado de datos completados exitosamente. Toda la información histórica queda preservada en la base de datos.',
         summary: {
           openedUSD,
           openedCOP,

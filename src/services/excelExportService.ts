@@ -80,14 +80,17 @@ function formatDate(dateStr: string): string {
   }
 }
 
-function registeredPaymentAmounts(payment: ReporteIntervaloData['payments'][number]) {
-  let usd = payment.cashTenderedUSD || 0;
-  let cop = payment.cashTenderedCOP || 0;
-  let bs = payment.cashTenderedBs || 0;
-  if (usd === 0 && cop === 0 && bs === 0 && payment.amountPaidUSD > 0) {
-    if (['Efectivo COP', 'Bancolombia', 'Nequi'].includes(payment.paymentMethod)) cop = payment.amountPaidUSD * payment.copRate;
-    else if (['Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito'].includes(payment.paymentMethod)) bs = payment.amountPaidUSD * payment.bsRate;
-    else usd = payment.amountPaidUSD;
+function registeredSaleAmounts(payment: ReporteIntervaloData['payments'][number]) {
+  const paidUSD = payment.amountPaidUSD || 0;
+  let usd = 0;
+  let cop = 0;
+  let bs = 0;
+  if (['Efectivo COP', 'Bancolombia', 'Nequi', 'Binance COP'].includes(payment.paymentMethod)) {
+    cop = paidUSD * (payment.copRate || 3950);
+  } else if (['Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito'].includes(payment.paymentMethod)) {
+    bs = paidUSD * (payment.bsRate || 36.5);
+  } else {
+    usd = paidUSD;
   }
   return { usd, cop, bs };
 }
@@ -96,24 +99,24 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   const wb = XLSX.utils.book_new();
 
   // --- Hoja 1: Totales Consolidados ---
-  const registeredPayments = data.payments.filter((payment) => payment.amountPaidUSD > 0 || payment.cashTenderedUSD > 0 || payment.cashTenderedCOP > 0 || payment.cashTenderedBs > 0);
+  const registeredPayments = data.payments.filter((payment) => payment.paymentMethod !== 'Crédito' && payment.amountPaidUSD > 0);
   const totals = registeredPayments.reduce((sum, payment) => {
-    const amounts = registeredPaymentAmounts(payment);
+    const amounts = registeredSaleAmounts(payment);
     return { usd: sum.usd + amounts.usd, cop: sum.cop + amounts.cop, bs: sum.bs + amounts.bs };
   }, { usd: 0, cop: 0, bs: 0 });
-  const cashOrders = data.orders.filter((o) => o.paymentMethod !== 'Mixto').length;
-  const creditOrders = data.orders.length - cashOrders;
+  const cashOrders = data.orders.filter((o) => o.paymentMethod !== 'Mixto' && o.paymentStatus === 'pagado').length;
+  const creditOrders = data.orders.filter((o) => o.paymentStatus === 'credito' || o.paymentMethod === 'Crédito').length;
 
   const totalesData = [
     ['CIERRE DE CAJA EN EL INTERVALO CONSOLIDADO'],
     ['Desde:', formatDate(data.dateRange.from), 'Hasta:', formatDate(data.dateRange.to)],
     [],
     ['Concepto', 'USD', 'COP', 'Bs'],
-    ['Total Recaudado', totals.usd.toFixed(2), Math.round(totals.cop).toLocaleString(), totals.bs.toFixed(2)],
+    ['Total Facturado (Vendido)', totals.usd.toFixed(2), Math.round(totals.cop).toLocaleString(), totals.bs.toFixed(2)],
     [],
     ['Total Comandas', data.orders.length.toString()],
     ['Comandas de Contado', cashOrders.toString()],
-    ['Comandas a Crédito/Mixto', creditOrders.toString()],
+    ['Comandas a Crédito', creditOrders.toString()],
     [],
     ['Comanda Inicial', data.orders.length > 0 ? `#${data.orders[0].orderNumber}` : 'N/A'],
     ['Comanda Final', data.orders.length > 0 ? `#${data.orders[data.orders.length - 1].orderNumber}` : 'N/A'],
@@ -128,7 +131,7 @@ export function exportToExcel(data: ReporteIntervaloData): void {
     if (!methodTotals[p.paymentMethod]) {
       methodTotals[p.paymentMethod] = { count: 0, usd: 0, cop: 0, bs: 0 };
     }
-    const amounts = registeredPaymentAmounts(p);
+    const amounts = registeredSaleAmounts(p);
     methodTotals[p.paymentMethod].count++;
     methodTotals[p.paymentMethod].usd += amounts.usd;
     methodTotals[p.paymentMethod].cop += amounts.cop;

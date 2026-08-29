@@ -214,6 +214,30 @@ export class ReportService {
     };
   }
 
+  private registeredSaleAmounts(payment: ReporteIntervaloData['payments'][number]) {
+    const paidUSD = payment.amountPaidUSD || 0;
+    const curr = this.paymentCurrency(payment.paymentMethod);
+    let usd = 0;
+    let cop = 0;
+    let bs = 0;
+    if (curr === 'USD') {
+      usd = paidUSD;
+    } else if (curr === 'COP') {
+      cop = paidUSD * (payment.copRate || 3950);
+    } else if (curr === 'Bs') {
+      bs = paidUSD * (payment.bsRate || 36.5);
+    }
+    const nativeAmount = curr === 'USD' ? usd : curr === 'COP' ? cop : bs;
+    return {
+      currency: curr,
+      nativeAmount,
+      usd,
+      cop,
+      bs,
+      equivalentUSD: paidUSD,
+    };
+  }
+
   private intervalTitle(data: ReporteIntervaloData) {
     return `Desde ${this.reportDate(data.dateRange.from)} hasta ${this.reportDate(data.dateRange.to)}`;
   }
@@ -545,36 +569,30 @@ export class ReportService {
   generateReporteContable(data: ReporteIntervaloData) {
     const methodNames = ['Efectivo USD', 'Binance', 'Zelle', 'Efectivo COP', 'Bancolombia', 'Nequi', 'Binance COP', 'Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito'];
     const methodTotals = new Map(methodNames.map((method) => [method, { currency: this.paymentCurrency(method), nativeTotal: 0, usd: 0, cop: 0, bs: 0, equivalentUSD: 0, count: 0 }]));
-    const receiptTotals = { usd: 0, cop: 0, bs: 0 };
+    const billedTotals = { usd: 0, cop: 0, bs: 0 };
     const paymentsByOrder = new Map<string, ReporteIntervaloData['payments']>();
 
     data.payments.forEach((payment) => {
       if (payment.paymentMethod === 'Crédito') return;
-      if (payment.amountPaidUSD <= 0 && payment.cashTenderedUSD <= 0 && payment.cashTenderedCOP <= 0 && payment.cashTenderedBs <= 0) return;
-      const amounts = this.registeredPaymentAmounts(payment);
-      receiptTotals.usd += amounts.usd;
-      receiptTotals.cop += amounts.cop;
-      receiptTotals.bs += amounts.bs;
+      if (payment.amountPaidUSD <= 0) return;
+      const saleAmounts = this.registeredSaleAmounts(payment);
+      billedTotals.usd += saleAmounts.usd;
+      billedTotals.cop += saleAmounts.cop;
+      billedTotals.bs += saleAmounts.bs;
 
-      const totals = methodTotals.get(payment.paymentMethod) || { currency: amounts.currency, nativeTotal: 0, usd: 0, cop: 0, bs: 0, equivalentUSD: 0, count: 0 };
-      totals.nativeTotal += amounts.nativeAmount;
-      totals.usd += amounts.usd;
-      totals.cop += amounts.cop;
-      totals.bs += amounts.bs;
-      totals.equivalentUSD += amounts.equivalentUSD;
+      const totals = methodTotals.get(payment.paymentMethod) || { currency: saleAmounts.currency, nativeTotal: 0, usd: 0, cop: 0, bs: 0, equivalentUSD: 0, count: 0 };
+      totals.nativeTotal += saleAmounts.nativeAmount;
+      totals.usd += saleAmounts.usd;
+      totals.cop += saleAmounts.cop;
+      totals.bs += saleAmounts.bs;
+      totals.equivalentUSD += saleAmounts.equivalentUSD;
       totals.count += 1;
       methodTotals.set(payment.paymentMethod, totals);
       paymentsByOrder.set(payment.orderId, [...(paymentsByOrder.get(payment.orderId) || []), payment]);
     });
 
-    // Calcular Egresos y Vueltos
+    // Calcular Egresos y Vueltos para la auditoría de Caja Chica (gaveta física)
     const expenses = (data.transactions || []).filter((transaction) => transaction.type === 'egreso');
-    const expenseTotals = { usd: 0, cop: 0, bs: 0 };
-    expenses.forEach((t) => {
-      expenseTotals.usd += Number(t.amountUSD) || 0;
-      expenseTotals.cop += Number(t.amountCOP) || 0;
-      expenseTotals.bs += Number(t.amountBs) || 0;
-    });
 
     // Cálculo exclusivo para CAJA CHICA DEL EFECTIVO ESPERADA
     const aperturaUSD = data.apertura?.usdCash || 0;
@@ -612,43 +630,13 @@ export class ReportService {
     const cajaChicaEsperadaUSD = aperturaUSD + totalIngresosEfectivoUSD - totalEgresosEfectivoUSD;
     const cajaChicaEsperadaCOP = aperturaCOP + totalIngresosEfectivoCOP - totalEgresosEfectivoCOP;
 
-    // Desglose de Vueltos y Egresos por Tipo de Pago
-    const expenseMethodMap = new Map<string, { currency: string; count: number; usd: number; cop: number; bs: number }>();
-    expenses.forEach((t) => {
-      const method = t.paymentMethod || (t.amountBs > 0 ? 'Pago Móvil' : t.amountCOP > 0 ? 'Efectivo COP' : 'Efectivo USD');
-      const currency = t.amountBs > 0 ? 'Bs' : t.amountCOP > 0 ? 'COP' : 'USD';
-      const entry = expenseMethodMap.get(method) || { currency, count: 0, usd: 0, cop: 0, bs: 0 };
-      entry.count += 1;
-      entry.usd += Number(t.amountUSD) || 0;
-      entry.cop += Number(t.amountCOP) || 0;
-      entry.bs += Number(t.amountBs) || 0;
-      expenseMethodMap.set(method, entry);
-    });
-
-    const expenseMethodRows = Array.from(expenseMethodMap.entries())
-      .map(([method, totals]) => {
-        const formattedAmount = totals.currency === 'USD'
-          ? `-$${totals.usd.toFixed(2)} USD`
-          : totals.currency === 'COP'
-          ? `-$${Math.round(totals.cop).toLocaleString()} COP`
-          : `-Bs ${totals.bs.toFixed(2)}`;
-        return `
-          <tr>
-            <td><strong>${this.escapeHtml(this.paymentMethodLabel(method))}</strong></td>
-            <td>${totals.currency}</td>
-            <td style="text-align:center;">${totals.count}</td>
-            <td style="text-align:right; font-weight:700; color:#dc2626;">${formattedAmount}</td>
-          </tr>
-        `;
-      }).join('');
-
     // Separación de Contado y Crédito
     const creditOrders = data.orders.filter((order) => order.paymentStatus === 'credito' || order.paymentMethod === 'Crédito');
     const cashOrders = data.orders.filter((order) => order.paymentStatus === 'pagado' && order.paymentMethod !== 'Crédito');
     const firstOrder = data.orders[0]?.orderNumber || 'N/A';
     const lastOrder = data.orders[data.orders.length - 1]?.orderNumber || 'N/A';
 
-    // Desglose por Tipo de Pago (Columna de Moneda y Monto)
+    // Desglose por Tipo de Pago (Columna de Moneda y Monto Facturado)
     const methodRows = Array.from(methodTotals.entries())
       .filter(([, totals]) => totals.count > 0 || totals.nativeTotal > 0)
       .map(([method, totals]) => {
@@ -705,9 +693,9 @@ export class ReportService {
     // Comandas Editadas
     const editRows = data.edits.map((edit) => `<tr><td>#${this.escapeHtml(edit.orderNumber)}</td><td>${this.reportDate(edit.createdAt)}</td><td>${this.escapeHtml(edit.editedBy)}</td><td>${this.escapeHtml(edit.editDetails)}</td></tr>`).join('');
 
-    // Historial por Método de Pago (Moneda y Monto)
+    // Historial por Método de Pago (Moneda y Monto Facturado)
     const historyByMethod = Array.from(methodTotals.keys()).map((method) => {
-      const entries = data.payments.filter((payment) => payment.paymentMethod === method && (payment.amountPaidUSD > 0 || payment.cashTenderedUSD > 0 || payment.cashTenderedCOP > 0 || payment.cashTenderedBs > 0));
+      const entries = data.payments.filter((payment) => payment.paymentMethod === method && payment.amountPaidUSD > 0);
       if (entries.length === 0) return '';
       return `
         <h4 style="font-size:10px; font-weight:900; margin:12px 0 4px; padding:3px 6px; background:#f3f4f6;">${this.escapeHtml(this.paymentMethodLabel(method))}</h4>
@@ -718,12 +706,12 @@ export class ReportService {
               <th>Comanda</th>
               <th>Pagador</th>
               <th>Moneda</th>
-              <th style="text-align:right;">Monto</th>
+              <th style="text-align:right;">Monto Facturado</th>
             </tr>
           </thead>
           <tbody>
             ${entries.map((payment) => {
-              const amounts = this.registeredPaymentAmounts(payment);
+              const amounts = this.registeredSaleAmounts(payment);
               const formatted = amounts.currency === 'USD'
                 ? `$${amounts.usd.toFixed(2)}`
                 : amounts.currency === 'COP'
@@ -754,26 +742,26 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN 2 — TOTALES DE INGRESOS POR MONEDA (CONTADO)</div>
+      <div class="section-title">SECCIÓN 2 — TOTAL FACTURADO (VENDIDO) POR MONEDA (CONTADO)</div>
       <table>
         <thead>
           <tr>
             <th>Moneda</th>
-            <th style="text-align:right;">Monto Recibido</th>
+            <th style="text-align:right;">Monto Facturado</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>Dólares (USD)</td>
-            <td style="text-align:right; font-weight:900; color:#047857;">$${receiptTotals.usd.toFixed(2)}</td>
+            <td style="text-align:right; font-weight:900; color:#047857;">$${billedTotals.usd.toFixed(2)}</td>
           </tr>
           <tr>
             <td>Pesos Colombianos (COP)</td>
-            <td style="text-align:right; font-weight:700;">$${Math.round(receiptTotals.cop).toLocaleString()} COP</td>
+            <td style="text-align:right; font-weight:700;">$${Math.round(billedTotals.cop).toLocaleString()} COP</td>
           </tr>
           <tr>
             <td>Bolívares (Bs)</td>
-            <td style="text-align:right; font-weight:700;">Bs ${receiptTotals.bs.toFixed(2)}</td>
+            <td style="text-align:right; font-weight:700;">Bs ${billedTotals.bs.toFixed(2)}</td>
           </tr>
           <tr style="background:#f9fafb;">
             <td><strong>Total Comandas Atendidas:</strong></td>
@@ -790,46 +778,7 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN 3 — TOTAL DE VUELTOS Y EGRESOS POR MONEDA Y TIPO DE PAGO</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Moneda</th>
-            <th style="text-align:right;">Monto Entregado</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Dólares (USD)</td>
-            <td style="text-align:right; font-weight:900; color:#dc2626;">-$${expenseTotals.usd.toFixed(2)} USD</td>
-          </tr>
-          <tr>
-            <td>Pesos Colombianos (COP)</td>
-            <td style="text-align:right; font-weight:700; color:#dc2626;">-$${Math.round(expenseTotals.cop).toLocaleString()} COP</td>
-          </tr>
-          <tr>
-            <td>Bolívares (Bs)</td>
-            <td style="text-align:right; font-weight:700; color:#dc2626;">-Bs ${expenseTotals.bs.toFixed(2)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h4 style="font-size:10px; font-weight:900; margin:10px 0 4px; padding:3px 6px; background:#fef2f2; color:#991b1b; border-left:3px solid #dc2626;">VUELTOS Y EGRESOS POR TIPO DE PAGO:</h4>
-      <table>
-        <thead>
-          <tr>
-            <th>Método de Pago</th>
-            <th>Moneda</th>
-            <th style="text-align:center;">Mov.</th>
-            <th style="text-align:right;">Monto Entregado</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${expenseMethodRows || '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">Sin vueltos ni egresos registrados.</td></tr>'}
-        </tbody>
-      </table>
-
-      <div class="section-title">SECCIÓN 4 — CAJA CHICA DEL EFECTIVO ESPERADA</div>
+      <div class="section-title">SECCIÓN 3 — CAJA CHICA DEL EFECTIVO ESPERADA</div>
       <table>
         <thead>
           <tr>
@@ -862,14 +811,14 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN 5 — DESGLOSE POR TIPO DE PAGO</div>
+      <div class="section-title">SECCIÓN 4 — DESGLOSE POR TIPO DE PAGO</div>
       <table>
         <thead>
           <tr>
             <th>Método de Pago</th>
             <th>Moneda</th>
             <th style="text-align:center;">Mov.</th>
-            <th style="text-align:right;">Monto Recibido</th>
+            <th style="text-align:right;">Monto Facturado</th>
           </tr>
         </thead>
         <tbody>
@@ -878,7 +827,7 @@ export class ReportService {
       </table>
 
       ${creditOrders.length > 0 ? `
-        <div class="section-title">SECCIÓN 6 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR</div>
+        <div class="section-title">SECCIÓN 5 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR</div>
         <table>
           <thead>
             <tr>
@@ -899,7 +848,7 @@ export class ReportService {
         </div>
       ` : ''}
 
-      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '7' : '6'} — ÍTEMS FACTURADOS</div>
+      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '6' : '5'} — ÍTEMS FACTURADOS</div>
       <table>
         <thead>
           <tr>
@@ -913,7 +862,7 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '8' : '7'} — COMANDAS EDITADAS</div>
+      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '7' : '6'} — COMANDAS EDITADAS</div>
       <table>
         <thead>
           <tr>
@@ -928,7 +877,7 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '9' : '8'} — HISTORIAL POR MÉTODO DE PAGO</div>
+      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '8' : '7'} — HISTORIAL POR MÉTODO DE PAGO</div>
       ${historyByMethod || '<p style="font-size:10px; color:#6b7280; text-align:center;">Sin pagos en el intervalo.</p>'}
     `;
 

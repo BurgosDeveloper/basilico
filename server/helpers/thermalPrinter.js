@@ -204,6 +204,21 @@ function reportAmounts(payment) {
   return { usd, cop, bs };
 }
 
+function reportSaleAmounts(payment) {
+  const paidUSD = Number(payment.amountPaidUSD) || 0;
+  let usd = 0;
+  let cop = 0;
+  let bs = 0;
+  if (['Efectivo COP', 'Bancolombia', 'Nequi', 'Binance COP'].includes(payment.paymentMethod)) {
+    cop = paidUSD * (Number(payment.copRate) || 3950);
+  } else if (['Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito'].includes(payment.paymentMethod)) {
+    bs = paidUSD * (Number(payment.bsRate) || 36.5);
+  } else {
+    usd = paidUSD;
+  }
+  return { usd, cop, bs, equivalentUSD: paidUSD };
+}
+
 function monetaryLines(amounts, prefix = '') {
   const lines = [];
   if (amounts.usd > 0) lines.push(`${prefix}$${amounts.usd.toFixed(2)} USD`);
@@ -392,50 +407,32 @@ function buildReportTicket(reportType, data) {
     lines.push(`COMANDAS: ${(data.orders || []).length}`, `ITEMS FACTURADOS: ${(data.items || []).reduce((total, item) => total + (Number(item.quantity) || 0), 0)}`);
   } else {
     // REPORTE CONTABLE CONSOLIDADO
-    const receivedTotals = { usd: 0, cop: 0, bs: 0 };
-    const changeTotals = { usd: 0, cop: 0, bs: 0 };
+    const billedTotals = { usd: 0, cop: 0, bs: 0 };
     const byMethod = new Map();
     const paymentCounts = new Map();
 
     for (const payment of data.payments || []) {
       if (payment.paymentMethod === 'Crédito') continue;
-      const amounts = reportAmounts(payment);
-      const change = paymentChangeAmounts(payment);
-      receivedTotals.usd += amounts.usd; receivedTotals.cop += amounts.cop; receivedTotals.bs += amounts.bs;
-      changeTotals.usd += change.usd; changeTotals.cop += change.cop; changeTotals.bs += change.bs;
+      const paidUSD = Number(payment.amountPaidUSD) || 0;
+      if (paidUSD <= 0) continue;
+      const amounts = reportSaleAmounts(payment);
+      billedTotals.usd += amounts.usd;
+      billedTotals.cop += amounts.cop;
+      billedTotals.bs += amounts.bs;
       const methodTotals = byMethod.get(payment.paymentMethod) || { usd: 0, cop: 0, bs: 0 };
-      methodTotals.usd += amounts.usd; methodTotals.cop += amounts.cop; methodTotals.bs += amounts.bs;
+      methodTotals.usd += amounts.usd;
+      methodTotals.cop += amounts.cop;
+      methodTotals.bs += amounts.bs;
       byMethod.set(payment.paymentMethod, methodTotals);
       paymentCounts.set(payment.paymentMethod, (paymentCounts.get(payment.paymentMethod) || 0) + 1);
     }
 
     const expenses = (data.transactions || []).filter((item) => item.type === 'egreso');
-    for (const tx of expenses) {
-      const u = Number(tx.amountUSD) || 0;
-      const c = Number(tx.amountCOP) || 0;
-      const b = Number(tx.amountBs) || 0;
-      if (!data.payments?.some(p => p.id && tx.description?.includes(p.id))) {
-        changeTotals.usd += u;
-        changeTotals.cop += c;
-        changeTotals.bs += b;
-      }
-    }
 
     const creditOrders = (data.orders || []).filter((o) => o.paymentStatus === 'credito' || o.paymentMethod === 'Crédito');
     const cashOrders = (data.orders || []).filter((o) => o.paymentStatus === 'pagado' && o.paymentMethod !== 'Crédito');
     const firstOrder = data.orders?.[0]?.orderNumber || 'N/A';
     const lastOrder = data.orders?.[data.orders.length - 1]?.orderNumber || 'N/A';
-
-    const expenseMethodMap = new Map();
-    for (const tx of expenses) {
-      const method = tx.paymentMethod || (Number(tx.amountBs) > 0 ? 'Pago Móvil' : Number(tx.amountCOP) > 0 ? 'Efectivo COP' : 'Efectivo USD');
-      const entry = expenseMethodMap.get(method) || { usd: 0, cop: 0, bs: 0, count: 0 };
-      entry.count += 1;
-      entry.usd += Number(tx.amountUSD) || 0;
-      entry.cop += Number(tx.amountCOP) || 0;
-      entry.bs += Number(tx.amountBs) || 0;
-      expenseMethodMap.set(method, entry);
-    }
 
     // SECCIÓN 1 — DATOS DEL INTERVALO
     addSection(lines, 'SECCION 1: INTERVALO');
@@ -444,39 +441,17 @@ function buildReportTicket(reportType, data) {
     lines.push(`COMANDA INICIAL: #${firstOrder}`);
     lines.push(`COMANDA FINAL:   #${lastOrder}`);
 
-    // SECCIÓN 2 — TOTALES DE INGRESOS POR MONEDA (CONTADO)
-    addSection(lines, 'SECCION 2: INGRESOS CONTADO');
-    lines.push(`DOLARES (USD): $${receivedTotals.usd.toFixed(2)}`);
-    lines.push(`PESOS (COP):   $${Math.round(receivedTotals.cop).toLocaleString('en-US')} COP`);
-    lines.push(`BOLIVARES(Bs): Bs ${receivedTotals.bs.toFixed(2)}`);
+    // SECCIÓN 2 — TOTAL FACTURADO POR MONEDA (CONTADO)
+    addSection(lines, 'SECCION 2: TOTAL FACTURADO (CONTADO)');
+    lines.push(`DOLARES (USD): $${billedTotals.usd.toFixed(2)}`);
+    lines.push(`PESOS (COP):   $${Math.round(billedTotals.cop).toLocaleString('en-US')} COP`);
+    lines.push(`BOLIVARES(Bs): Bs ${billedTotals.bs.toFixed(2)}`);
     lines.push(divider('-'));
     lines.push(`TOTAL COMANDAS:  ${(data.orders || []).length}`);
     lines.push(`  • Al Contado:  ${cashOrders.length}`);
     lines.push(`  • A Credito:   ${creditOrders.length}`);
 
-    // SECCIÓN 3 — TOTAL DE VUELTOS Y EGRESOS POR MONEDA Y TIPO DE PAGO
-    addSection(lines, 'SECCION 3: VUELTOS Y EGRESOS');
-    lines.push('TOTALES POR MONEDA:');
-    lines.push(`  USD: -$${changeTotals.usd.toFixed(2)} USD`);
-    lines.push(`  COP: -$${Math.round(changeTotals.cop).toLocaleString('en-US')} COP`);
-    lines.push(`  Bs:  -Bs ${changeTotals.bs.toFixed(2)}`);
-    lines.push('');
-    lines.push('VUELTOS Y EGRESOS POR METODO:');
-    if (expenseMethodMap.size === 0) {
-      lines.push('  (Sin vueltos ni egresos)');
-    } else {
-      for (const [method, amounts] of expenseMethodMap) {
-        const formattedAmount = amounts.usd > 0
-          ? `-$${amounts.usd.toFixed(2)} USD`
-          : amounts.cop > 0
-          ? `-$${Math.round(amounts.cop).toLocaleString('en-US')} COP`
-          : `-Bs ${amounts.bs.toFixed(2)}`;
-        lines.push(...wrapText(`• ${method} (${amounts.count} mov):`));
-        lines.push(`    ${formattedAmount}`);
-      }
-    }
-
-    // SECCIÓN 4 — CAJA CHICA DEL EFECTIVO ESPERADA
+    // SECCIÓN 3 — CAJA CHICA DEL EFECTIVO ESPERADA
     const aperturaUSD = Number(data.apertura?.usdCash) || 0;
     const aperturaCOP = Number(data.apertura?.copCash) || 0;
 
@@ -508,7 +483,7 @@ function buildReportTicket(reportType, data) {
     const cajaChicaEsperadaUSD = aperturaUSD + totalIngresosEfectivoUSD - totalEgresosEfectivoUSD;
     const cajaChicaEsperadaCOP = aperturaCOP + totalIngresosEfectivoCOP - totalEgresosEfectivoCOP;
 
-    addSection(lines, 'SECCION 4: CAJA CHICA');
+    addSection(lines, 'SECCION 3: CAJA CHICA');
     lines.push('EFECTIVO EN DOLARES (USD):');
     lines.push(`  1. Fondo Apertura:   $${aperturaUSD.toFixed(2)} USD`);
     lines.push(`  2. (+) Ingresos Cash:+$${totalIngresosEfectivoUSD.toFixed(2)} USD`);
@@ -521,8 +496,8 @@ function buildReportTicket(reportType, data) {
     lines.push(`  3. (-) Egresos Cash: -$${Math.round(totalEgresosEfectivoCOP).toLocaleString('en-US')} COP`);
     lines.push(`  4. (=) ESPERADO COP: $${Math.round(cajaChicaEsperadaCOP).toLocaleString('en-US')} COP`);
 
-    // SECCIÓN 5 — DESGLOSE DE COBROS POR TIPO DE PAGO
-    addSection(lines, 'SECCION 5: COBROS POR METODO');
+    // SECCIÓN 4 — DESGLOSE DE COBROS POR TIPO DE PAGO
+    addSection(lines, 'SECCION 4: FACTURADO POR METODO');
     if (byMethod.size === 0) {
       lines.push('SIN COBROS EN EL INTERVALO');
     } else {
@@ -533,9 +508,9 @@ function buildReportTicket(reportType, data) {
       }
     }
 
-    // SECCIÓN 6 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR
+    // SECCIÓN 5 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR
     if (creditOrders.length > 0) {
-      addSection(lines, 'SECCION 6: CREDITOS Y DEUDAS');
+      addSection(lines, 'SECCION 5: CREDITOS Y DEUDAS');
       const totalCreditUSD = creditOrders.reduce((sum, o) => sum + (Number(o.totalUSD) || 0), 0);
       lines.push(`TOTAL CUENTAS POR COBRAR:`);
       lines.push(`  $${totalCreditUSD.toFixed(2)} USD`);
@@ -558,7 +533,7 @@ function buildReportTicket(reportType, data) {
       }
     }
 
-    // SECCIÓN 7 — ITEMS FACTURADOS
+    // SECCIÓN 6/5 — ITEMS FACTURADOS
     const itemMap = new Map();
     for (const item of (data.items || [])) {
       const key = `${item.category || 'VARIOS'}|${item.productName}`;
@@ -566,8 +541,8 @@ function buildReportTicket(reportType, data) {
       prev.quantity += (Number(item.quantity) || 1);
       itemMap.set(key, prev);
     }
-    const sec7Num = creditOrders.length > 0 ? '7' : '6';
-    addSection(lines, `SECCION ${sec7Num}: ITEMS FACTURADOS`);
+    const sec6Num = creditOrders.length > 0 ? '6' : '5';
+    addSection(lines, `SECCION ${sec6Num}: ITEMS FACTURADOS`);
     if (itemMap.size === 0) {
       lines.push('SIN ITEMS FACTURADOS');
     } else {
@@ -582,21 +557,21 @@ function buildReportTicket(reportType, data) {
       }
     }
 
-    // NOTA: SECCIÓN 8 (COMANDAS EDITADAS) OMITIDA EN IMPRESIÓN POR REQUERIMIENTO
+    // NOTA: SECCIÓN COMANDAS EDITADAS OMITIDA EN IMPRESIÓN POR REQUERIMIENTO
 
-    // SECCIÓN 9 — HISTORIAL POR MÉTODO DE PAGO
-    const sec9Num = creditOrders.length > 0 ? '9' : '8';
-    addSection(lines, `SECCION ${sec9Num}: HISTORIAL METODOS`);
+    // SECCIÓN 7/6 — HISTORIAL POR MÉTODO DE PAGO
+    const sec7Num = creditOrders.length > 0 ? '7' : '6';
+    addSection(lines, `SECCION ${sec7Num}: HISTORIAL METODOS`);
     const validMethods = Array.from(byMethod.keys());
     if (validMethods.length === 0) {
       lines.push('SIN HISTORIAL DE PAGOS');
     } else {
       for (const method of validMethods) {
-        const entries = (data.payments || []).filter((p) => p.paymentMethod === method && (Number(p.amountPaidUSD) > 0 || Number(p.cashTenderedUSD) > 0 || Number(p.cashTenderedCOP) > 0 || Number(p.cashTenderedBs) > 0));
+        const entries = (data.payments || []).filter((p) => p.paymentMethod === method && Number(p.amountPaidUSD) > 0);
         if (entries.length === 0) continue;
         lines.push('', `--- ${method.toUpperCase()} ---`);
         for (const p of entries) {
-          const amounts = reportAmounts(p);
+          const amounts = reportSaleAmounts(p);
           const formatted = amounts.usd > 0
             ? `$${amounts.usd.toFixed(2)} USD`
             : amounts.cop > 0

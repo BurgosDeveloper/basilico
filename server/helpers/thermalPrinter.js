@@ -460,15 +460,90 @@ function buildReportTicket(reportType, data) {
     lines.push(`COMANDA INICIAL: #${firstOrder}`);
     lines.push(`COMANDA FINAL:   #${lastOrder}`);
 
+    // Desglose de Deliverys por tarifa
+    const deliveryMap = new Map();
+    let totalDeliveryServices = 0;
+    let totalDeliveryUSD = 0;
+    for (const ord of (data.orders || [])) {
+      const fee = Number(ord.deliveryFeeUSD) || 0;
+      if (ord.type === 'delivery' || fee > 0) {
+        totalDeliveryServices += 1;
+        totalDeliveryUSD += fee;
+        deliveryMap.set(fee, (deliveryMap.get(fee) || 0) + 1);
+      }
+    }
+
+    // Desglose de Extras / Adicionales por precio
+    const extrasMap = new Map();
+    let totalExtrasCount = 0;
+    let totalExtrasUSD = 0;
+    for (const it of (data.items || [])) {
+      const itQty = Number(it.quantity) || 1;
+      const extrasList = [];
+      if (Array.isArray(it.extras)) {
+        extrasList.push(...it.extras);
+      } else if (it.extrasJson && Array.isArray(it.extrasJson)) {
+        extrasList.push(...it.extrasJson);
+      }
+      if (it.isHalfHalf && it.halfDetails) {
+        if (Array.isArray(it.halfDetails.half1Extras)) extrasList.push(...it.halfDetails.half1Extras);
+        if (Array.isArray(it.halfDetails.half2Extras)) extrasList.push(...it.halfDetails.half2Extras);
+      }
+      for (const extra of extrasList) {
+        const price = Number(extra.price) || 0;
+        const count = itQty;
+        const subtotal = price * count;
+        totalExtrasCount += count;
+        totalExtrasUSD += subtotal;
+        const prev = extrasMap.get(price) || { count: 0, totalUSD: 0 };
+        prev.count += count;
+        prev.totalUSD += subtotal;
+        extrasMap.set(price, prev);
+      }
+    }
+
+    const totalFacturadoUSD = Array.from(byMethod.values()).reduce((sum, m) => {
+      const equiv = m.usd + (m.cop / (Number(data.exchangeRates?.COP) || 3950)) + (m.bs / (Number(data.exchangeRates?.Bs) || 36.5));
+      return sum + equiv;
+    }, 0);
+
     // SECCIÓN 2 — TOTAL FACTURADO POR MONEDA (CONTADO)
     addSection(lines, 'SECCION 2: TOTAL FACTURADO (CONTADO)');
     lines.push(`DOLARES (USD): $${billedTotals.usd.toFixed(2)}`);
     lines.push(`PESOS (COP):   $${Math.round(billedTotals.cop).toLocaleString('en-US')} COP`);
     lines.push(`BOLIVARES(Bs): Bs ${billedTotals.bs.toFixed(2)}`);
     lines.push(divider('-'));
+    lines.push('\x1BE\x01');
+    lines.push(`TOTAL FACTURADO: $${totalFacturadoUSD.toFixed(2)} USD`);
+    lines.push('\x1BE\x00');
+    lines.push(divider('-'));
     lines.push(`TOTAL COMANDAS:  ${(data.orders || []).length}`);
     lines.push(`  • Al Contado:  ${cashOrders.length}`);
     lines.push(`  • A Credito:   ${creditOrders.length}`);
+
+    // SECCIÓN DE DELIVERYS Y ADICIONALES
+    addSection(lines, 'DELIVERYS Y ADICIONALES');
+    lines.push('\x1BE\x01', `• SERVICIOS DELIVERY (${totalDeliveryServices}):`, '\x1BE\x00');
+    if (deliveryMap.size === 0) {
+      lines.push('  Sin deliverys en el intervalo.');
+    } else {
+      const sortedDeliverys = Array.from(deliveryMap.entries()).sort((a, b) => a[0] - b[0]);
+      for (const [fee, count] of sortedDeliverys) {
+        lines.push(`  ${count} de $${fee.toFixed(2)} = $${(fee * count).toFixed(2)} USD`);
+      }
+      lines.push(`  TOTAL DELIVERYS: $${totalDeliveryUSD.toFixed(2)} USD`);
+    }
+    lines.push('');
+    lines.push('\x1BE\x01', `• ADICIONALES/EXTRAS (${totalExtrasCount}):`, '\x1BE\x00');
+    if (extrasMap.size === 0) {
+      lines.push('  Sin adicionales en el intervalo.');
+    } else {
+      const sortedExtras = Array.from(extrasMap.entries()).sort((a, b) => a[0] - b[0]);
+      for (const [price, info] of sortedExtras) {
+        lines.push(`  ${info.count} de $${price.toFixed(2)} = $${info.totalUSD.toFixed(2)} USD`);
+      }
+      lines.push(`  TOTAL ADICIONALES: $${totalExtrasUSD.toFixed(2)} USD`);
+    }
 
     // SECCIÓN 3 — CAJA CHICA DEL EFECTIVO ESPERADA
     const aperturaUSD = Number(data.apertura?.usdCash) || 0;

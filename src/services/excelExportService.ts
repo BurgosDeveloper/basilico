@@ -12,6 +12,7 @@ export interface ReporteIntervaloData {
     paymentMethod?: string;
     totalUSD: number;
     paidAmountUSD: number;
+    deliveryFeeUSD?: number;
     copRateAtPayment: number;
     bsRateAtPayment: number;
     createdAt: string;
@@ -25,6 +26,8 @@ export interface ReporteIntervaloData {
     price: number;
     quantity: number;
     category: string;
+    extras?: Array<{ name: string; price: number }>;
+    extrasJson?: Array<{ name: string; price: number }>;
   }>;
   payments: Array<{
     id: string;
@@ -107,22 +110,63 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   const cashOrders = data.orders.filter((o) => o.paymentMethod !== 'Mixto' && o.paymentStatus === 'pagado').length;
   const creditOrders = data.orders.filter((o) => o.paymentStatus === 'credito' || o.paymentMethod === 'Crédito').length;
 
+  // Desglose de Deliverys por tarifa
+  const deliveryMap: Record<number, number> = {};
+  let totalDeliveryServices = 0;
+  let totalDeliveryUSD = 0;
+  data.orders.forEach((ord) => {
+    const fee = Number(ord.deliveryFeeUSD) || 0;
+    if (ord.type === 'delivery' || fee > 0) {
+      totalDeliveryServices += 1;
+      totalDeliveryUSD += fee;
+      deliveryMap[fee] = (deliveryMap[fee] || 0) + 1;
+    }
+  });
+
+  // Desglose de Extras / Adicionales por tarifa
+  const extrasMap: Record<number, { count: number; totalUSD: number }> = {};
+  let totalExtrasCount = 0;
+  let totalExtrasUSD = 0;
+  data.items.forEach((it: any) => {
+    const itQty = Number(it.quantity) || 1;
+    const extrasList: any[] = [];
+    if (Array.isArray(it.extras)) extrasList.push(...it.extras);
+    else if (it.extrasJson && Array.isArray(it.extrasJson)) extrasList.push(...it.extrasJson);
+
+    extrasList.forEach((extra) => {
+      const price = Number(extra.price) || 0;
+      const count = itQty;
+      const subtotal = price * count;
+      totalExtrasCount += count;
+      totalExtrasUSD += subtotal;
+      if (!extrasMap[price]) extrasMap[price] = { count: 0, totalUSD: 0 };
+      extrasMap[price].count += count;
+      extrasMap[price].totalUSD += subtotal;
+    });
+  });
+
+  const totalFacturadoUSD = totals.usd + (totals.cop / data.exchangeRates.COP) + (totals.bs / data.exchangeRates.Bs);
+
   const totalesData = [
     ['CIERRE DE CAJA EN EL INTERVALO CONSOLIDADO'],
     ['Desde:', formatDate(data.dateRange.from), 'Hasta:', formatDate(data.dateRange.to)],
     [],
     ['Concepto', 'USD', 'COP', 'Bs'],
     ['Total Facturado (Vendido)', totals.usd.toFixed(2), Math.round(totals.cop).toLocaleString(), totals.bs.toFixed(2)],
+    ['Total Venta Facturada (Equiv. USD)', `$${totalFacturadoUSD.toFixed(2)} USD`, '', ''],
     [],
     ['Total Comandas', data.orders.length.toString()],
     ['Comandas de Contado', cashOrders.toString()],
     ['Comandas a Crédito', creditOrders.toString()],
     [],
+    ['Total Servicios Delivery', `${totalDeliveryServices} envíos ($${totalDeliveryUSD.toFixed(2)} USD)`],
+    ['Total Adicionales / Extras', `${totalExtrasCount} extras ($${totalExtrasUSD.toFixed(2)} USD)`],
+    [],
     ['Comanda Inicial', data.orders.length > 0 ? `#${data.orders[0].orderNumber}` : 'N/A'],
     ['Comanda Final', data.orders.length > 0 ? `#${data.orders[data.orders.length - 1].orderNumber}` : 'N/A'],
   ];
   const ws1 = XLSX.utils.aoa_to_sheet(totalesData);
-  ws1['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 18 }, { wch: 18 }];
+  ws1['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 18 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws1, 'Totales');
 
   // --- Hoja 2: Desglose por Cuenta/Caja ---

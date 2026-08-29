@@ -53,63 +53,63 @@ export class ReportService {
           }
           .doc-meta {
             text-align: left;
-            font-size: 8px;
+            font-size: 10px;
             color: #374151;
             margin-top: 5px;
           }
           .section-title {
-            font-size: 10px;
-            font-weight: 800;
+            font-size: 12px;
+            font-weight: 900;
             text-transform: uppercase;
             letter-spacing: 0;
             color: #111827;
-            margin-top: 12px;
-            margin-bottom: 5px;
-            padding-left: 5px;
-            border-left: 2px solid #111827;
+            margin-top: 14px;
+            margin-bottom: 6px;
+            padding-left: 6px;
+            border-left: 3px solid #111827;
           }
           table {
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
-            margin-bottom: 8px;
-            font-size: 8px;
+            margin-bottom: 10px;
+            font-size: 10.5px;
             word-break: break-word;
           }
           th {
             background-color: #f3f4f6;
-            color: #374151;
-            font-weight: 800;
+            color: #1f2937;
+            font-weight: 900;
             text-transform: uppercase;
-            font-size: 7px;
-            padding: 4px 3px;
+            font-size: 9.5px;
+            padding: 5px 4px;
             text-align: left;
-            border-bottom: 1px solid #9ca3af;
+            border-bottom: 1.5px solid #6b7280;
           }
           td {
-            padding: 4px 3px;
+            padding: 5px 4px;
             border-bottom: 1px solid #e5e7eb;
             color: #1f2937;
             vertical-align: top;
           }
           .total-box {
             background-color: #ecfdf5;
-            border: 1px solid #a7f3d0;
-            border-radius: 0;
-            padding: 7px;
+            border: 1.5px solid #a7f3d0;
+            border-radius: 4px;
+            padding: 9px;
             display: block;
             justify-content: space-between;
             align-items: center;
-            margin-top: 8px;
+            margin-top: 10px;
           }
           .total-label {
-            font-size: 8px;
-            font-weight: 800;
+            font-size: 10px;
+            font-weight: 900;
             color: #065f46;
             text-transform: uppercase;
           }
           .total-val {
-            font-size: 14px;
+            font-size: 16px;
             font-weight: 900;
             color: #047857;
           }
@@ -123,13 +123,13 @@ export class ReportService {
             border: none;
             border-radius: 4px;
             font-weight: 900;
-            font-size: 11px;
+            font-size: 12px;
             cursor: pointer;
             box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.4);
           }
           @media print {
             .no-print { display: none; }
-            body { width: 74mm; }
+            body { width: 74mm; font-size: 10.5px; }
           }
         </style>
       </head>
@@ -630,6 +630,80 @@ export class ReportService {
     const cajaChicaEsperadaUSD = aperturaUSD + totalIngresosEfectivoUSD - totalEgresosEfectivoUSD;
     const cajaChicaEsperadaCOP = aperturaCOP + totalIngresosEfectivoCOP - totalEgresosEfectivoCOP;
 
+    // Desglose de Deliverys por tarifa
+    const deliveryTierMap = new Map<number, number>();
+    let totalDeliveryServices = 0;
+    let totalDeliveryUSD = 0;
+
+    data.orders.forEach((ord) => {
+      const fee = Number(ord.deliveryFeeUSD) || 0;
+      if (ord.type === 'delivery' || fee > 0) {
+        totalDeliveryServices += 1;
+        totalDeliveryUSD += fee;
+        deliveryTierMap.set(fee, (deliveryTierMap.get(fee) || 0) + 1);
+      }
+    });
+
+    const deliveryTierRows = Array.from(deliveryTierMap.entries())
+      .sort(([feeA], [feeB]) => feeA - feeB)
+      .map(([fee, count]) => {
+        const subtotal = fee * count;
+        return `
+          <tr>
+            <td>• ${count} delivery${count === 1 ? '' : 's'} de $${fee.toFixed(2)}</td>
+            <td style="text-align:right;">$${fee.toFixed(2)} c/u</td>
+            <td style="text-align:right; font-weight:700;">$${subtotal.toFixed(2)} USD</td>
+          </tr>
+        `;
+      }).join('');
+
+    // Desglose de Adicionales / Extras por precio
+    const extrasTierMap = new Map<number, { count: number; totalUSD: number }>();
+    let totalExtrasCount = 0;
+    let totalExtrasUSD = 0;
+
+    data.items.forEach((it: any) => {
+      const itQty = Number(it.quantity) || 1;
+      const extrasList: any[] = [];
+      if (Array.isArray(it.extras)) {
+        extrasList.push(...it.extras);
+      } else if (it.extrasJson && Array.isArray(it.extrasJson)) {
+        extrasList.push(...it.extrasJson);
+      }
+
+      if (it.isHalfHalf && it.halfDetails) {
+        if (Array.isArray(it.halfDetails.half1Extras)) extrasList.push(...it.halfDetails.half1Extras);
+        if (Array.isArray(it.halfDetails.half2Extras)) extrasList.push(...it.halfDetails.half2Extras);
+      }
+
+      extrasList.forEach((extra) => {
+        const price = Number(extra.price) || 0;
+        const count = itQty;
+        const subtotal = price * count;
+        totalExtrasCount += count;
+        totalExtrasUSD += subtotal;
+
+        const current = extrasTierMap.get(price) || { count: 0, totalUSD: 0 };
+        current.count += count;
+        current.totalUSD += subtotal;
+        extrasTierMap.set(price, current);
+      });
+    });
+
+    const extrasTierRows = Array.from(extrasTierMap.entries())
+      .sort(([priceA], [priceB]) => priceA - priceB)
+      .map(([price, info]) => {
+        return `
+          <tr>
+            <td>• ${info.count} adicional${info.count === 1 ? '' : 'es'} de $${price.toFixed(2)}</td>
+            <td style="text-align:right;">$${price.toFixed(2)} c/u</td>
+            <td style="text-align:right; font-weight:700;">$${info.totalUSD.toFixed(2)} USD</td>
+          </tr>
+        `;
+      }).join('');
+
+    const totalVentaFacturadaUSD = Array.from(methodTotals.values()).reduce((sum, m) => sum + m.equivalentUSD, 0);
+
     // Separación de Contado y Crédito
     const creditOrders = data.orders.filter((order) => order.paymentStatus === 'credito' || order.paymentMethod === 'Crédito');
     const cashOrders = data.orders.filter((order) => order.paymentStatus === 'pagado' && order.paymentMethod !== 'Crédito');
@@ -763,6 +837,10 @@ export class ReportService {
             <td>Bolívares (Bs)</td>
             <td style="text-align:right; font-weight:700;">Bs ${billedTotals.bs.toFixed(2)}</td>
           </tr>
+          <tr style="background:#ecfdf5; border-top:2px solid #059669;">
+            <td><strong style="color:#065f46; font-size:11.5px;">TOTAL FACTURADO (VENDIDO):</strong></td>
+            <td style="text-align:right; font-weight:900; color:#047857; font-size:13px;">$${totalVentaFacturadaUSD.toFixed(2)} USD</td>
+          </tr>
           <tr style="background:#f9fafb;">
             <td><strong>Total Comandas Atendidas:</strong></td>
             <td style="text-align:right;"><strong>${data.orders.length}</strong></td>
@@ -775,6 +853,36 @@ export class ReportService {
             <td>Comandas a Crédito (Cuentas por Cobrar):</td>
             <td style="text-align:right; font-weight:700; color:#b45309;">${creditOrders.length}</td>
           </tr>
+        </tbody>
+      </table>
+
+      <div class="section-title">SECCIÓN — DESGLOSE DE SERVICIOS DELIVERY Y ADICIONALES</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Concepto / Tarifa</th>
+            <th style="text-align:right;">Tarifa Unit.</th>
+            <th style="text-align:right;">Total USD</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background:#f9fafb;"><td colspan="3"><strong style="color:#1e3a8a;">🛵 SERVICIOS DE DELIVERY (${totalDeliveryServices} entregas):</strong></td></tr>
+          ${deliveryTierRows || '<tr><td colspan="3" style="text-align:center; color:#9ca3af;">Sin deliverys en el intervalo.</td></tr>'}
+          ${totalDeliveryServices > 0 ? `
+            <tr style="background:#eff6ff;">
+              <td colspan="2"><strong style="color:#1e40af;">Total Recaudado por Deliverys:</strong></td>
+              <td style="text-align:right; font-weight:900; color:#1d4ed8;">$${totalDeliveryUSD.toFixed(2)} USD</td>
+            </tr>
+          ` : ''}
+
+          <tr style="background:#f9fafb;"><td colspan="3"><strong style="color:#831843;">🧀 ADICIONALES Y EXTRAS (${totalExtrasCount} ingredientes extra):</strong></td></tr>
+          ${extrasTierRows || '<tr><td colspan="3" style="text-align:center; color:#9ca3af;">Sin adicionales en el intervalo.</td></tr>'}
+          ${totalExtrasCount > 0 ? `
+            <tr style="background:#fdf2f8;">
+              <td colspan="2"><strong style="color:#9d174d;">Total Facturado en Adicionales:</strong></td>
+              <td style="text-align:right; font-weight:900; color:#be185d;">$${totalExtrasUSD.toFixed(2)} USD</td>
+            </tr>
+          ` : ''}
         </tbody>
       </table>
 

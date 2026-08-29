@@ -969,9 +969,15 @@ function buildCierreShiftTicket(data) {
       lines.push('\x1BE\x01');
       lines.push(...wrapText(`• ${printableText(m.payment_method)} (${m.count} pagos):`));
       lines.push('\x1BE\x00');
-      if (Number(m.total_usd) > 0) lines.push(`  $${Number(m.total_usd).toFixed(2)} USD`);
-      if (Number(m.total_cop) > 0) lines.push(`  ${Math.round(Number(m.total_cop)).toLocaleString('en-US')} COP`);
-      if (Number(m.total_bs) > 0) lines.push(`  ${Number(m.total_bs).toFixed(2)} Bs`);
+      const isCOP = ['Efectivo COP', 'Bancolombia', 'Nequi', 'Binance COP'].includes(m.payment_method);
+      const isBs = ['Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito'].includes(m.payment_method);
+      if (isCOP && Number(m.total_cop) > 0) {
+        lines.push(`  ${Math.round(Number(m.total_cop)).toLocaleString('en-US')} COP`);
+      } else if (isBs && Number(m.total_bs) > 0) {
+        lines.push(`  ${Number(m.total_bs).toFixed(2)} Bs`);
+      } else if (Number(m.total_usd) > 0) {
+        lines.push(`  $${Number(m.total_usd).toFixed(2)} USD`);
+      }
     }
   }
 

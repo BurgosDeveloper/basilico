@@ -155,12 +155,20 @@ module.exports = function(io) {
       const diffUSD = normalizedActualUSD - expectedUSD;
       const diffCOP = normalizedActualCOP - expectedCOP;
 
-      // 1. Obtener desglose por método de pago de los pedidos del turno activo
+      // 1. Obtener desglose por método de pago de los pedidos del turno activo (Venta Neta Facturada)
       const { rows: paymentMethodRows } = await query(
         `SELECT op.payment_method, 
                 SUM(op.amount_paid_usd) as total_usd,
-                SUM(op.cash_tendered_cop) as total_cop,
-                SUM(op.cash_tendered_bs) as total_bs,
+                SUM(CASE 
+                  WHEN op.payment_method IN ('Efectivo COP', 'Bancolombia', 'Nequi', 'Binance COP') 
+                  THEN op.amount_paid_usd * op.cop_rate 
+                  ELSE 0 
+                END) as total_cop,
+                SUM(CASE 
+                  WHEN op.payment_method IN ('Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito') 
+                  THEN op.amount_paid_usd * op.bs_rate 
+                  ELSE 0 
+                END) as total_bs,
                 COUNT(op.id) as count
          FROM order_payments op
          INNER JOIN orders o ON o.id = op.order_id

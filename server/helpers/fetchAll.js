@@ -95,6 +95,8 @@ async function fetchAllOrders(user) {
         removedIngredients: it.removed_ingredients || [],
         extras: safeJsonParse(it.extras_json),
         sugarPreference: it.sugar_preference || undefined,
+        drinkType: it.drink_type || undefined,
+        category: it.category || undefined,
         isTakeaway: !!it.is_takeaway,
         isNewOrModified: !!it.is_new_or_modified,
         isPaidIndividually: !!it.is_paid_individually,

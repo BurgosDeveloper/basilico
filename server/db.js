@@ -141,6 +141,8 @@ async function initDb() {
 
       `ALTER TABLE orders ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;`,
       `ALTER TABLE caja_chica_transactions ADD COLUMN IF NOT EXISTS cierre_id VARCHAR(64);`,
+      `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS drink_type VARCHAR(32);`,
+      `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS category VARCHAR(64);`,
       `CREATE INDEX IF NOT EXISTS idx_orders_archived_at ON orders(archived_at);`,
       `CREATE INDEX IF NOT EXISTS idx_caja_tx_cierre_id ON caja_chica_transactions(cierre_id);`,
 

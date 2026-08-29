@@ -109,8 +109,8 @@ module.exports = function(io) {
       for (const item of items) {
         const itemId = `it-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
         await client.query(
-          `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, notes, drink_type, category)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
           [
             itemId,
             orderId,
@@ -126,6 +126,8 @@ module.exports = function(io) {
             item.sugarPreference || null,
             !!item.isTakeaway,
             item.notes || '',
+            item.drinkType || item.drink_type || null,
+            item.category || null,
           ]
         );
       }
@@ -403,8 +405,8 @@ module.exports = function(io) {
         for (const item of items) {
           const itemId = `it-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
           await query(
-            `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, is_new_or_modified, notes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, is_new_or_modified, notes, drink_type, category)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
             [
               itemId,
               id,
@@ -421,6 +423,8 @@ module.exports = function(io) {
               !!item.isTakeaway,
               item.isNewOrModified !== false,
               item.notes || '',
+              item.drinkType || item.drink_type || null,
+              item.category || null,
             ]
           );
         }
@@ -772,8 +776,8 @@ module.exports = function(io) {
         for (const item of addedItems) {
           const itemId = item.id || `it-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
           await client.query(
-            `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, is_new_or_modified, notes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, $14)`,
+            `INSERT INTO order_items (id, order_id, product_id, product_name, price, quantity, size, is_half_half, half_details, removed_ingredients, extras_json, sugar_preference, is_takeaway, is_new_or_modified, notes, drink_type, category)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, $14, $15, $16)`,
             [
               itemId,
               id,
@@ -789,6 +793,8 @@ module.exports = function(io) {
               item.sugarPreference || null,
               !!item.isTakeaway,
               item.notes || '',
+              item.drinkType || item.drink_type || null,
+              item.category || null,
             ]
           );
         }

@@ -312,6 +312,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       price: configuringDrink.price,
       quantity: 1,
       category: configuringDrink.category,
+      drinkType: configuringDrink.drinkType,
       sugarPreference: isJugo ? drinkSugar : undefined,
       notes: drinkNotes || '',
       isTakeaway: drinkIsTakeaway,
@@ -342,6 +343,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
           price: prod.price,
           quantity: 1,
           category: prod.category,
+          drinkType: prod.drinkType,
           isTakeaway: defaultTakeaway,
           isNewOrModified: true,
         };
@@ -392,6 +394,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         price: prod.price,
         quantity: 1,
         category: prod.category,
+        drinkType: prod.drinkType,
         isTakeaway: defaultTakeaway,
         isNewOrModified: true,
       };

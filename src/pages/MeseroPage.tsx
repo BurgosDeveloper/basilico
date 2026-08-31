@@ -153,6 +153,7 @@ export const MeseroPage: React.FC = () => {
       price: product.price,
       quantity: 1,
       category: product.category,
+      drinkType: product.drinkType,
       sugarPreference,
       isTakeaway: isTakeaway !== undefined ? isTakeaway : (activeOrderTarget?.type === 'pickup' || activeOrderTarget?.type === 'delivery'),
       isNewOrModified: false,

@@ -138,52 +138,48 @@ function centered(value) {
 function isKitchenItem(item) {
   if (!item) return false;
 
-  // 1. Clasificación directa por tipo de bebida (drinkType / drink_type)
-  const drinkType = String(item.drinkType || item.drink_type || '').trim().toLowerCase();
-  if (['refresco', 'gaseosa', 'licor', 'cerveza', 'comercial', 'soda'].includes(drinkType)) {
-    return false;
-  }
-
-  // 2. Clasificación directa por categoría de producto
   const category = String(item.category || '').trim().toLowerCase();
-  if (['licores', 'licor', 'cervezas', 'cerveza', 'gaseosas', 'refrescos', 'bebidas comerciales', 'bebida comercial'].includes(category)) {
-    return false;
-  }
-
-  // 3. Jugos naturales / merengadas / batidos preparados SIEMPRE van a cocina
-  if (drinkType === 'jugo' || drinkType === 'merengada' || drinkType === 'batido' || item.sugarPreference) {
-    return true;
-  }
-
-  // 4. Mitades y pizzas personalizadas SIEMPRE van a cocina
-  if (item.isHalfHalf || item.halfDetails) return true;
-
-  // 5. Verificación por nombre de producto (limpieza de acentos y caracteres especiales)
+  const drinkType = String(item.drinkType || item.drink_type || '').trim().toLowerCase();
   const rawName = String(item.productName || item.name || '').trim();
   const name = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const nameClean = name.replace(/[^a-z0-9]/g, '');
 
-  // Palabras exactas o con límites de palabra para bebidas comerciales, gaseosas, aguas, licores y cervezas
-  const commercialWordBoundaryRegex = /\b(coca|cocacola|coca-cola|pepsi|chinotto|hit|7up|sevenup|sprite|fanta|frescolita|postobon|colombiana|manzana postobon|agua mineral|agua|cerveza|cervezas|polar|solera|pilsen|corona|heineken|zulia|malta|maltin|gatorade|red bull|redbull|monster|plastichip|ron|whisky|whiskey|vodka|tequila|vino|vinos|sangria|smirnoff|anis|cacique|santa teresa|diplomatico|old parr|black label|red label|buchanans)\b/i;
+  // 1. Detección de jugos naturales y merengadas/malteadas/batidos preparados
+  const isJuiceOrShake = (
+    drinkType === 'jugo' ||
+    drinkType === 'merengada' ||
+    drinkType === 'malteada' ||
+    drinkType === 'batido' ||
+    !!item.sugarPreference ||
+    name.includes('jugo') ||
+    name.includes('merengada') ||
+    name.includes('malteada') ||
+    name.includes('batido')
+  );
 
-  // Prefijos típicos de bebidas comerciales concatenadas como coca1l, pepsi1.5l, maltapolar
-  const commercialPrefixes = [
-    'coca', 'pepsi', 'chinotto', 'frescolita', 'postobon', 'colombiana', 'gatorade',
-    'maltin', 'heineken', 'smirnoff', 'redbull'
-  ];
+  // 2. REGLA ESTRICTA DE BEBIDAS:
+  // Si pertenece a la categoría de Bebidas / Licores / Refrescos, la ÚNICA bebida que va a cocina es jugo/merengada/malteada.
+  if (
+    category === 'bebidas' ||
+    category === 'bebida' ||
+    category === 'licores' ||
+    category === 'licor' ||
+    category === 'cervezas' ||
+    category === 'cerveza' ||
+    category === 'gaseosas' ||
+    category === 'refrescos' ||
+    category === 'bebidas comerciales' ||
+    category === 'bebida comercial'
+  ) {
+    return isJuiceOrShake;
+  }
 
-  if (commercialWordBoundaryRegex.test(name) || commercialPrefixes.some(p => nameClean.startsWith(p))) {
+  // 3. Si tiene tipo de bebida explícito comercial o embotellado (refresco, licor, etc.)
+  if (['refresco', 'gaseosa', 'licor', 'cerveza', 'comercial', 'soda', 'agua', 'te'].includes(drinkType)) {
     return false;
   }
 
-  // 6. Si tiene ingredientes removidos o extras agregados
-  if ((item.removedIngredients && item.removedIngredients.length > 0) || (item.extras && item.extras.length > 0)) {
-    return true;
-  }
-
-  // 7. Todos los demás productos son ítems de cocina / preparación:
-  // Pizzas (Granjera, Prosciutto, Margarita, Pepperoni, Cuatro Quesos, etc.),
-  // Pastas, Calzones, Hamburguesas, Ensaladas, Entradas, Postres, Jugos y Batidos.
+  // 4. Todos los demás ítems (Pizzas, Platos, Entradas, Pastas, Especialidades, Postres, etc.) SI van a cocina
   return true;
 }
 

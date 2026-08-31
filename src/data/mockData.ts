@@ -68,6 +68,7 @@ export interface OrderItem {
   price: number;
   quantity: number;
   category?: string;
+  drinkType?: 'refresco' | 'jugo' | 'licor' | string;
   size?: 'Grande' | 'Pequeña';
   isHalfHalf?: boolean;
   halfDetails?: HalfDetails;

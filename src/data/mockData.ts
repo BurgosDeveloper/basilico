@@ -7,7 +7,7 @@ export interface RecipeIngredient {
 export interface Product {
   id: string;
   name: string;
-  category: 'Pizzas' | 'Bebidas';
+  category: 'Pizzas' | 'Bebidas' | 'Platos' | 'Pastas' | 'Especialidades' | 'Entradas' | string;
   drinkType?: 'refresco' | 'jugo' | 'licor';
   price: number; // En USD
   priceSmall?: number; // En USD (configurable para pizza pequeña)
@@ -67,6 +67,7 @@ export interface OrderItem {
   productName: string;
   price: number;
   quantity: number;
+  category?: string;
   size?: 'Grande' | 'Pequeña';
   isHalfHalf?: boolean;
   halfDetails?: HalfDetails;

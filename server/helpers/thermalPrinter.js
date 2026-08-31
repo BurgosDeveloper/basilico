@@ -190,7 +190,7 @@ function isKitchenItem(item) {
 function itemDetails(item) {
   const details = [];
   if (item.size) details.push(`Tamano: ${item.size}`);
-  if (item.isTakeaway) details.push('*** PARA LLEVAR ***');
+  if (item.isTakeaway || item.is_takeaway) details.push('*** PARA LLEVAR ***');
   if (item.sugarPreference) details.push(`Azucar: ${item.sugarPreference}`);
 
   if (item.isHalfHalf && item.halfDetails) {
@@ -203,7 +203,15 @@ function itemDetails(item) {
     if (half2Extras?.length) details.push(`  2DA EXTRA: ${half2Extras.map((extra) => extra.name).join(', ')}`);
   } else {
     if (item.removedIngredients?.length) details.push(`SIN: ${item.removedIngredients.join(', ')}`);
-    if (item.extras?.length) details.push(`EXTRA: ${item.extras.map((extra) => extra.name).join(', ')}`);
+    if (item.extras?.length) {
+      if (item.category && item.category !== 'Pizzas') {
+        for (const extra of item.extras) {
+          details.push(`CONTORNO: ${extra.name || extra}`);
+        }
+      } else {
+        details.push(`EXTRA: ${item.extras.map((extra) => extra.name || extra).join(', ')}`);
+      }
+    }
   }
 
   if (item.notes) details.push(`NOTA: ${item.notes}`);
@@ -453,10 +461,6 @@ function buildReportTicket(reportType, data) {
     const firstOrder = data.orders?.[0]?.orderNumber || 'N/A';
     const lastOrder = data.orders?.[data.orders.length - 1]?.orderNumber || 'N/A';
 
-    // SECCIÓN 1 — DATOS DEL INTERVALO
-    addSection(lines, 'SECCION 1: INTERVALO');
-    lines.push(...wrapText(`DESDE: ${reportTimestamp(data?.dateRange?.from)}`));
-    lines.push(...wrapText(`HASTA: ${reportTimestamp(data?.dateRange?.to)}`));
     lines.push(`COMANDA INICIAL: #${firstOrder}`);
     lines.push(`COMANDA FINAL:   #${lastOrder}`);
 
@@ -507,8 +511,8 @@ function buildReportTicket(reportType, data) {
       return sum + equiv;
     }, 0);
 
-    // SECCIÓN 2 — TOTAL FACTURADO POR MONEDA (CONTADO)
-    addSection(lines, 'SECCION 2: TOTAL FACTURADO (CONTADO)');
+    // SECCIÓN 2 — TOTAL FACTURADO POR MONEDA
+    addSection(lines, 'SECCION 2: TOTAL FACTURADO POR MONEDA');
     lines.push(`DOLARES (USD): $${billedTotals.usd.toFixed(2)}`);
     lines.push(`PESOS (COP):   $${Math.round(billedTotals.cop).toLocaleString('en-US')} COP`);
     lines.push(`BOLIVARES(Bs): Bs ${billedTotals.bs.toFixed(2)}`);
@@ -521,31 +525,19 @@ function buildReportTicket(reportType, data) {
     lines.push(`  • Al Contado:  ${cashOrders.length}`);
     lines.push(`  • A Credito:   ${creditOrders.length}`);
 
-    // SECCIÓN DE DELIVERYS Y ADICIONALES
-    addSection(lines, 'DELIVERYS Y ADICIONALES');
-    lines.push('\x1BE\x01', `• SERVICIOS DELIVERY (${totalDeliveryServices}):`, '\x1BE\x00');
-    if (deliveryMap.size === 0) {
-      lines.push('  Sin deliverys en el intervalo.');
+    // SECCIÓN 3 — DESGLOSE DE COBROS POR TIPO DE PAGO
+    addSection(lines, 'SECCION 3: FACTURADO POR METODO');
+    if (byMethod.size === 0) {
+      lines.push('SIN COBROS EN EL INTERVALO');
     } else {
-      const sortedDeliverys = Array.from(deliveryMap.entries()).sort((a, b) => a[0] - b[0]);
-      for (const [fee, count] of sortedDeliverys) {
-        lines.push(`  ${count} de $${fee.toFixed(2)} = $${(fee * count).toFixed(2)} USD`);
+      for (const [method, amounts] of byMethod) {
+        const count = paymentCounts.get(method) || 1;
+        lines.push('', ...wrapText(`• ${method} (${count} pagos):`));
+        addAmountLines(lines, amounts, '    ');
       }
-      lines.push(`  TOTAL DELIVERYS: $${totalDeliveryUSD.toFixed(2)} USD`);
-    }
-    lines.push('');
-    lines.push('\x1BE\x01', `• ADICIONALES/EXTRAS (${totalExtrasCount}):`, '\x1BE\x00');
-    if (extrasMap.size === 0) {
-      lines.push('  Sin adicionales en el intervalo.');
-    } else {
-      const sortedExtras = Array.from(extrasMap.entries()).sort((a, b) => a[0] - b[0]);
-      for (const [price, info] of sortedExtras) {
-        lines.push(`  ${info.count} de $${price.toFixed(2)} = $${info.totalUSD.toFixed(2)} USD`);
-      }
-      lines.push(`  TOTAL ADICIONALES: $${totalExtrasUSD.toFixed(2)} USD`);
     }
 
-    // SECCIÓN 3 — CAJA CHICA DEL EFECTIVO ESPERADA
+    // SECCIÓN 4 — CAJA CHICA DEL EFECTIVO ESPERADA
     const aperturaUSD = Number(data.apertura?.usdCash) || 0;
     const aperturaCOP = Number(data.apertura?.copCash) || 0;
 
@@ -577,7 +569,7 @@ function buildReportTicket(reportType, data) {
     const cajaChicaEsperadaUSD = aperturaUSD + totalIngresosEfectivoUSD - totalEgresosEfectivoUSD;
     const cajaChicaEsperadaCOP = aperturaCOP + totalIngresosEfectivoCOP - totalEgresosEfectivoCOP;
 
-    addSection(lines, 'SECCION 3: CAJA CHICA');
+    addSection(lines, 'SECCION 4: CAJA CHICA');
     lines.push('EFECTIVO EN DOLARES (USD):');
     lines.push(`  1. Fondo Apertura:   $${aperturaUSD.toFixed(2)} USD`);
     lines.push(`  2. (+) Ingresos Cash:+$${totalIngresosEfectivoUSD.toFixed(2)} USD`);
@@ -589,94 +581,6 @@ function buildReportTicket(reportType, data) {
     lines.push(`  2. (+) Ingresos Cash:+$${Math.round(totalIngresosEfectivoCOP).toLocaleString('en-US')} COP`);
     lines.push(`  3. (-) Egresos Cash: -$${Math.round(totalEgresosEfectivoCOP).toLocaleString('en-US')} COP`);
     lines.push(`  4. (=) ESPERADO COP: $${Math.round(cajaChicaEsperadaCOP).toLocaleString('en-US')} COP`);
-
-    // SECCIÓN 4 — DESGLOSE DE COBROS POR TIPO DE PAGO
-    addSection(lines, 'SECCION 4: FACTURADO POR METODO');
-    if (byMethod.size === 0) {
-      lines.push('SIN COBROS EN EL INTERVALO');
-    } else {
-      for (const [method, amounts] of byMethod) {
-        const count = paymentCounts.get(method) || 1;
-        lines.push('', ...wrapText(`• ${method} (${count} pagos):`));
-        addAmountLines(lines, amounts, '    ');
-      }
-    }
-
-    // SECCIÓN 5 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR
-    if (creditOrders.length > 0) {
-      addSection(lines, 'SECCION 5: CREDITOS Y DEUDAS');
-      const totalCreditUSD = creditOrders.reduce((sum, o) => sum + (Number(o.totalUSD) || 0), 0);
-      lines.push(`TOTAL CUENTAS POR COBRAR:`);
-      lines.push(`  $${totalCreditUSD.toFixed(2)} USD`);
-      lines.push(divider('-'));
-      for (const ord of creditOrders) {
-        const copEquiv = Math.round((Number(ord.totalUSD) || 0) * (Number(ord.copRateAtPayment) || Number(data.exchangeRates?.COP) || 3950)).toLocaleString('en-US');
-        const bsEquiv = ((Number(ord.totalUSD) || 0) * (Number(ord.bsRateAtPayment) || Number(data.exchangeRates?.Bs) || 36.5)).toFixed(2);
-        const orderItems = (data.items || [])
-          .filter((it) => it.orderId === ord.id)
-          .map((it) => `${it.quantity}x ${it.productName}`)
-          .join(', ');
-
-        lines.push('', ...wrapText(`#${ord.orderNumber || '?'} | ${reportDate(ord.createdAt)}`));
-        lines.push(...wrapText(`CLIENTE: ${ord.customerName || 'Cliente Deudor'}`, LINE_WIDTH, '  '));
-        if (orderItems) {
-          lines.push(...wrapText(`ITEMS: ${orderItems}`, LINE_WIDTH, '  '));
-        }
-        lines.push(`  DEUDA: $${(Number(ord.totalUSD) || 0).toFixed(2)} USD`);
-        lines.push(`  (${copEquiv} COP / ${bsEquiv} Bs)`);
-      }
-    }
-
-    // SECCIÓN 6/5 — ITEMS FACTURADOS
-    const itemMap = new Map();
-    for (const item of (data.items || [])) {
-      const key = `${item.category || 'VARIOS'}|${item.productName}`;
-      const prev = itemMap.get(key) || { category: item.category || 'VARIOS', name: item.productName, quantity: 0 };
-      prev.quantity += (Number(item.quantity) || 1);
-      itemMap.set(key, prev);
-    }
-    const sec6Num = creditOrders.length > 0 ? '6' : '5';
-    addSection(lines, `SECCION ${sec6Num}: ITEMS FACTURADOS`);
-    if (itemMap.size === 0) {
-      lines.push('SIN ITEMS FACTURADOS');
-    } else {
-      const sortedItems = Array.from(itemMap.values()).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      let currentCategory = '';
-      for (const item of sortedItems) {
-        if (item.category !== currentCategory) {
-          currentCategory = item.category;
-          lines.push('', `[${currentCategory.toUpperCase()}]`);
-        }
-        lines.push(`  ${item.quantity}x ${item.name}`);
-      }
-    }
-
-    // NOTA: SECCIÓN COMANDAS EDITADAS OMITIDA EN IMPRESIÓN POR REQUERIMIENTO
-
-    // SECCIÓN 7/6 — HISTORIAL POR MÉTODO DE PAGO
-    const sec7Num = creditOrders.length > 0 ? '7' : '6';
-    addSection(lines, `SECCION ${sec7Num}: HISTORIAL METODOS`);
-    const validMethods = Array.from(byMethod.keys());
-    if (validMethods.length === 0) {
-      lines.push('SIN HISTORIAL DE PAGOS');
-    } else {
-      for (const method of validMethods) {
-        const entries = (data.payments || []).filter((p) => p.paymentMethod === method && Number(p.amountPaidUSD) > 0);
-        if (entries.length === 0) continue;
-        lines.push('', `--- ${method.toUpperCase()} ---`);
-        for (const p of entries) {
-          const amounts = reportSaleAmounts(p);
-          const formatted = amounts.usd > 0
-            ? `$${amounts.usd.toFixed(2)} USD`
-            : amounts.cop > 0
-            ? `$${Math.round(amounts.cop).toLocaleString('en-US')} COP`
-            : `Bs ${amounts.bs.toFixed(2)}`;
-          lines.push(...wrapText(`${reportDate(p.createdAt)} | #${p.orderNumber || '?'}`));
-          lines.push(...wrapText(`  Pagador: ${p.payerName || 'Cliente'}`, LINE_WIDTH, '  '));
-          lines.push(`  Monto:   ${formatted}`);
-        }
-      }
-    }
   }
 
   lines.push('', divider('='), centered('FIN DEL REPORTE'), centered('BASILICO PIZZERIA'), PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');

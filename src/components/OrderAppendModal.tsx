@@ -31,6 +31,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
   onClose,
 }) => {
   const { products, ingredients, appendOrderItems, exchangeRates, userSession } = useApp();
+  const isMorningShift = userSession?.shift === 'manana';
 
   // Estados de navegación y catálogo
   const [activeCategory, setActiveCategory] = useState<'Pizzas' | 'Bebidas' | 'Otros'>('Pizzas');
@@ -41,14 +42,14 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
   const [error, setError] = useState('');
   const [successToast, setSuccessToast] = useState('');
 
-  // --- CONFIGURADOR DE PIZZAS ---
+  // --- CONFIGURADOR DE PIZZAS / PLATOS ---
   const [configuringPizza, setConfiguringPizza] = useState<Product | null>(null);
   const [pizzaSize, setPizzaSize] = useState<'Grande' | 'Pequeña'>('Grande');
   const [isHalfHalf, setIsHalfHalf] = useState(false);
   const [pizzaHalf2, setPizzaHalf2] = useState<Product | null>(null);
   const [activeHalfTab, setActiveHalfTab] = useState<'half1' | 'half2'>('half1');
   
-  // Modificadores para pizza completa
+  // Modificadores para pizza completa / plato
   const [pizzaRemoved, setPizzaRemoved] = useState<string[]>([]);
   const [pizzaExtras, setPizzaExtras] = useState<{ name: string; price: number }[]>([]);
   
@@ -58,11 +59,13 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
   const [pizzaHalf1Extras, setPizzaHalf1Extras] = useState<{ name: string; price: number }[]>([]);
   const [pizzaHalf2Extras, setPizzaHalf2Extras] = useState<{ name: string; price: number }[]>([]);
   const [pizzaNotes, setPizzaNotes] = useState('');
+  const [pizzaIsTakeaway, setPizzaIsTakeaway] = useState(false);
 
   // --- CONFIGURADOR DE BEBIDAS / JUGOS ---
   const [configuringDrink, setConfiguringDrink] = useState<Product | null>(null);
   const [drinkSugar, setDrinkSugar] = useState<'Con Azúcar' | 'Poca Azúcar' | 'Sin Azúcar'>('Con Azúcar');
   const [drinkNotes, setDrinkNotes] = useState('');
+  const [drinkIsTakeaway, setDrinkIsTakeaway] = useState(false);
 
   // --- MODAL DE PIN PARA AUTORIZACIÓN ---
   const [pinModalState, setPinModalState] = useState<{
@@ -107,12 +110,14 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
     setPizzaHalf1Extras([]);
     setPizzaHalf2Extras([]);
     setPizzaNotes('');
+    setPizzaIsTakeaway(order?.type === 'pickup' || order?.type === 'delivery');
   };
 
   const resetDrinkConfig = () => {
     setConfiguringDrink(null);
     setDrinkSugar('Con Azúcar');
     setDrinkNotes('');
+    setDrinkIsTakeaway(order?.type === 'pickup' || order?.type === 'delivery');
   };
 
   const handlePizzaSizeChange = (newSize: 'Grande' | 'Pequeña') => {
@@ -146,9 +151,9 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   const pizzaProducts = useMemo(() => {
     return products
-      .filter((p) => p.category === 'Pizzas' && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
+      .filter((p) => (isMorningShift ? ['Entradas', 'Especialidades', 'Pastas', 'Pizzas'].includes(p.category) : p.category === 'Pizzas') && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  }, [products, userSession?.shift]);
+  }, [products, userSession?.shift, isMorningShift]);
 
   const drinkProducts = useMemo(() => {
     return products
@@ -158,9 +163,9 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   const otherProducts = useMemo(() => {
     return products
-      .filter((p) => p.category !== 'Pizzas' && p.category !== 'Bebidas' && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
+      .filter((p) => (isMorningShift ? !['Entradas', 'Especialidades', 'Pastas', 'Pizzas', 'Bebidas'].includes(p.category) : (p.category !== 'Pizzas' && p.category !== 'Bebidas')) && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  }, [products, userSession?.shift]);
+  }, [products, userSession?.shift, isMorningShift]);
 
   const filteredProducts = useMemo(() => {
     const currentList = activeCategory === 'Pizzas' ? pizzaProducts : activeCategory === 'Bebidas' ? drinkProducts : otherProducts;
@@ -208,9 +213,14 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
     setRemovedItemIds((prev) => prev.filter((id) => id !== itemId));
   };
 
-  // --- CÁLCULO DE PRECIO DE PIZZA ---
+  // --- CÁLCULO DE PRECIO DE PIZZA / PLATO ---
   const calculatePizzaPrice = () => {
     if (!configuringPizza) return 0;
+    if (isMorningShift) {
+      const extrasTotal = pizzaExtras.reduce((sum, e) => sum + (e.price || 0), 0);
+      return configuringPizza.price + extrasTotal;
+    }
+
     let basePrice = configuringPizza.price;
     let smallPrice = configuringPizza.priceSmall ?? (configuringPizza.price > 4 ? configuringPizza.price - 4 : configuringPizza.price * 0.7);
 
@@ -229,10 +239,33 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
     return Math.max(2.0, effectiveBase + extrasTotal);
   };
 
-  // --- AGREGAR PIZZA CONFIGURADA ---
+  // --- AGREGAR PIZZA / PLATO CONFIGURADO ---
   const handleConfirmAddPizza = () => {
     if (!configuringPizza) return;
     const unitPrice = calculatePizzaPrice();
+
+    if (isMorningShift) {
+      const newItem: OrderItem = {
+        id: `add-pl-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        productId: configuringPizza.id,
+        productName: configuringPizza.name,
+        price: unitPrice,
+        quantity: 1,
+        category: configuringPizza.category,
+        removedIngredients: pizzaRemoved.length ? pizzaRemoved : undefined,
+        extras: pizzaExtras.length ? pizzaExtras : undefined,
+        notes: pizzaNotes || '',
+        isTakeaway: pizzaIsTakeaway,
+        isNewOrModified: true,
+      };
+
+      setItemsToAdd((prev) => [...prev, newItem]);
+      setSuccessToast(`¡${newItem.productName} agregado a la adición!`);
+      setTimeout(() => setSuccessToast(''), 3000);
+      resetPizzaConfig();
+      return;
+    }
+
     const isHH = isHalfHalf && !!pizzaHalf2;
 
     const newItem: OrderItem = {
@@ -241,6 +274,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       productName: isHH ? `Pizza 1/2 ${configuringPizza.name} + 1/2 ${pizzaHalf2?.name}` : configuringPizza.name,
       price: unitPrice,
       quantity: 1,
+      category: configuringPizza.category,
       size: pizzaSize,
       isHalfHalf: isHH,
       halfDetails: isHH
@@ -256,6 +290,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       removedIngredients: !isHH ? pizzaRemoved : [],
       extras: !isHH ? pizzaExtras : [],
       notes: pizzaNotes || '',
+      isTakeaway: pizzaIsTakeaway,
       isNewOrModified: true,
     };
 
@@ -276,8 +311,10 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       productName: configuringDrink.name,
       price: configuringDrink.price,
       quantity: 1,
+      category: configuringDrink.category,
       sugarPreference: isJugo ? drinkSugar : undefined,
       notes: drinkNotes || '',
+      isTakeaway: drinkIsTakeaway,
       isNewOrModified: true,
     };
 
@@ -289,6 +326,46 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   // --- CLICK EN PRODUCTO DEL CATÁLOGO ---
   const handleSelectProduct = (prod: Product) => {
+    const defaultTakeaway = order?.type === 'pickup' || order?.type === 'delivery';
+
+    if (isMorningShift) {
+      if (prod.category === 'Bebidas' && prod.drinkType === 'jugo') {
+        setConfiguringDrink(prod);
+        setDrinkSugar('Con Azúcar');
+        setDrinkNotes('');
+        setDrinkIsTakeaway(defaultTakeaway);
+      } else if (prod.category === 'Bebidas') {
+        const newItem: OrderItem = {
+          id: `add-dk-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          productId: prod.id,
+          productName: prod.name,
+          price: prod.price,
+          quantity: 1,
+          category: prod.category,
+          isTakeaway: defaultTakeaway,
+          isNewOrModified: true,
+        };
+        setItemsToAdd((prev) => [...prev, newItem]);
+        setSuccessToast(`¡${newItem.productName} agregado!`);
+        setTimeout(() => setSuccessToast(''), 3000);
+      } else {
+        // Platos de la mañana (Entradas, Especialidades, Pastas, etc.)
+        setConfiguringPizza(prod);
+        setPizzaSize('Grande');
+        setIsHalfHalf(false);
+        setPizzaHalf2(null);
+        setPizzaRemoved([]);
+        setPizzaExtras([]);
+        setPizzaHalf1Removed([]);
+        setPizzaHalf2Removed([]);
+        setPizzaHalf1Extras([]);
+        setPizzaHalf2Extras([]);
+        setPizzaNotes('');
+        setPizzaIsTakeaway(defaultTakeaway);
+      }
+      return;
+    }
+
     if (prod.category === 'Pizzas') {
       setConfiguringPizza(prod);
       setPizzaSize('Grande');
@@ -301,28 +378,27 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       setPizzaHalf1Extras([]);
       setPizzaHalf2Extras([]);
       setPizzaNotes('');
-      return;
-    }
-
-    if (prod.category === 'Bebidas' && prod.drinkType === 'jugo') {
+      setPizzaIsTakeaway(defaultTakeaway);
+    } else if (prod.category === 'Bebidas' && prod.drinkType === 'jugo') {
       setConfiguringDrink(prod);
       setDrinkSugar('Con Azúcar');
       setDrinkNotes('');
-      return;
+      setDrinkIsTakeaway(defaultTakeaway);
+    } else {
+      const newItem: OrderItem = {
+        id: `add-ot-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        productId: prod.id,
+        productName: prod.name,
+        price: prod.price,
+        quantity: 1,
+        category: prod.category,
+        isTakeaway: defaultTakeaway,
+        isNewOrModified: true,
+      };
+      setItemsToAdd((prev) => [...prev, newItem]);
+      setSuccessToast(`¡${newItem.productName} agregado!`);
+      setTimeout(() => setSuccessToast(''), 3000);
     }
-
-    // Bebidas comerciales u otros productos directos
-    const newItem: OrderItem = {
-      id: `add-prod-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      productId: prod.id,
-      productName: prod.name,
-      price: prod.price,
-      quantity: 1,
-      isNewOrModified: true,
-    };
-    setItemsToAdd((prev) => [...prev, newItem]);
-    setSuccessToast(`¡${prod.name} agregado!`);
-    setTimeout(() => setSuccessToast(''), 2500);
   };
 
   // Manipulación de cantidades en carrito
@@ -449,6 +525,11 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                             <span className="text-emerald-400 font-black">{it.quantity}x</span>
                             <span>{it.productName}</span>
                             {it.size && <span className="text-[10px] text-gray-400">({it.size})</span>}
+                            {it.isTakeaway && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black">
+                                📦 LLEVAR
+                              </span>
+                            )}
                           </div>
                           {it.sugarPreference && (
                             <span className="text-[10px] text-amber-300 block">Azúcar: {it.sugarPreference}</span>
@@ -510,7 +591,28 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <span className="font-black text-emerald-200 block text-sm">{it.productName}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-black text-emerald-200 text-sm">{it.productName}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setItemsToAdd((prev) =>
+                                    prev.map((item, i) =>
+                                      i === idx ? { ...item, isTakeaway: !item.isTakeaway } : item
+                                    )
+                                  );
+                                }}
+                                className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 cursor-pointer ${
+                                  it.isTakeaway
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                                    : 'bg-white/10 text-gray-300 border-white/15 hover:bg-white/20'
+                                }`}
+                                title="Click para alternar entre Para Llevar y En Mesa"
+                              >
+                                <span>📦</span>
+                                <span>{it.isTakeaway ? 'PARA LLEVAR' : 'EN MESA'}</span>
+                              </button>
+                            </div>
                             {it.size && <span className="text-[11px] text-emerald-400 font-bold block">Tamaño: {it.size}</span>}
                             {it.sugarPreference && <span className="text-[10px] text-amber-300 block">Azúcar: {it.sugarPreference}</span>}
                             
@@ -575,23 +677,24 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                 </div>
               </div>
             </div>
-
-            {/* COLUMNA DERECHA: CATÁLOGO DE MENÚ O CONFIGURADOR ACTIVO (7 COLS) */}
+{/* COLUMNA DERECHA: CATÁLOGO DE MENÚ O CONFIGURADOR ACTIVO (7 COLS) */}
             <div className="lg:col-span-7 flex flex-col gap-3 overflow-hidden bg-black/40 p-4 rounded-2xl border border-white/10">
               
               {configuringPizza ? (
                 /* ============================================================ */
-                /* 🍕 CONFIGURADOR INTEGRAL DE PIZZAS (MITADES, TAMAÑO, EXTRAS) */
+                /* 🍕 / 🍽️ CONFIGURADOR INTEGRAL (PLATOS O PIZZAS)             */
                 /* ============================================================ */
                 <div className="flex-1 flex flex-col overflow-hidden space-y-3 bg-[#062215] p-4 sm:p-5 rounded-2xl border border-emerald-500/50 animate-in fade-in">
                   <div className="flex items-center justify-between border-b border-white/10 pb-2.5 flex-shrink-0">
                     <div className="flex items-center gap-2">
                       <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 text-lg font-black">
-                        <IoPizza />
+                        {isMorningShift ? <IoRestaurantOutline /> : <IoPizza />}
                       </span>
                       <div>
                         <h4 className="text-base font-black text-white">Personalizar {configuringPizza.name}</h4>
-                        <span className="text-[10px] text-gray-400 font-bold">Selecciona tamaño, ingredientes a remover y adicionales</span>
+                        <span className="text-[10px] text-gray-400 font-bold">
+                          {isMorningShift ? 'Selecciona acompañantes y contornos' : 'Selecciona tamaño, ingredientes a remover y adicionales'}
+                        </span>
                       </div>
                     </div>
                     <button
@@ -604,338 +707,442 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                   </div>
 
                   <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar pr-1.5 text-xs">
-                    {/* TAMAÑO DE PIZZA */}
-                    <div>
-                      <label className="text-[10px] font-black uppercase text-emerald-400 block mb-1.5">
-                        1. Seleccionar Tamaño de Pizza:
-                      </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handlePizzaSizeChange('Grande')}
-                          className={`p-3 rounded-2xl border text-left transition-all ${
-                            pizzaSize === 'Grande'
-                              ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg font-black'
-                              : 'bg-black/50 text-gray-300 border-white/15 hover:bg-white/5 font-bold'
-                          }`}
-                        >
-                          <div className="text-xs uppercase">🍕 Pizza Grande (Familiar)</div>
-                          <div className="text-sm font-mono mt-0.5">${configuringPizza.price.toFixed(2)} USD</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handlePizzaSizeChange('Pequeña')}
-                          className={`p-3 rounded-2xl border text-left transition-all ${
-                            pizzaSize === 'Pequeña'
-                              ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg font-black'
-                              : 'bg-black/50 text-gray-300 border-white/15 hover:bg-white/5 font-bold'
-                          }`}
-                        >
-                          <div className="text-xs uppercase">🍕 Pizza Pequeña</div>
-                          <div className="text-sm font-mono mt-0.5">
-                            ${(configuringPizza.priceSmall ?? (configuringPizza.price > 4 ? configuringPizza.price - 4 : configuringPizza.price * 0.7)).toFixed(2)} USD
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* MITAD Y MITAD (1/2 y 1/2) */}
-                    <div className="p-3 rounded-2xl bg-black/40 border border-emerald-500/30 space-y-2.5">
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={isHalfHalf}
-                            onChange={(e) => {
-                              setIsHalfHalf(e.target.checked);
-                              if (e.target.checked && !pizzaHalf2) {
-                                setPizzaHalf2(pizzaProducts.find((p) => p.id !== configuringPizza.id) || null);
-                              }
-                            }}
-                            className="w-5 h-5 rounded text-emerald-500 accent-emerald-500"
-                          />
+                    {isMorningShift ? (
+                      /* PANEL TURNO MAÑANA: ACOMPAÑANTES Y CONTORNOS */
+                      <div className="space-y-4">
+                        {/* Acompañantes / Ingredientes base */}
+                        {(configuringPizza.baseIngredients && configuringPizza.baseIngredients.length > 0) && (
                           <div>
-                            <span className="text-xs font-black text-white block">¿Pizza Mitad y Mitad (1/2 + 1/2)?</span>
-                            <span className="text-[10px] text-gray-400 font-bold">Combina dos sabores en una misma pizza</span>
-                          </div>
-                        </div>
-                        {isHalfHalf && (
-                          <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-black text-[10px]">
-                            ACTIVO
-                          </span>
-                        )}
-                      </label>
-
-                      {isHalfHalf && (
-                        <div className="mt-2 space-y-2 pt-2 border-t border-white/10">
-                          <label className="text-[10px] font-black text-emerald-300 block">
-                            Seleccionar Sabor de la Segunda Mitad:
-                          </label>
-                          <select
-                            value={pizzaHalf2?.id || ''}
-                            onChange={(e) => setPizzaHalf2(pizzaProducts.find((p) => p.id === e.target.value) || null)}
-                            className="w-full p-2.5 rounded-xl bg-black/80 border border-emerald-500/50 text-white text-xs font-bold outline-none"
-                          >
-                            <option value="">Selecciona la 2da mitad...</option>
-                            {pizzaProducts.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} — ${p.price.toFixed(2)} USD
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* MODIFICADORES: MITADES INDEPENDIENTES O PIZZA COMPLETA */}
-                    {isHalfHalf ? (
-                      <div className="space-y-3">
-                        {/* Pestañas de Mitades */}
-                        <div className="flex items-center gap-2 border-b border-white/10 pb-2">
-                          <button
-                            type="button"
-                            onClick={() => setActiveHalfTab('half1')}
-                            className={`flex-1 py-2 rounded-xl text-xs font-black border transition-all ${
-                              activeHalfTab === 'half1'
-                                ? 'bg-emerald-500 text-black border-emerald-400 shadow-md'
-                                : 'bg-black/40 text-gray-400 border-white/10 hover:text-white'
-                            }`}
-                          >
-                            1ra Mitad: {configuringPizza.name}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveHalfTab('half2')}
-                            className={`flex-1 py-2 rounded-xl text-xs font-black border transition-all ${
-                              activeHalfTab === 'half2'
-                                ? 'bg-emerald-500 text-black border-emerald-400 shadow-md'
-                                : 'bg-black/40 text-gray-400 border-white/10 hover:text-white'
-                            }`}
-                          >
-                            2da Mitad: {pizzaHalf2?.name || 'Seleccionar'}
-                          </button>
-                        </div>
-
-                        {/* Modificadores de la mitad seleccionada */}
-                        {activeHalfTab === 'half1' ? (
-                          <div className="space-y-3 p-3 rounded-2xl bg-black/30 border border-white/10">
-                            {/* Sin ingredientes en Mitad 1 */}
-                            <div>
-                              <label className="text-[10px] font-black uppercase text-red-400 block mb-1">
-                                Retirar Ingredientes Base (1ra Mitad):
-                              </label>
-                              <div className="flex flex-wrap gap-1.5">
-                                {(configuringPizza.baseIngredients || ['Salsa', 'Queso Mozzarella']).map((ing) => {
-                                  const isRemoved = pizzaHalf1Removed.includes(ing);
-                                  return (
-                                    <button
-                                      key={ing}
-                                      type="button"
-                                      onClick={() => {
-                                        setPizzaHalf1Removed((prev) =>
-                                          isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
-                                        );
-                                      }}
-                                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                                        isRemoved
-                                          ? 'bg-red-500/30 border-red-500 text-red-200 line-through'
-                                          : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
-                                      }`}
-                                    >
-                                      {isRemoved ? `✕ Sin ${ing}` : ing}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {/* Adicionales en Mitad 1 */}
-                            <div>
-                              <label className="text-[10px] font-black uppercase text-amber-400 block mb-1">
-                                Adicionales / Extras (1ra Mitad):
-                              </label>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
-                                {availableExtras.map((extra) => {
-                                  const isSelected = pizzaHalf1Extras.some((e) => e.name === extra.name);
-                                  const extraPrice = getIngredientExtraPrice(extra, pizzaSize, true);
-                                  return (
-                                    <button
-                                      key={extra.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setPizzaHalf1Extras((prev) =>
-                                          isSelected
-                                            ? prev.filter((e) => e.name !== extra.name)
-                                            : [...prev, { name: extra.name, price: extraPrice }]
-                                        );
-                                      }}
-                                      className={`p-2 rounded-xl text-left border text-[11px] font-bold transition-all flex items-center justify-between ${
-                                        isSelected
-                                          ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-                                          : 'bg-black/40 border-white/10 text-gray-400 hover:text-white'
-                                      }`}
-                                    >
-                                      <span className="line-clamp-1">{extra.name}</span>
-                                      <span className="text-[10px] font-mono text-emerald-400">+${extraPrice.toFixed(2)}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-3 p-3 rounded-2xl bg-black/30 border border-white/10">
-                            {/* Sin ingredientes en Mitad 2 */}
-                            <div>
-                              <label className="text-[10px] font-black uppercase text-red-400 block mb-1">
-                                Retirar Ingredientes Base (2da Mitad):
-                              </label>
-                              <div className="flex flex-wrap gap-1.5">
-                                {(pizzaHalf2?.baseIngredients || ['Salsa', 'Queso Mozzarella']).map((ing) => {
-                                  const isRemoved = pizzaHalf2Removed.includes(ing);
-                                  return (
-                                    <button
-                                      key={ing}
-                                      type="button"
-                                      onClick={() => {
-                                        setPizzaHalf2Removed((prev) =>
-                                          isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
-                                        );
-                                      }}
-                                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                                        isRemoved
-                                          ? 'bg-red-500/30 border-red-500 text-red-200 line-through'
-                                          : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
-                                      }`}
-                                    >
-                                      {isRemoved ? `✕ Sin ${ing}` : ing}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {/* Adicionales en Mitad 2 */}
-                            <div>
-                              <label className="text-[10px] font-black uppercase text-amber-400 block mb-1">
-                                Adicionales / Extras (2da Mitad):
-                              </label>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
-                                {availableExtras.map((extra) => {
-                                  const isSelected = pizzaHalf2Extras.some((e) => e.name === extra.name);
-                                  const extraPrice = getIngredientExtraPrice(extra, pizzaSize, true);
-                                  return (
-                                    <button
-                                      key={extra.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setPizzaHalf2Extras((prev) =>
-                                          isSelected
-                                            ? prev.filter((e) => e.name !== extra.name)
-                                            : [...prev, { name: extra.name, price: extraPrice }]
-                                        );
-                                      }}
-                                      className={`p-2 rounded-xl text-left border text-[11px] font-bold transition-all flex items-center justify-between ${
-                                        isSelected
-                                          ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-                                          : 'bg-black/40 border-white/10 text-gray-400 hover:text-white'
-                                      }`}
-                                    >
-                                      <span className="line-clamp-1">{extra.name}</span>
-                                      <span className="text-[10px] font-mono text-emerald-400">+${extraPrice.toFixed(2)}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                            <label className="text-[10px] font-black uppercase text-red-400 block mb-1.5">
+                              1. Acompañantes / Ingredientes Base (Marcar "Sin"):
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              {configuringPizza.baseIngredients.map((ing) => {
+                                const isRemoved = pizzaRemoved.includes(ing);
+                                return (
+                                  <button
+                                    key={ing}
+                                    type="button"
+                                    onClick={() => {
+                                      setPizzaRemoved((prev) =>
+                                        isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
+                                      );
+                                    }}
+                                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                                      isRemoved
+                                        ? 'bg-red-500/30 border-red-500 text-red-200 line-through shadow-md'
+                                        : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
+                                    }`}
+                                  >
+                                    {isRemoved ? `✕ Sin ${ing}` : `✓ ${ing}`}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
-                      </div>
-                    ) : (
-                      /* Modificadores para Pizza Completa */
-                      <div className="space-y-3.5">
-                        {/* Sin ingredientes */}
-                        <div>
-                          <label className="text-[10px] font-black uppercase text-red-400 block mb-1.5">
-                            2. Retirar Ingredientes Base (Sin X):
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {(configuringPizza.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella']).map((ing) => {
-                              const isRemoved = pizzaRemoved.includes(ing);
-                              return (
-                                <button
-                                  key={ing}
-                                  type="button"
-                                  onClick={() => {
-                                    setPizzaRemoved((prev) =>
-                                      isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
-                                    );
-                                  }}
-                                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
-                                    isRemoved
-                                      ? 'bg-red-500/30 border-red-500 text-red-200 line-through shadow-md'
-                                      : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
-                                  }`}
-                                >
-                                  {isRemoved ? `✕ Sin ${ing}` : ing}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
 
-                        {/* Extras */}
+                        {/* Contornos del Plato */}
                         <div>
-                          <label className="text-[10px] font-black uppercase text-amber-400 block mb-1.5">
-                            3. Agregar Ingredientes Extras / Adicionales:
-                          </label>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-[10px] font-black uppercase text-emerald-400">
+                              2. Contornos del Plato (Selecciona 1 o más contornos):
+                            </label>
+                            {pizzaExtras.length > 0 && (
+                              <span className="text-[10px] font-black text-emerald-300 bg-emerald-950 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                {pizzaExtras.length} seleccionado(s)
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
                             {availableExtras.map((extra) => {
                               const isSelected = pizzaExtras.some((e) => e.name === extra.name);
-                              const extraPrice = getIngredientExtraPrice(extra, pizzaSize, false);
                               return (
                                 <button
-                                  key={extra.id}
+                                  key={extra.id || extra.name}
                                   type="button"
                                   onClick={() => {
                                     setPizzaExtras((prev) =>
                                       isSelected
                                         ? prev.filter((e) => e.name !== extra.name)
-                                        : [...prev, { name: extra.name, price: extraPrice }]
+                                        : [...prev, { name: extra.name, price: extra.priceUSD || 0 }]
                                     );
                                   }}
                                   className={`p-2.5 rounded-xl text-left border text-xs font-bold transition-all flex items-center justify-between ${
                                     isSelected
-                                      ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-md'
+                                      ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200 shadow-md scale-[1.02]'
                                       : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
                                   }`}
                                 >
-                                  <span className="line-clamp-1">{extra.name}</span>
-                                  <span className="text-xs font-mono text-emerald-400 font-black">+${extraPrice.toFixed(2)}</span>
+                                  <span className="line-clamp-1">{isSelected ? '✅ ' : '➕ '} {extra.name}</span>
+                                  {extra.priceUSD > 0 ? (
+                                    <span className="text-xs font-mono text-emerald-400 font-black">+${extra.priceUSD.toFixed(2)}</span>
+                                  ) : (
+                                    <span className="text-[10px] text-gray-400">Incluido</span>
+                                  )}
                                 </button>
                               );
                             })}
                           </div>
                         </div>
                       </div>
+                    ) : (
+                      /* PANEL TURNO NOCHE: PIZZAS (TAMAÑO, MITADES, EXTRAS) */
+                      <>
+                        {/* TAMAÑO DE PIZZA */}
+                        <div>
+                          <label className="text-[10px] font-black uppercase text-emerald-400 block mb-1.5">
+                            1. Seleccionar Tamaño de Pizza:
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handlePizzaSizeChange('Grande')}
+                              className={`p-3 rounded-2xl border text-left transition-all ${
+                                pizzaSize === 'Grande'
+                                  ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg font-black'
+                                  : 'bg-black/50 text-gray-300 border-white/15 hover:bg-white/5 font-bold'
+                              }`}
+                            >
+                              <div className="text-xs uppercase">🍕 Pizza Grande (Familiar)</div>
+                              <div className="text-sm font-mono mt-0.5">${configuringPizza.price.toFixed(2)} USD</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handlePizzaSizeChange('Pequeña')}
+                              className={`p-3 rounded-2xl border text-left transition-all ${
+                                pizzaSize === 'Pequeña'
+                                  ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg font-black'
+                                  : 'bg-black/50 text-gray-300 border-white/15 hover:bg-white/5 font-bold'
+                              }`}
+                            >
+                              <div className="text-xs uppercase">🍕 Pizza Pequeña</div>
+                              <div className="text-sm font-mono mt-0.5">
+                                ${(configuringPizza.priceSmall ?? (configuringPizza.price > 4 ? configuringPizza.price - 4 : configuringPizza.price * 0.7)).toFixed(2)} USD
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* MITAD Y MITAD (1/2 y 1/2) */}
+                        <div className="p-3 rounded-2xl bg-black/40 border border-emerald-500/30 space-y-2.5">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={isHalfHalf}
+                                onChange={(e) => {
+                                  setIsHalfHalf(e.target.checked);
+                                  if (e.target.checked && !pizzaHalf2) {
+                                    setPizzaHalf2(pizzaProducts.find((p) => p.id !== configuringPizza.id) || null);
+                                  }
+                                }}
+                                className="w-5 h-5 rounded text-emerald-500 accent-emerald-500"
+                              />
+                              <div>
+                                <span className="text-xs font-black text-white block">¿Pizza Mitad y Mitad (1/2 + 1/2)?</span>
+                                <span className="text-[10px] text-gray-400 font-bold">Combina dos sabores en una misma pizza</span>
+                              </div>
+                            </div>
+                            {isHalfHalf && (
+                              <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-black text-[10px]">
+                                ACTIVO
+                              </span>
+                            )}
+                          </label>
+
+                          {isHalfHalf && (
+                            <div className="mt-2 space-y-2 pt-2 border-t border-white/10">
+                              <label className="text-[10px] font-black text-emerald-300 block">
+                                Seleccionar Sabor de la Segunda Mitad:
+                              </label>
+                              <select
+                                value={pizzaHalf2?.id || ''}
+                                onChange={(e) => setPizzaHalf2(pizzaProducts.find((p) => p.id === e.target.value) || null)}
+                                className="w-full p-2.5 rounded-xl bg-black/80 border border-emerald-500/50 text-white text-xs font-bold outline-none"
+                              >
+                                <option value="">Selecciona la 2da mitad...</option>
+                                {pizzaProducts.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name} — ${p.price.toFixed(2)} USD
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* MODIFICADORES: MITADES INDEPENDIENTES O PIZZA COMPLETA */}
+                        {isHalfHalf ? (
+                          <div className="space-y-3">
+                            {/* Pestañas de Mitades */}
+                            <div className="flex items-center gap-2 border-b border-white/10 pb-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveHalfTab('half1')}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black border transition-all ${
+                                  activeHalfTab === 'half1'
+                                    ? 'bg-emerald-500 text-black border-emerald-400 shadow-md'
+                                    : 'bg-black/40 border-white/10 text-gray-400 hover:text-white'
+                                }`}
+                              >
+                                1ra Mitad ({configuringPizza.name})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setActiveHalfTab('half2')}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black border transition-all ${
+                                  activeHalfTab === 'half2'
+                                    ? 'bg-emerald-500 text-black border-emerald-400 shadow-md'
+                                    : 'bg-black/40 border-white/10 text-gray-400 hover:text-white'
+                                }`}
+                              >
+                                2da Mitad ({pizzaHalf2?.name || 'Seleccionar'})
+                              </button>
+                            </div>
+
+                            {activeHalfTab === 'half1' ? (
+                              <div className="space-y-3 p-3 rounded-2xl bg-black/30 border border-white/10">
+                                {/* Sin ingredientes en Mitad 1 */}
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-red-400 block mb-1">
+                                    Retirar Ingredientes Base (1ra Mitad):
+                                  </label>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {(configuringPizza.baseIngredients || ['Salsa', 'Queso Mozzarella']).map((ing) => {
+                                      const isRemoved = pizzaHalf1Removed.includes(ing);
+                                      return (
+                                        <button
+                                          key={ing}
+                                          type="button"
+                                          onClick={() => {
+                                            setPizzaHalf1Removed((prev) =>
+                                              isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
+                                            );
+                                          }}
+                                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                                            isRemoved
+                                              ? 'bg-red-500/30 border-red-500 text-red-200 line-through'
+                                              : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
+                                          }`}
+                                        >
+                                          {isRemoved ? `✕ Sin ${ing}` : ing}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Adicionales en Mitad 1 */}
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-amber-400 block mb-1">
+                                    Adicionales / Extras (1ra Mitad):
+                                  </label>
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {availableExtras.map((extra) => {
+                                      const isSelected = pizzaHalf1Extras.some((e) => e.name === extra.name);
+                                      const extraPrice = getIngredientExtraPrice(extra, pizzaSize, true);
+                                      return (
+                                        <button
+                                          key={extra.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setPizzaHalf1Extras((prev) =>
+                                              isSelected
+                                                ? prev.filter((e) => e.name !== extra.name)
+                                                : [...prev, { name: extra.name, price: extraPrice }]
+                                            );
+                                          }}
+                                          className={`p-2 rounded-xl text-left border text-[11px] font-bold transition-all flex items-center justify-between ${
+                                            isSelected
+                                              ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                                              : 'bg-black/40 border-white/10 text-gray-400 hover:text-white'
+                                          }`}
+                                        >
+                                          <span className="line-clamp-1">{extra.name}</span>
+                                          <span className="text-[10px] font-mono text-emerald-400">+${extraPrice.toFixed(2)}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-3 p-3 rounded-2xl bg-black/30 border border-white/10">
+                                {/* Sin ingredientes en Mitad 2 */}
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-red-400 block mb-1">
+                                    Retirar Ingredientes Base (2da Mitad):
+                                  </label>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {(pizzaHalf2?.baseIngredients || ['Salsa', 'Queso Mozzarella']).map((ing) => {
+                                      const isRemoved = pizzaHalf2Removed.includes(ing);
+                                      return (
+                                        <button
+                                          key={ing}
+                                          type="button"
+                                          onClick={() => {
+                                            setPizzaHalf2Removed((prev) =>
+                                              isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
+                                            );
+                                          }}
+                                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                                            isRemoved
+                                              ? 'bg-red-500/30 border-red-500 text-red-200 line-through'
+                                              : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
+                                          }`}
+                                        >
+                                          {isRemoved ? `✕ Sin ${ing}` : ing}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Adicionales en Mitad 2 */}
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-amber-400 block mb-1">
+                                    Adicionales / Extras (2da Mitad):
+                                  </label>
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {availableExtras.map((extra) => {
+                                      const isSelected = pizzaHalf2Extras.some((e) => e.name === extra.name);
+                                      const extraPrice = getIngredientExtraPrice(extra, pizzaSize, true);
+                                      return (
+                                        <button
+                                          key={extra.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setPizzaHalf2Extras((prev) =>
+                                              isSelected
+                                                ? prev.filter((e) => e.name !== extra.name)
+                                                : [...prev, { name: extra.name, price: extraPrice }]
+                                            );
+                                          }}
+                                          className={`p-2 rounded-xl text-left border text-[11px] font-bold transition-all flex items-center justify-between ${
+                                            isSelected
+                                              ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                                              : 'bg-black/40 border-white/10 text-gray-400 hover:text-white'
+                                          }`}
+                                        >
+                                          <span className="line-clamp-1">{extra.name}</span>
+                                          <span className="text-[10px] font-mono text-emerald-400">+${extraPrice.toFixed(2)}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          /* Modificadores de Pizza Entera */
+                          <div className="space-y-3">
+                            <div>
+                              <label className="text-[10px] font-black uppercase text-red-400 block mb-1.5">
+                                2. Retirar Ingredientes Base (Sin X):
+                              </label>
+                              <div className="flex flex-wrap gap-2">
+                                {(configuringPizza.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella']).map((ing) => {
+                                  const isRemoved = pizzaRemoved.includes(ing);
+                                  return (
+                                    <button
+                                      key={ing}
+                                      type="button"
+                                      onClick={() => {
+                                        setPizzaRemoved((prev) =>
+                                          isRemoved ? prev.filter((i) => i !== ing) : [...prev, ing]
+                                        );
+                                      }}
+                                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                                        isRemoved
+                                          ? 'bg-red-500/30 border-red-500 text-red-200 line-through shadow-md'
+                                          : 'bg-black/50 border-white/15 text-gray-300 hover:border-white/30'
+                                      }`}
+                                    >
+                                      {isRemoved ? `✕ Sin ${ing}` : ing}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Extras */}
+                            <div>
+                              <label className="text-[10px] font-black uppercase text-amber-400 block mb-1.5">
+                                3. Agregar Ingredientes Extras / Adicionales:
+                              </label>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                {availableExtras.map((extra) => {
+                                  const isSelected = pizzaExtras.some((e) => e.name === extra.name);
+                                  const extraPrice = getIngredientExtraPrice(extra, pizzaSize, false);
+                                  return (
+                                    <button
+                                      key={extra.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setPizzaExtras((prev) =>
+                                          isSelected
+                                            ? prev.filter((e) => e.name !== extra.name)
+                                            : [...prev, { name: extra.name, price: extraPrice }]
+                                        );
+                                      }}
+                                      className={`p-2.5 rounded-xl text-left border text-xs font-bold transition-all flex items-center justify-between ${
+                                        isSelected
+                                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-md'
+                                          : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
+                                      }`}
+                                    >
+                                      <span className="line-clamp-1">{extra.name}</span>
+                                      <span className="text-xs font-mono text-emerald-400 font-black">+${extraPrice.toFixed(2)}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
 
                     {/* NOTAS ESPECIALES */}
                     <div>
                       <label className="text-[10px] font-black uppercase text-gray-400 block mb-1">
-                        4. Nota Especial para Cocina:
+                        {isMorningShift ? '3. Nota Especial para Cocina:' : '4. Nota Especial para Cocina:'}
                       </label>
                       <input
                         type="text"
-                        placeholder="Ej: Masa bien tostada, poco orégano..."
+                        placeholder="Ej: Bien cocido, servir rápido..."
                         value={pizzaNotes}
                         onChange={(e) => setPizzaNotes(e.target.value)}
                         className="w-full px-3.5 py-2.5 rounded-xl bg-black/70 border border-white/20 text-white text-xs outline-none focus:border-emerald-500"
                       />
                     </div>
+
+                    {/* EMPACAR PARA LLEVAR */}
+                    <div className="p-3 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">📦</span>
+                        <div>
+                          <div className="text-xs font-black text-white">¿Empacar este ítem para llevar?</div>
+                          <div className="text-[10px] text-gray-400">Se imprimirá la indicación para cocina</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPizzaIsTakeaway(!pizzaIsTakeaway)}
+                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all border ${
+                          pizzaIsTakeaway
+                            ? 'bg-amber-500 text-black border-amber-400 shadow-lg'
+                            : 'bg-white/10 text-gray-300 border-white/10 hover:bg-white/20'
+                        }`}
+                      >
+                        {pizzaIsTakeaway ? '✓ SÍ, PARA LLEVAR' : 'MESA / COMER AQUÍ'}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* FOOTER DEL CONFIGURADOR DE PIZZAS */}
+                  {/* FOOTER DEL CONFIGURADOR DE PIZZAS / PLATOS */}
                   <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-shrink-0">
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Precio Calculado:</span>
@@ -944,10 +1151,10 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                     <button
                       type="button"
                       onClick={handleConfirmAddPizza}
-                      disabled={isHalfHalf && !pizzaHalf2}
+                      disabled={!isMorningShift && isHalfHalf && !pizzaHalf2}
                       className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-black text-xs shadow-xl transition-all"
                     >
-                      + AGREGAR ESTA PIZZA A LA ADICIÓN
+                      {isMorningShift ? '+ AGREGAR ESTE PLATO A LA ADICIÓN' : '+ AGREGAR ESTA PIZZA A LA ADICIÓN'}
                     </button>
                   </div>
                 </div>
@@ -1010,6 +1217,28 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                         className="w-full px-3.5 py-2.5 rounded-xl bg-black/70 border border-white/20 text-white text-xs outline-none focus:border-amber-500"
                       />
                     </div>
+
+                    {/* EMPACAR PARA LLEVAR BEBIDA */}
+                    <div className="p-3 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">📦</span>
+                        <div>
+                          <div className="text-xs font-black text-white">¿Empacar esta bebida para llevar?</div>
+                          <div className="text-[10px] text-gray-400">Se enviará la indicación para barra / cocina</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDrinkIsTakeaway(!drinkIsTakeaway)}
+                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all border ${
+                          drinkIsTakeaway
+                            ? 'bg-amber-500 text-black border-amber-400 shadow-lg'
+                            : 'bg-white/10 text-gray-300 border-white/10 hover:bg-white/20'
+                        }`}
+                      >
+                        {drinkIsTakeaway ? '✓ SÍ, PARA LLEVAR' : 'MESA / CONSUMIR AQUÍ'}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="pt-4 border-t border-white/10 flex items-center justify-between mt-auto">
@@ -1045,7 +1274,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                               : 'bg-white/[0.04] text-gray-400 border-white/10 hover:text-white'
                           }`}
                         >
-                          {cat === 'Pizzas' ? '🍕 Pizzas' : cat === 'Bebidas' ? '🥤 Bebidas' : '🍽️ Otros'}
+                          {cat === 'Pizzas' ? (isMorningShift ? '🍽️ Platos' : '🍕 Pizzas') : cat === 'Bebidas' ? '🥤 Bebidas' : '🍽️ Otros'}
                         </button>
                       ))}
                     </div>
@@ -1054,7 +1283,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                       <IoSearchOutline className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-base" />
                       <input
                         type="text"
-                        placeholder="Buscar producto..."
+                        placeholder={isMorningShift ? "Buscar plato o bebida..." : "Buscar producto..."}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 rounded-xl bg-black/60 border border-white/15 text-white text-xs outline-none focus:border-emerald-500"

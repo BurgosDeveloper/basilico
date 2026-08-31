@@ -632,36 +632,15 @@ export class ReportService {
 
     // Desglose de Deliverys por tarifa
     const deliveryTierMap = new Map<number, number>();
-    let totalDeliveryServices = 0;
-    let totalDeliveryUSD = 0;
-
     data.orders.forEach((ord) => {
       const fee = Number(ord.deliveryFeeUSD) || 0;
       if (ord.type === 'delivery' || fee > 0) {
-        totalDeliveryServices += 1;
-        totalDeliveryUSD += fee;
         deliveryTierMap.set(fee, (deliveryTierMap.get(fee) || 0) + 1);
       }
     });
 
-    const deliveryTierRows = Array.from(deliveryTierMap.entries())
-      .sort(([feeA], [feeB]) => feeA - feeB)
-      .map(([fee, count]) => {
-        const subtotal = fee * count;
-        return `
-          <tr>
-            <td>• ${count} delivery${count === 1 ? '' : 's'} de $${fee.toFixed(2)}</td>
-            <td style="text-align:right;">$${fee.toFixed(2)} c/u</td>
-            <td style="text-align:right; font-weight:700;">$${subtotal.toFixed(2)} USD</td>
-          </tr>
-        `;
-      }).join('');
-
     // Desglose de Adicionales / Extras por precio
     const extrasTierMap = new Map<number, { count: number; totalUSD: number }>();
-    let totalExtrasCount = 0;
-    let totalExtrasUSD = 0;
-
     data.items.forEach((it: any) => {
       const itQty = Number(it.quantity) || 1;
       const extrasList: any[] = [];
@@ -680,8 +659,6 @@ export class ReportService {
         const price = Number(extra.price) || 0;
         const count = itQty;
         const subtotal = price * count;
-        totalExtrasCount += count;
-        totalExtrasUSD += subtotal;
 
         const current = extrasTierMap.get(price) || { count: 0, totalUSD: 0 };
         current.count += count;
@@ -689,18 +666,6 @@ export class ReportService {
         extrasTierMap.set(price, current);
       });
     });
-
-    const extrasTierRows = Array.from(extrasTierMap.entries())
-      .sort(([priceA], [priceB]) => priceA - priceB)
-      .map(([price, info]) => {
-        return `
-          <tr>
-            <td>• ${info.count} adicional${info.count === 1 ? '' : 'es'} de $${price.toFixed(2)}</td>
-            <td style="text-align:right;">$${price.toFixed(2)} c/u</td>
-            <td style="text-align:right; font-weight:700;">$${info.totalUSD.toFixed(2)} USD</td>
-          </tr>
-        `;
-      }).join('');
 
     const totalVentaFacturadaUSD = Array.from(methodTotals.values()).reduce((sum, m) => sum + m.equivalentUSD, 0);
 
@@ -752,13 +717,39 @@ export class ReportService {
       `;
     }).join('');
 
-    // Ítems Facturados
+    // Ítems Facturados (incluyendo platos, pizzas, bebidas, deliverys y adicionales)
     const itemMap: Record<string, { category: string; name: string; quantity: number }> = {};
     data.items.forEach((item) => {
-      const key = `${item.category}|${item.productName}`;
-      if (!itemMap[key]) itemMap[key] = { category: item.category, name: item.productName, quantity: 0 };
+      const category = item.category || 'General';
+      const key = `${category}|${item.productName}`;
+      if (!itemMap[key]) itemMap[key] = { category, name: item.productName, quantity: 0 };
       itemMap[key].quantity += item.quantity;
     });
+
+    // Agregar Deliverys a Ítems Facturados
+    deliveryTierMap.forEach((count, fee) => {
+      if (fee > 0 && count > 0) {
+        const key = `Delivery|Delivery de $${fee.toFixed(2)}`;
+        itemMap[key] = {
+          category: 'Delivery',
+          name: `Delivery de $${fee.toFixed(2)}`,
+          quantity: count,
+        };
+      }
+    });
+
+    // Agregar Adicionales a Ítems Facturados
+    extrasTierMap.forEach((info, price) => {
+      if (info.count > 0) {
+        const key = `Adicionales|Adicional de $${price.toFixed(2)}`;
+        itemMap[key] = {
+          category: 'Adicionales',
+          name: `Adicional de $${price.toFixed(2)}`,
+          quantity: info.count,
+        };
+      }
+    });
+
     const itemRows = Object.values(itemMap)
       .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
       .map((item) => `<tr><td>${this.escapeHtml(item.category)}</td><td>${this.escapeHtml(item.name)}</td><td style="text-align:right;">${item.quantity}</td></tr>`)
@@ -816,7 +807,7 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN 2 — TOTAL FACTURADO (VENDIDO) POR MONEDA (CONTADO)</div>
+      <div class="section-title">SECCIÓN 2 — TOTAL FACTURADO POR MONEDA</div>
       <table>
         <thead>
           <tr>
@@ -856,37 +847,22 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN — DESGLOSE DE SERVICIOS DELIVERY Y ADICIONALES</div>
+      <div class="section-title">SECCIÓN 3 — DESGLOSE POR TIPO DE PAGO</div>
       <table>
         <thead>
           <tr>
-            <th>Concepto / Tarifa</th>
-            <th style="text-align:right;">Tarifa Unit.</th>
-            <th style="text-align:right;">Total USD</th>
+            <th>Método de Pago</th>
+            <th>Moneda</th>
+            <th style="text-align:center;">Mov.</th>
+            <th style="text-align:right;">Monto Facturado</th>
           </tr>
         </thead>
         <tbody>
-          <tr style="background:#f9fafb;"><td colspan="3"><strong style="color:#1e3a8a;">🛵 SERVICIOS DE DELIVERY (${totalDeliveryServices} entregas):</strong></td></tr>
-          ${deliveryTierRows || '<tr><td colspan="3" style="text-align:center; color:#9ca3af;">Sin deliverys en el intervalo.</td></tr>'}
-          ${totalDeliveryServices > 0 ? `
-            <tr style="background:#eff6ff;">
-              <td colspan="2"><strong style="color:#1e40af;">Total Recaudado por Deliverys:</strong></td>
-              <td style="text-align:right; font-weight:900; color:#1d4ed8;">$${totalDeliveryUSD.toFixed(2)} USD</td>
-            </tr>
-          ` : ''}
-
-          <tr style="background:#f9fafb;"><td colspan="3"><strong style="color:#831843;">🧀 ADICIONALES Y EXTRAS (${totalExtrasCount} ingredientes extra):</strong></td></tr>
-          ${extrasTierRows || '<tr><td colspan="3" style="text-align:center; color:#9ca3af;">Sin adicionales en el intervalo.</td></tr>'}
-          ${totalExtrasCount > 0 ? `
-            <tr style="background:#fdf2f8;">
-              <td colspan="2"><strong style="color:#9d174d;">Total Facturado en Adicionales:</strong></td>
-              <td style="text-align:right; font-weight:900; color:#be185d;">$${totalExtrasUSD.toFixed(2)} USD</td>
-            </tr>
-          ` : ''}
+          ${methodRows || '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">Sin cobros registrados.</td></tr>'}
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN 3 — CAJA CHICA DEL EFECTIVO ESPERADA</div>
+      <div class="section-title">SECCIÓN 4 — CAJA CHICA DEL EFECTIVO ESPERADA</div>
       <table>
         <thead>
           <tr>
@@ -919,21 +895,6 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN 4 — DESGLOSE POR TIPO DE PAGO</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Método de Pago</th>
-            <th>Moneda</th>
-            <th style="text-align:center;">Mov.</th>
-            <th style="text-align:right;">Monto Facturado</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${methodRows || '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">Sin cobros registrados.</td></tr>'}
-        </tbody>
-      </table>
-
       ${creditOrders.length > 0 ? `
         <div class="section-title">SECCIÓN 5 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR</div>
         <table>
@@ -954,9 +915,16 @@ export class ReportService {
           <div class="total-label" style="color:#92400e;">TOTAL CUENTAS A CRÉDITO POR COBRAR:</div>
           <div class="total-val" style="color:#b45309;">$${totalCreditUSD.toFixed(2)} USD</div>
         </div>
-      ` : ''}
+      ` : `
+        <div class="section-title">SECCIÓN 5 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR</div>
+        <table>
+          <tbody>
+            <tr><td style="text-align:center; color:#9ca3af; padding:8px;">Sin comandas a crédito en el intervalo.</td></tr>
+          </tbody>
+        </table>
+      `}
 
-      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '6' : '5'} — ÍTEMS FACTURADOS</div>
+      <div class="section-title">SECCIÓN 6 — ÍTEMS FACTURADOS</div>
       <table>
         <thead>
           <tr>
@@ -970,7 +938,7 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '7' : '6'} — COMANDAS EDITADAS</div>
+      <div class="section-title">SECCIÓN 7 — COMANDAS EDITADAS</div>
       <table>
         <thead>
           <tr>
@@ -985,7 +953,7 @@ export class ReportService {
         </tbody>
       </table>
 
-      <div class="section-title">SECCIÓN ${creditOrders.length > 0 ? '8' : '7'} — HISTORIAL POR MÉTODO DE PAGO</div>
+      <div class="section-title">SECCIÓN 8 — HISTORIAL POR MÉTODO DE PAGO</div>
       ${historyByMethod || '<p style="font-size:10px; color:#6b7280; text-align:center;">Sin pagos en el intervalo.</p>'}
     `;
 

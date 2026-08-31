@@ -96,6 +96,7 @@ interface AppContextType {
   fetchReporteIntervalo: (from: string, to: string) => Promise<any>;
   printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina', data: any, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   printOrderReceipt: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
+  reprintKitchenOrder: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   getPrintersConfig: () => Promise<DualPrintersConfig>;
   updatePrintersConfig: (config: Partial<DualPrintersConfig>) => Promise<DualPrintersConfig>;
   testPrinter: (targetPrinter: 'cocina' | 'caja' | 'ambas') => Promise<any>;
@@ -732,6 +733,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await requireApiSuccess(res, 'No se pudo enviar la pre-cuenta a la impresora térmica.');
   };
 
+  const reprintKitchenOrder = async (orderId: string, targetPrinter: 'cocina' | 'caja' | 'ambas' = 'cocina') => {
+    const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/reprint-kitchen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetPrinter }),
+    });
+    await requireApiSuccess(res, 'No se pudo reimprimir la comanda de cocina.');
+  };
+
   const getPrintersConfig = async (): Promise<DualPrintersConfig> => {
     const res = await apiFetch(`${backendUrl}/api/printers/config`);
     return await requireApiSuccess(res, 'No se pudo obtener la configuración de impresoras.');
@@ -955,6 +965,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetchReporteIntervalo,
         printReporteIntervalo,
         printOrderReceipt,
+        reprintKitchenOrder,
         getPrintersConfig,
         updatePrintersConfig,
         testPrinter,

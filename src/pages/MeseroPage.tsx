@@ -29,9 +29,10 @@ import {
 } from 'react-icons/io5';
 
 export const MeseroPage: React.FC = () => {
-  const { tables, products, ingredients, orders, createOrder, cancelOrder, exchangeRates, userSession } = useApp();
+  const { tables, products, ingredients, orders, createOrder, cancelOrder, exchangeRates, userSession, reprintKitchenOrder } = useApp();
   const [searchParams] = useSearchParams();
   const activeSubTab = searchParams.get('tab') || 'pedidos';
+  const isMorningShift = userSession?.shift === 'manana';
 
   // Order Target Modal (Mesa, Delivery, PickUp)
   const [activeOrderTarget, setActiveOrderTarget] = useState<{
@@ -53,7 +54,7 @@ export const MeseroPage: React.FC = () => {
   const [tableChangeOrder, setTableChangeOrder] = useState<Order | null>(null);
   const [orderAppendModalOrder, setOrderAppendModalOrder] = useState<Order | null>(null);
 
-  // Modal 1: Pizza Customization Modal State
+  // Modal 1: Pizza / Plato Customization Modal State
   const [configuringPizza, setConfiguringPizza] = useState<Product | null>(null);
   const [pizzaSize, setPizzaSize] = useState<'Grande' | 'Pequeña'>('Grande');
   const [pizzaIsHalfHalf, setPizzaIsHalfHalf] = useState<boolean>(false);
@@ -73,6 +74,7 @@ export const MeseroPage: React.FC = () => {
 
   // Modal 3: Jugo Preference Modal State
   const [configuringJugo, setConfiguringJugo] = useState<Product | null>(null);
+  const [jugoIsTakeaway, setJugoIsTakeaway] = useState<boolean>(false);
 
   const categories = ['Todas', ...Array.from(new Set(products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).map(p => p.category))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))];
   const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
@@ -93,42 +95,97 @@ export const MeseroPage: React.FC = () => {
 
   // Click on a Product from Menu
   const handleSelectProduct = (product: Product) => {
-    if (product.category === 'Pizzas') {
-      setConfiguringPizza(product);
-      setPizzaSize('Grande');
-      setPizzaIsHalfHalf(false);
-      setPizzaHalf1(product);
-      setPizzaHalf2(allPizzaProducts.find((p) => p.id !== product.id) || product);
-      setPizzaHalf1Removed([]);
-      setPizzaHalf2Removed([]);
-      setPizzaHalf1Extras([]);
-      setPizzaHalf2Extras([]);
-      setPizzaRemovedIngredients([]);
-      setPizzaExtras([]);
-      setPizzaIsTakeaway(activeOrderTarget?.type === 'pickup' || activeOrderTarget?.type === 'delivery');
-    } else if (product.category === 'Bebidas' && product.drinkType === 'jugo') {
-      setConfiguringJugo(product);
+    const isTargetTakeaway = activeOrderTarget?.type === 'pickup' || activeOrderTarget?.type === 'delivery';
+
+    if (isMorningShift) {
+      if (product.category === 'Bebidas' && product.drinkType === 'jugo') {
+        setConfiguringJugo(product);
+        setJugoIsTakeaway(isTargetTakeaway);
+      } else if (product.category === 'Bebidas') {
+        addSimpleItemToCart(product, undefined, isTargetTakeaway);
+      } else {
+        // En el turno de la mañana, platos (Entradas, Especialidades, Pastas)
+        setConfiguringPizza(product);
+        setPizzaSize('Grande');
+        setPizzaIsHalfHalf(false);
+        setPizzaHalf1(product);
+        setPizzaHalf2(product);
+        setPizzaHalf1Removed([]);
+        setPizzaHalf2Removed([]);
+        setPizzaHalf1Extras([]);
+        setPizzaHalf2Extras([]);
+        setPizzaRemovedIngredients([]);
+        setPizzaExtras([]);
+        setPizzaIsTakeaway(isTargetTakeaway);
+      }
     } else {
-      addSimpleItemToCart(product);
+      if (product.category === 'Pizzas') {
+        setConfiguringPizza(product);
+        setPizzaSize('Grande');
+        setPizzaIsHalfHalf(false);
+        setPizzaHalf1(product);
+        setPizzaHalf2(allPizzaProducts.find((p) => p.id !== product.id) || product);
+        setPizzaHalf1Removed([]);
+        setPizzaHalf2Removed([]);
+        setPizzaHalf1Extras([]);
+        setPizzaHalf2Extras([]);
+        setPizzaRemovedIngredients([]);
+        setPizzaExtras([]);
+        setPizzaIsTakeaway(isTargetTakeaway);
+      } else if (product.category === 'Bebidas' && product.drinkType === 'jugo') {
+        setConfiguringJugo(product);
+        setJugoIsTakeaway(isTargetTakeaway);
+      } else {
+        addSimpleItemToCart(product, undefined, isTargetTakeaway);
+      }
     }
   };
 
-  const addSimpleItemToCart = (product: Product, sugarPreference?: 'Con azúcar' | 'Sin azúcar' | 'Poca azúcar' | string) => {
+  const addSimpleItemToCart = (
+    product: Product,
+    sugarPreference?: 'Con azúcar' | 'Sin azúcar' | 'Poca azúcar' | string,
+    isTakeaway?: boolean
+  ) => {
     const newItem: OrderItem = {
       id: `item-${Date.now()}-${Math.random()}`,
       productId: product.id,
       productName: product.name,
       price: product.price,
       quantity: 1,
+      category: product.category,
       sugarPreference,
+      isTakeaway: isTakeaway !== undefined ? isTakeaway : (activeOrderTarget?.type === 'pickup' || activeOrderTarget?.type === 'delivery'),
       isNewOrModified: false,
     };
     setCartItems((prev) => [...prev, newItem]);
   };
 
-  // Save Configured Pizza to Cart
+  // Save Configured Pizza / Dish to Cart
   const handleConfirmPizzaAdd = () => {
     if (!configuringPizza) return;
+
+    if (isMorningShift) {
+      const basePrice = configuringPizza.price;
+      const extrasTotal = pizzaExtras.reduce((sum, e) => sum + e.price, 0);
+      const finalPrice = basePrice + extrasTotal;
+
+      const newItem: OrderItem = {
+        id: `item-${Date.now()}-${Math.random()}`,
+        productId: configuringPizza.id,
+        productName: configuringPizza.name,
+        price: finalPrice,
+        quantity: 1,
+        category: configuringPizza.category,
+        extras: pizzaExtras.length > 0 ? pizzaExtras : undefined,
+        removedIngredients: pizzaRemovedIngredients.length > 0 ? pizzaRemovedIngredients : undefined,
+        isTakeaway: pizzaIsTakeaway,
+        isNewOrModified: false,
+      };
+
+      setCartItems((prev) => [...prev, newItem]);
+      setConfiguringPizza(null);
+      return;
+    }
 
     let basePrice = configuringPizza.price;
     let smallPrice = configuringPizza.priceSmall ?? (configuringPizza.price > 4 ? configuringPizza.price - 4.00 : configuringPizza.price);
@@ -155,6 +212,7 @@ export const MeseroPage: React.FC = () => {
       productName,
       price: finalPrice,
       quantity: 1,
+      category: configuringPizza.category,
       size: pizzaSize,
       isHalfHalf: pizzaIsHalfHalf,
       halfDetails: pizzaIsHalfHalf && pizzaHalf1 && pizzaHalf2 ? {
@@ -616,7 +674,7 @@ export const MeseroPage: React.FC = () => {
                           <div className="ml-3 text-[11px] text-emerald-700 space-y-0.5 font-medium">
                             {(it.extras || []).map((ex, exIdx) => (
                               <div key={exIdx} className="flex justify-between">
-                                <span>➕ EXTRA: {ex.name}</span>
+                                <span>{it.category && it.category !== 'Pizzas' ? '🥗 CONTORNO:' : '➕ EXTRA:'} {ex.name}</span>
                                 {ex.price > 0 && <span>+${ex.price.toFixed(2)}</span>}
                               </div>
                             ))}
@@ -644,7 +702,7 @@ export const MeseroPage: React.FC = () => {
 
                   {/* Actions */}
                   {ord.status !== 'cancelado' && ord.paymentStatus !== 'pagado' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
                       <button
                         type="button"
                         onClick={() => setOrderAppendModalOrder(ord)}
@@ -652,6 +710,22 @@ export const MeseroPage: React.FC = () => {
                       >
                         <IoAdd className="text-base" />
                         <span>➕ ADICIONAR</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await reprintKitchenOrder(ord.id);
+                            alert(`✅ Comanda #${ord.orderNumber} enviada a reimpresión en cocina.`);
+                          } catch (e: any) {
+                            alert(`⚠️ ${e.message || 'Error al reimprimir'}`);
+                          }
+                        }}
+                        className="py-2.5 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-800 hover:text-black border border-emerald-300 font-black text-xs flex items-center justify-center gap-1 transition-all"
+                        title="Reimprimir comanda en cocina"
+                      >
+                        <span>🖨️ COCINA</span>
                       </button>
 
                       <button
@@ -794,26 +868,35 @@ export const MeseroPage: React.FC = () => {
               {/* Categories & Search */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0">
-                  {categories.map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setSelectedCategory(cat)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedCategory === cat
-                          ? 'bg-emerald-500 text-black shadow-lg'
-                          : 'bg-slate-100 text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      {cat === 'Pizzas' ? '🍕 PIZZAS' : cat === 'Bebidas' ? '🥤 BEBIDAS' : 'TODOS'}
-                    </button>
-                  ))}
+                  {categories.map((cat) => {
+                    let label = cat.toUpperCase();
+                    if (cat === 'Todas') label = 'TODOS';
+                    else if (cat === 'Entradas') label = '🍲 ENTRADAS';
+                    else if (cat === 'Especialidades') label = '⭐ ESPECIALIDADES';
+                    else if (cat === 'Pastas') label = '🍝 PASTAS';
+                    else if (cat === 'Pizzas') label = '🍕 PIZZAS';
+                    else if (cat === 'Bebidas') label = '🥤 BEBIDAS';
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                          selectedCategory === cat
+                            ? 'bg-emerald-500 text-black shadow-lg font-black'
+                            : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div className="relative w-full sm:w-64">
                   <IoSearch className="absolute left-3.5 top-3 text-slate-500" />
                   <input
                     type="text"
-                    placeholder="Buscar pizza o bebida..."
+                    placeholder={isMorningShift ? "Buscar plato o bebida..." : "Buscar pizza o bebida..."}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-9 pr-4 py-2 rounded-xl bg-white/80 border border-slate-300 text-slate-900 placeholder-gray-500 text-xs outline-none focus:border-emerald-500 font-bold"
@@ -840,7 +923,7 @@ export const MeseroPage: React.FC = () => {
 
                     <button className="w-full py-2 rounded-xl bg-emerald-500/20 text-emerald-800 hover:bg-emerald-500 hover:text-black font-black text-xs transition-all flex items-center justify-center gap-1 border border-emerald-200">
                       <IoAdd />
-                      <span>{p.category === 'Pizzas' ? 'PERSONALIZAR Y PEDIR' : 'AGREGAR A COMANDA'}</span>
+                      <span>{p.category === 'Bebidas' && p.drinkType !== 'jugo' ? 'AGREGAR A COMANDA' : 'PERSONALIZAR Y PEDIR'}</span>
                     </button>
                   </div>
                 ))}
@@ -857,17 +940,29 @@ export const MeseroPage: React.FC = () => {
                       <div key={item.id} className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-xs space-y-1">
                         <div className="flex items-center justify-between">
                           <div className="font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                            <span>🍕 {item.productName}</span>
+                            <span>{item.category === 'Bebidas' ? '🥤' : isMorningShift ? '🍽️' : '🍕'} {item.productName}</span>
                             {item.size && (
                               <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-700 text-[9px] font-black">
                                 📐 {item.size}
                               </span>
                             )}
-                            {item.isTakeaway && (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 text-[9px] font-black">
-                                📦 PARA LLEVAR
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCartItems((prev) =>
+                                  prev.map((it) => (it.id === item.id ? { ...it, isTakeaway: !it.isTakeaway } : it))
+                                );
+                              }}
+                              className={`px-2 py-0.5 rounded-lg text-[9px] font-black transition-all border flex items-center gap-1 ${
+                                item.isTakeaway
+                                  ? 'bg-amber-500/20 text-amber-800 border-amber-300 shadow-xs'
+                                  : 'bg-slate-200 text-slate-600 border-slate-300 hover:bg-slate-300'
+                              }`}
+                              title="Click para cambiar entre Mesa y Para Llevar"
+                            >
+                              <span>📦</span>
+                              <span>{item.isTakeaway ? 'PARA LLEVAR' : 'EN MESA'}</span>
+                            </button>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <span className="font-black text-emerald-700">${item.price.toFixed(2)}</span>
@@ -977,268 +1072,355 @@ export const MeseroPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: PERSONALIZACIÓN DE PIZZA */}
+      {/* MODAL 2: PERSONALIZACIÓN DE PIZZA / PLATO */}
       {configuringPizza && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
           <div className="relative w-full max-w-lg bg-gradient-to-br from-white to-[#070707] border border-emerald-200 rounded-3xl p-6 shadow-2xl space-y-6 text-slate-900 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center border-b border-slate-200 pb-3">
               <div>
+                <span className="text-[10px] font-black uppercase text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md mb-1 inline-block">
+                  {isMorningShift ? '🍽️ PERSONALIZACIÓN DE PLATO' : '🍕 PERSONALIZACIÓN DE PIZZA'}
+                </span>
                 <h3 className="text-xl font-black text-slate-900">{configuringPizza.name}</h3>
-                <span className="text-xs text-emerald-700 font-bold">${configuringPizza.price.toFixed(2)} USD</span>
+                <span className="text-xs text-emerald-700 font-black">
+                  ${(configuringPizza.price + (isMorningShift ? pizzaExtras.reduce((s, e) => s + e.price, 0) : 0)).toFixed(2)} USD
+                </span>
               </div>
               <button onClick={() => setConfiguringPizza(null)} className="text-slate-500 hover:text-slate-900">
                 <IoClose size={22} />
               </button>
             </div>
 
-            {/* 1. SELECCIÓN DE TAMAÑO (Grande vs Pequeña) */}
-            <div>
-              <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
-                1. TAMAÑO DE LA PIZZA:
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['Grande', 'Pequeña'] as const).map((sz) => (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => handlePizzaSizeChange(sz)}
-                    className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
-                      pizzaSize === sz
-                        ? 'bg-emerald-500 text-black border-emerald-300 font-black shadow-lg scale-[1.02]'
-                        : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {sz === 'Grande' ? '🍕 Grande (12" - Familiar)' : '🍕 Pequeña (8" - Personal)'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. MODALIDAD: ENTERA O MITAD/MITAD */}
-            <div>
-              <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
-                2. MODALIDAD DE LA PIZZA:
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPizzaIsHalfHalf(false)}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition-all ${
-                    !pizzaIsHalfHalf
-                      ? 'bg-emerald-500 text-black border-emerald-300 font-black shadow-lg'
-                      : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  🍕 Pizza Completa (1 Sabor)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPizzaIsHalfHalf(true)}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition-all ${
-                    pizzaIsHalfHalf
-                      ? 'bg-amber-500 text-black border-amber-300 font-black shadow-lg'
-                      : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  🌓 Mitad y Mitad (2 Sabores)
-                </button>
-              </div>
-            </div>
-
-            {/* Controles si es Mitad y Mitad */}
-            {pizzaIsHalfHalf ? (
-              <div className="space-y-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-200">
-                <div className="text-xs font-black text-amber-700 uppercase tracking-wider">
-                  🌓 DESGLOSE E INGREDIENTES DE CADA MITAD:
-                </div>
-
-                {/* MITAD 1 */}
-                <div className="space-y-2 p-3 rounded-xl bg-white/60 border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-black text-amber-600">1ra Mitad (Sabor A):</label>
-                    <select
-                      value={pizzaHalf1?.id || ''}
-                      onChange={(e) => {
-                        const selected = allPizzaProducts.find((p) => p.id === e.target.value);
-                        if (selected) setPizzaHalf1(selected);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs border border-slate-300 font-bold"
-                    >
-                      {allPizzaProducts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="text-[11px] font-bold text-slate-600">Ingredientes 1ra Mitad (Toca para remover / marcar "SIN"):</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(pizzaHalf1?.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']).map((ing) => {
-                      const isRemoved = pizzaHalf1Removed.includes(ing);
-                      return (
-                        <button
-                          key={ing}
-                          type="button"
-                          onClick={() =>
-                            setPizzaHalf1Removed((prev) =>
-                              prev.includes(ing) ? prev.filter((i) => i !== ing) : [...prev, ing]
-                            )
-                          }
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
-                            isRemoved
-                              ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
-                              : 'bg-emerald-500/20 border-emerald-300 text-emerald-800'
-                          }`}
-                        >
-                          {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Extras for 1st Half */}
-                  <div className="pt-2 flex items-center justify-between border-t border-slate-200 mt-2">
-                    <span className="text-[10px] text-amber-700 font-bold">
-                      Adicionales 1ra Mitad ({pizzaHalf1Extras.length}):
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setExtrasTargetHalf('half1'); setIsExtrasModalOpen(true); }}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-800 border border-emerald-200 text-[10px] font-black"
-                    >
-                      ➕ Extras 1ra Mitad
-                    </button>
-                  </div>
-                  {pizzaHalf1Extras.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {pizzaHalf1Extras.map((e) => (
-                        <span key={e.name} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 font-bold text-[9px]">
-                          +{e.name} (+${e.price.toFixed(2)})
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* MITAD 2 */}
-                <div className="space-y-2 p-3 rounded-xl bg-white/60 border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-black text-amber-600">2da Mitad (Sabor B):</label>
-                    <select
-                      value={pizzaHalf2?.id || ''}
-                      onChange={(e) => {
-                        const selected = allPizzaProducts.find((p) => p.id === e.target.value);
-                        if (selected) setPizzaHalf2(selected);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs border border-slate-300 font-bold"
-                    >
-                      {allPizzaProducts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="text-[11px] font-bold text-slate-600">Ingredientes 2da Mitad (Toca para remover / marcar "SIN"):</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(pizzaHalf2?.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']).map((ing) => {
-                      const isRemoved = pizzaHalf2Removed.includes(ing);
-                      return (
-                        <button
-                          key={ing}
-                          type="button"
-                          onClick={() =>
-                            setPizzaHalf2Removed((prev) =>
-                              prev.includes(ing) ? prev.filter((i) => i !== ing) : [...prev, ing]
-                            )
-                          }
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
-                            isRemoved
-                              ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
-                              : 'bg-emerald-500/20 border-emerald-300 text-emerald-800'
-                          }`}
-                        >
-                          {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Extras for 2nd Half */}
-                  <div className="pt-2 flex items-center justify-between border-t border-slate-200 mt-2">
-                    <span className="text-[10px] text-amber-700 font-bold">
-                      Adicionales 2da Mitad ({pizzaHalf2Extras.length}):
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setExtrasTargetHalf('half2'); setIsExtrasModalOpen(true); }}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-800 border border-emerald-200 text-[10px] font-black"
-                    >
-                      ➕ Extras 2da Mitad
-                    </button>
-                  </div>
-                  {pizzaHalf2Extras.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {pizzaHalf2Extras.map((e) => (
-                        <span key={e.name} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 font-bold text-[9px]">
-                          +{e.name} (+${e.price.toFixed(2)})
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              /* Pizza Completa Base Ingredients */
-              <div>
-                <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
-                  INGREDIENTES BASE (Toca para remover / marcar "SIN"):
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {(configuringPizza.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']).map((ing) => {
-                    const isRemoved = pizzaRemovedIngredients.includes(ing);
-                    return (
-                      <button
-                        key={ing}
-                        type="button"
-                        onClick={() => toggleRemovedIngredient(ing)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                          isRemoved
-                            ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
-                            : 'bg-emerald-500/20 border-emerald-300 text-emerald-800 hover:bg-emerald-500 hover:text-black'
-                        }`}
-                      >
-                        {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Single Flavor Pizza Extras */}
-                {pizzaExtras.length > 0 && (
-                  <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-200 text-xs mt-3">
-                    <span className="text-emerald-700 font-bold">Extras seleccionados:</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {pizzaExtras.map((e) => (
-                        <span key={e.name} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-800 font-bold text-[10px]">
-                          +{e.name} (+${e.price.toFixed(2)})
-                        </span>
-                      ))}
+            {isMorningShift ? (
+              /* PANEL PERSONALIZACIÓN TURNO MAÑANA: ACOMPAÑANTES Y CONTORNOS */
+              <div className="space-y-5">
+                {/* 1. Acompañantes / Ingredientes Base */}
+                {(configuringPizza.baseIngredients && configuringPizza.baseIngredients.length > 0) && (
+                  <div>
+                    <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
+                      ACOMPAÑANTES / INGREDIENTES BASE (Toca para marcar "SIN"):
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {configuringPizza.baseIngredients.map((ing) => {
+                        const isRemoved = pizzaRemovedIngredients.includes(ing);
+                        return (
+                          <button
+                            key={ing}
+                            type="button"
+                            onClick={() => toggleRemovedIngredient(ing)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                              isRemoved
+                                ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
+                                : 'bg-emerald-500/20 border-emerald-300 text-emerald-800 hover:bg-emerald-500 hover:text-black'
+                            }`}
+                          >
+                            {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                <button
-                  onClick={() => { setExtrasTargetHalf('full'); setIsExtrasModalOpen(true); }}
-                  className="w-full py-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-200 text-emerald-800 font-black text-xs flex items-center justify-center gap-2 shadow-lg mt-3"
-                >
-                  <IoSparkles className="text-emerald-700" />
-                  <span>➕ AGREGAR ADICIONALES / EXTRAS</span>
-                </button>
+                {/* 2. Contornos del Plato */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-black text-slate-600 uppercase tracking-wider">
+                      CONTORNOS DEL PLATO (Selecciona 1 o más):
+                    </label>
+                    {pizzaExtras.length > 0 && (
+                      <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        {pizzaExtras.length} seleccionado(s)
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                    {availableExtras.map((extra) => {
+                      const isSelected = pizzaExtras.some((e) => e.name === extra.name);
+                      return (
+                        <button
+                          key={extra.id || extra.name}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setPizzaExtras((prev) => prev.filter((e) => e.name !== extra.name));
+                            } else {
+                              setPizzaExtras((prev) => [...prev, { name: extra.name, price: extra.priceUSD || 0 }]);
+                            }
+                          }}
+                          className={`p-2.5 rounded-xl text-xs font-black border transition-all flex flex-col justify-between text-left ${
+                            isSelected
+                              ? 'bg-emerald-500 text-black border-emerald-400 shadow-md scale-[1.02]'
+                              : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
+                          }`}
+                        >
+                          <span className="truncate">{isSelected ? '✅ ' : '➕ '} {extra.name}</span>
+                          {extra.priceUSD > 0 ? (
+                            <span className={`text-[10px] mt-1 ${isSelected ? 'text-black font-extrabold' : 'text-emerald-700 font-bold'}`}>
+                              +${extra.priceUSD.toFixed(2)} USD
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 mt-1">Incluido</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
+            ) : (
+              /* PANEL PERSONALIZACIÓN TURNO NOCHE: TAMAÑOS, MITAD Y MITAD, EXTRAS */
+              <>
+                {/* 1. SELECCIÓN DE TAMAÑO (Grande vs Pequeña) */}
+                <div>
+                  <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
+                    1. TAMAÑO DE LA PIZZA:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['Grande', 'Pequeña'] as const).map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => handlePizzaSizeChange(sz)}
+                        className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
+                          pizzaSize === sz
+                            ? 'bg-emerald-500 text-black border-emerald-300 font-black shadow-lg scale-[1.02]'
+                            : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {sz === 'Grande' ? '🍕 Grande (12" - Familiar)' : '🍕 Pequeña (8" - Personal)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. MODALIDAD: ENTERA O MITAD/MITAD */}
+                <div>
+                  <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
+                    2. MODALIDAD DE LA PIZZA:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPizzaIsHalfHalf(false)}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition-all ${
+                        !pizzaIsHalfHalf
+                          ? 'bg-emerald-500 text-black border-emerald-300 font-black shadow-lg'
+                          : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🍕 Pizza Completa (1 Sabor)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPizzaIsHalfHalf(true)}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition-all ${
+                        pizzaIsHalfHalf
+                          ? 'bg-amber-500 text-black border-amber-300 font-black shadow-lg'
+                          : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🌓 Mitad y Mitad (2 Sabores)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Controles si es Mitad y Mitad */}
+                {pizzaIsHalfHalf ? (
+                  <div className="space-y-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-200">
+                    <div className="text-xs font-black text-amber-700 uppercase tracking-wider">
+                      🌓 DESGLOSE E INGREDIENTES DE CADA MITAD:
+                    </div>
+
+                    {/* MITAD 1 */}
+                    <div className="space-y-2 p-3 rounded-xl bg-white/60 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-black text-amber-600">1ra Mitad (Sabor A):</label>
+                        <select
+                          value={pizzaHalf1?.id || ''}
+                          onChange={(e) => {
+                            const selected = allPizzaProducts.find((p) => p.id === e.target.value);
+                            if (selected) setPizzaHalf1(selected);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs border border-slate-300 font-bold"
+                        >
+                          {allPizzaProducts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="text-[11px] font-bold text-slate-600">Ingredientes 1ra Mitad (Toca para remover / marcar "SIN"):</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(pizzaHalf1?.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']).map((ing) => {
+                          const isRemoved = pizzaHalf1Removed.includes(ing);
+                          return (
+                            <button
+                              key={ing}
+                              type="button"
+                              onClick={() =>
+                                setPizzaHalf1Removed((prev) =>
+                                  prev.includes(ing) ? prev.filter((i) => i !== ing) : [...prev, ing]
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                                isRemoved
+                                  ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
+                                  : 'bg-emerald-500/20 border-emerald-300 text-emerald-800'
+                              }`}
+                            >
+                              {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Extras for 1st Half */}
+                      <div className="pt-2 flex items-center justify-between border-t border-slate-200 mt-2">
+                        <span className="text-[10px] text-amber-700 font-bold">
+                          Adicionales 1ra Mitad ({pizzaHalf1Extras.length}):
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { setExtrasTargetHalf('half1'); setIsExtrasModalOpen(true); }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-800 border border-emerald-200 text-[10px] font-black"
+                        >
+                          ➕ Extras 1ra Mitad
+                        </button>
+                      </div>
+                      {pizzaHalf1Extras.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {pizzaHalf1Extras.map((e) => (
+                            <span key={e.name} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 font-bold text-[9px]">
+                              +{e.name} (+${e.price.toFixed(2)})
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MITAD 2 */}
+                    <div className="space-y-2 p-3 rounded-xl bg-white/60 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-black text-amber-600">2da Mitad (Sabor B):</label>
+                        <select
+                          value={pizzaHalf2?.id || ''}
+                          onChange={(e) => {
+                            const selected = allPizzaProducts.find((p) => p.id === e.target.value);
+                            if (selected) setPizzaHalf2(selected);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs border border-slate-300 font-bold"
+                        >
+                          {allPizzaProducts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="text-[11px] font-bold text-slate-600">Ingredientes 2da Mitad (Toca para remover / marcar "SIN"):</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(pizzaHalf2?.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']).map((ing) => {
+                          const isRemoved = pizzaHalf2Removed.includes(ing);
+                          return (
+                            <button
+                              key={ing}
+                              type="button"
+                              onClick={() =>
+                                setPizzaHalf2Removed((prev) =>
+                                  prev.includes(ing) ? prev.filter((i) => i !== ing) : [...prev, ing]
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                                isRemoved
+                                  ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
+                                  : 'bg-emerald-500/20 border-emerald-300 text-emerald-800'
+                              }`}
+                            >
+                              {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Extras for 2nd Half */}
+                      <div className="pt-2 flex items-center justify-between border-t border-slate-200 mt-2">
+                        <span className="text-[10px] text-amber-700 font-bold">
+                          Adicionales 2da Mitad ({pizzaHalf2Extras.length}):
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { setExtrasTargetHalf('half2'); setIsExtrasModalOpen(true); }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-800 border border-emerald-200 text-[10px] font-black"
+                        >
+                          ➕ Extras 2da Mitad
+                        </button>
+                      </div>
+                      {pizzaHalf2Extras.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {pizzaHalf2Extras.map((e) => (
+                            <span key={e.name} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 font-bold text-[9px]">
+                              +{e.name} (+${e.price.toFixed(2)})
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Pizza Completa Base Ingredients */
+                  <div>
+                    <label className="text-xs font-black text-slate-600 block mb-2 uppercase tracking-wider">
+                      INGREDIENTES BASE (Toca para remover / marcar "SIN"):
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {(configuringPizza.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']).map((ing) => {
+                        const isRemoved = pizzaRemovedIngredients.includes(ing);
+                        return (
+                          <button
+                            key={ing}
+                            type="button"
+                            onClick={() => toggleRemovedIngredient(ing)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                              isRemoved
+                                ? 'bg-red-500/20 border-red-500 text-red-700 line-through'
+                                : 'bg-emerald-500/20 border-emerald-300 text-emerald-800 hover:bg-emerald-500 hover:text-black'
+                            }`}
+                          >
+                            {isRemoved ? `🚫 SIN ${ing}` : `✓ ${ing}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Single Flavor Pizza Extras */}
+                    {pizzaExtras.length > 0 && (
+                      <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-200 text-xs mt-3">
+                        <span className="text-emerald-700 font-bold">Extras seleccionados:</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {pizzaExtras.map((e) => (
+                            <span key={e.name} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-800 font-bold text-[10px]">
+                              +{e.name} (+${e.price.toFixed(2)})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => { setExtrasTargetHalf('full'); setIsExtrasModalOpen(true); }}
+                      className="w-full py-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-200 text-emerald-800 font-black text-xs flex items-center justify-center gap-2 shadow-lg mt-3"
+                    >
+                      <IoSparkles className="text-emerald-700" />
+                      <span>➕ AGREGAR ADICIONALES / EXTRAS</span>
+                    </button>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Individual Item Takeaway Switcher */}
@@ -1246,7 +1428,9 @@ export const MeseroPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <IoBagOutline className="text-amber-600 text-lg" />
                 <div>
-                  <div className="text-xs font-black text-slate-900">Empacar esta Pizza para Llevar</div>
+                  <div className="text-xs font-black text-slate-900">
+                    {isMorningShift ? 'Empacar este Plato para Llevar' : 'Empacar esta Pizza para Llevar'}
+                  </div>
                   <div className="text-[10px] text-slate-500">Marcar individualmente para empaque de llevar</div>
                 </div>
               </div>
@@ -1264,7 +1448,7 @@ export const MeseroPage: React.FC = () => {
                 CANCELAR
               </button>
               <button onClick={handleConfirmPizzaAdd} className="flex-1 py-3 rounded-xl bg-emerald-500 text-black font-black text-xs hover:bg-emerald-400 shadow-lg">
-                AGREGAR A COMANDA
+                {isMorningShift ? '🍽️ AGREGAR PLATO A COMANDA' : 'AGREGAR A COMANDA'}
               </button>
             </div>
           </div>
@@ -1346,10 +1530,32 @@ export const MeseroPage: React.FC = () => {
               Selecciona cómo desea el cliente preparar este jugo natural:
             </p>
 
+            {/* Selector Para Llevar */}
+            <div className="p-3 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-left">
+                <span className="text-lg">📦</span>
+                <div>
+                  <div className="text-xs font-black text-white">¿Empacar para llevar?</div>
+                  <div className="text-[10px] text-slate-400">Marcar si no se consumirá en mesa</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setJugoIsTakeaway(!jugoIsTakeaway)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all border ${
+                  jugoIsTakeaway
+                    ? 'bg-amber-500 text-black border-amber-400 shadow-lg'
+                    : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                }`}
+              >
+                {jugoIsTakeaway ? '✓ SÍ, LLEVAR' : 'MESA'}
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <button
                 onClick={() => {
-                  addSimpleItemToCart(configuringJugo, 'Con azúcar');
+                  addSimpleItemToCart(configuringJugo, 'Con azúcar', jugoIsTakeaway);
                   setConfiguringJugo(null);
                 }}
                 className="py-4 px-3 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/40 font-black text-xs transition-all shadow-lg flex flex-col items-center justify-center gap-1.5"
@@ -1361,7 +1567,7 @@ export const MeseroPage: React.FC = () => {
 
               <button
                 onClick={() => {
-                  addSimpleItemToCart(configuringJugo, 'Poca azúcar');
+                  addSimpleItemToCart(configuringJugo, 'Poca azúcar', jugoIsTakeaway);
                   setConfiguringJugo(null);
                 }}
                 className="py-4 px-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 font-black text-xs transition-all shadow-lg flex flex-col items-center justify-center gap-1.5"
@@ -1373,7 +1579,7 @@ export const MeseroPage: React.FC = () => {
 
               <button
                 onClick={() => {
-                  addSimpleItemToCart(configuringJugo, 'Sin azúcar');
+                  addSimpleItemToCart(configuringJugo, 'Sin azúcar', jugoIsTakeaway);
                   setConfiguringJugo(null);
                 }}
                 className="py-4 px-3 rounded-2xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-black border border-rose-500/40 font-black text-xs transition-all shadow-lg flex flex-col items-center justify-center gap-1.5"

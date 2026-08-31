@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Order } from '../data/mockData';
-import { IoClose, IoReceiptOutline, IoPersonOutline, IoCheckmarkCircleOutline, IoBicycleOutline } from 'react-icons/io5';
+import { useApp } from '../context/AppContext';
+import { IoClose, IoReceiptOutline, IoPersonOutline, IoCheckmarkCircleOutline, IoBicycleOutline, IoPrintOutline } from 'react-icons/io5';
 
 interface OrderDetailModalProps {
   order: Order | null;
@@ -23,7 +24,26 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   onToggleSelectItem,
   onConfirmItemSelection,
 }) => {
+  const { reprintKitchenOrder } = useApp();
+  const [isReprinting, setIsReprinting] = useState(false);
+  const [reprintMessage, setReprintMessage] = useState('');
+
   if (!isOpen || !order) return null;
+
+  const handleReprint = async () => {
+    setIsReprinting(true);
+    setReprintMessage('');
+    try {
+      await reprintKitchenOrder(order.id);
+      setReprintMessage('✅ Enviado a cocina');
+      setTimeout(() => setReprintMessage(''), 3000);
+    } catch (e: any) {
+      setReprintMessage(`⚠️ ${e.message || 'Error al imprimir'}`);
+      setTimeout(() => setReprintMessage(''), 4000);
+    } finally {
+      setIsReprinting(false);
+    }
+  };
 
   const totalUSD = order.totalUSD || 0;
   const totalCOP = Math.round(totalUSD * exchangeRates.COP);
@@ -196,7 +216,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       )}
                       {item.extras && item.extras.length > 0 && (
                         <div className="text-xs font-bold pl-2 mt-1.5 text-emerald-700">
-                          ➕ Extras: {item.extras.map(e => `${e.name} (+$${e.price.toFixed(2)})`).join(', ')}
+                          {item.category && item.category !== 'Pizzas' ? '🥗 Contorno(s):' : '➕ Extras:'} {item.extras.map(e => `${e.name}${e.price > 0 ? ` (+$${e.price.toFixed(2)})` : ''}`).join(', ')}
                         </div>
                       )}
                     </>
@@ -277,13 +297,30 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-white border-t border-slate-200 flex justify-between items-center">
-          <button
-            onClick={onClose}
-            className="px-6 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-black text-xs transition-all cursor-pointer shadow-sm"
-          >
-            CERRAR
-          </button>
+        <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap justify-between items-center gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-5 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-black text-xs transition-all cursor-pointer shadow-sm"
+            >
+              CERRAR
+            </button>
+
+            <button
+              type="button"
+              onClick={handleReprint}
+              disabled={isReprinting}
+              className="px-4 py-2.5 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-900 hover:text-black font-black text-xs flex items-center gap-1.5 border border-emerald-300 transition-all cursor-pointer shadow-sm"
+            >
+              <IoPrintOutline className="text-base" />
+              <span>{isReprinting ? 'ENVIANDO...' : '🖨️ REIMPRIMIR COCINA'}</span>
+            </button>
+            {reprintMessage && (
+              <span className="text-xs font-bold text-emerald-700 animate-in fade-in">
+                {reprintMessage}
+              </span>
+            )}
+          </div>
 
           {isSelectableMode && onConfirmItemSelection && (
             <button
@@ -292,7 +329,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 onClose();
               }}
               disabled={selectedItemIds.length === 0}
-              className="px-6 py-3 rounded-2xl font-black text-xs md:text-sm shadow-xl transition-all flex items-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-slate-900"
+              className="px-6 py-2.5 rounded-2xl font-black text-xs md:text-sm shadow-xl transition-all flex items-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
             >
               <IoCheckmarkCircleOutline className="text-xl" />
               <span>CONTINUAR CON COBRO (${selectedTotalUSD.toFixed(2)} USD)</span>

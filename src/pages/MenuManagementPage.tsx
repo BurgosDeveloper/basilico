@@ -71,21 +71,25 @@ export const MenuManagementPage: React.FC = () => {
     }
   }, [userSession, isCashierUnlocked, getAdminPin, getPrintersConfig]);
 
-  // Modal Pizza (Crear / Editar)
+  const isMorningShift = userSession?.shift === 'manana';
+
+  // Modal Pizza / Plato (Crear / Editar)
   const [isAddPizzaOpen, setIsAddPizzaOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [pizzaName, setPizzaName] = useState('');
+  const [dishCategory, setDishCategory] = useState<string>('Platos');
   const [pizzaPrice, setPizzaPrice] = useState('');
   const [pizzaSmallPrice, setPizzaSmallPrice] = useState('');
   const [pizzaDesc, setPizzaDesc] = useState('');
-  const [pizzaImg, setPizzaImg] = useState('https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=600&q=80');
+  const [pizzaImg, setPizzaImg] = useState('https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80');
   const [selectedBaseIngredients, setSelectedBaseIngredients] = useState<string[]>([]);
 
   const handleStartEditPizza = (product: any) => {
     setEditingProductId(product.id);
     setPizzaName(product.name);
+    setDishCategory(product.category || (isMorningShift ? 'Platos' : 'Pizzas'));
     setPizzaPrice(product.price.toString());
-    setPizzaSmallPrice((product.priceSmall ?? (product.price - 4)).toString());
+    setPizzaSmallPrice((product.priceSmall ?? (product.price > 4 ? product.price - 4 : product.price)).toString());
     setPizzaDesc(product.description || '');
     setPizzaImg(product.image || '');
     setSelectedBaseIngredients(product.baseIngredients || []);
@@ -101,7 +105,7 @@ export const MenuManagementPage: React.FC = () => {
   const [drinkDesc, setDrinkDesc] = useState('');
   const [drinkImg, setDrinkImg] = useState('https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=600&q=80');
 
-  // Modal Nuevo Ingrediente / Editar
+  // Modal Nuevo Ingrediente / Contorno / Editar
   const [isAddIngOpen, setIsAddIngOpen] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null);
   const [ingName, setIngName] = useState('');
@@ -111,7 +115,7 @@ export const MenuManagementPage: React.FC = () => {
   const [ingPricePequenaMitad, setIngPricePequenaMitad] = useState('0.50');
   const [ingIsBase, setIngIsBase] = useState(true);
   const [ingIsExtra, setIngIsExtra] = useState(true);
-  const [ingCategory, setIngCategory] = useState('Ingredientes');
+  const [ingCategory, setIngCategory] = useState(isMorningShift ? 'Contornos' : 'Ingredientes');
 
   // Modal Nueva Mesa / Editar
   const [isAddTableOpen, setIsAddTableOpen] = useState(false);
@@ -153,18 +157,24 @@ export const MenuManagementPage: React.FC = () => {
     if (!pizzaName || !pizzaPrice) return;
 
     const pPrice = parseFloat(pizzaPrice) || 0;
-    const pSmallPrice = parseFloat(pizzaSmallPrice) || (pPrice > 4 ? pPrice - 4 : pPrice);
+    const pSmallPrice = isMorningShift
+      ? pPrice
+      : (parseFloat(pizzaSmallPrice) || (pPrice > 4 ? pPrice - 4 : pPrice));
+
+    const defaultIngredients = isMorningShift
+      ? []
+      : ['Salsa de Tomate', 'Queso Mozzarella'];
 
     const productData = {
       name: pizzaName,
-      category: 'Pizzas' as const,
+      category: isMorningShift ? (dishCategory || 'Platos') : 'Pizzas',
       price: pPrice,
       priceSmall: pSmallPrice,
-      description: pizzaDesc || 'Pizza recién horneada con ingredientes artesanales.',
+      description: pizzaDesc || (isMorningShift ? 'Plato recién preparado con ingredientes del día.' : 'Pizza recién horneada con ingredientes artesanales.'),
       image: pizzaImg,
-      baseIngredients: selectedBaseIngredients.length > 0 ? selectedBaseIngredients : ['Salsa de Tomate', 'Queso Mozzarella'],
+      baseIngredients: selectedBaseIngredients.length > 0 ? selectedBaseIngredients : defaultIngredients,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || 'manana'
+      shift: userSession?.shift || (isMorningShift ? 'manana' : 'noche')
     };
 
     if (editingProductId) {
@@ -175,6 +185,7 @@ export const MenuManagementPage: React.FC = () => {
 
     setEditingProductId(null);
     setPizzaName('');
+    setDishCategory(isMorningShift ? 'Platos' : 'Pizzas');
     setPizzaPrice('');
     setPizzaSmallPrice('');
     setPizzaDesc('');
@@ -204,7 +215,7 @@ export const MenuManagementPage: React.FC = () => {
       description: drinkDesc || 'Bebida fría.',
       image: drinkImg,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || 'manana'
+      shift: userSession?.shift || (isMorningShift ? 'manana' : 'noche')
     };
 
     if (editingDrinkId) {
@@ -234,7 +245,7 @@ export const MenuManagementPage: React.FC = () => {
     setIngPricePequenaMitad(pPeqMit);
     setIngIsBase(ing.isBaseForPizza);
     setIngIsExtra(ing.isExtraForPizza);
-    setIngCategory(ing.category || 'Ingredientes');
+    setIngCategory(ing.category || (isMorningShift ? 'Contornos' : 'Ingredientes'));
     setIsAddIngOpen(true);
   };
 
@@ -243,9 +254,9 @@ export const MenuManagementPage: React.FC = () => {
     if (!ingName) return;
 
     const pGrandeComp = parseFloat(ingPriceGrandeCompleta) || 0;
-    const pGrandeMit = parseFloat(ingPriceGrandeMitad) || 0;
-    const pPequenaComp = parseFloat(ingPricePequenaCompleta) || 0;
-    const pPequenaMit = parseFloat(ingPricePequenaMitad) || 0;
+    const pGrandeMit = isMorningShift ? pGrandeComp : (parseFloat(ingPriceGrandeMitad) || (pGrandeComp > 0 ? pGrandeComp / 2 : 0));
+    const pPequenaComp = isMorningShift ? pGrandeComp : (parseFloat(ingPricePequenaCompleta) || (pGrandeComp > 0 ? pGrandeComp / 2 : 0));
+    const pPequenaMit = isMorningShift ? pGrandeComp : (parseFloat(ingPricePequenaMitad) || (pPequenaComp > 0 ? pPequenaComp / 2 : 0));
 
     const ingData = {
       name: ingName,
@@ -256,8 +267,8 @@ export const MenuManagementPage: React.FC = () => {
       pricePequenaMitad: pPequenaMit,
       isBaseForPizza: ingIsBase,
       isExtraForPizza: ingIsExtra,
-      category: ingCategory || 'Ingredientes',
-      shift: userSession?.shift || 'manana'
+      category: ingCategory || (isMorningShift ? 'Contornos' : 'Ingredientes'),
+      shift: userSession?.shift || (isMorningShift ? 'manana' : 'noche')
     };
 
     if (editingIngredientId) {
@@ -268,7 +279,7 @@ export const MenuManagementPage: React.FC = () => {
 
     setEditingIngredientId(null);
     setIngName('');
-    setIngPriceGrandeCompleta('2.00');
+    setIngPriceGrandeCompleta(isMorningShift ? '1.50' : '2.00');
     setIngPriceGrandeMitad('1.00');
     setIngPricePequenaCompleta('1.00');
     setIngPricePequenaMitad('0.50');
@@ -319,7 +330,10 @@ export const MenuManagementPage: React.FC = () => {
   };
 
   const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  const pizzas = shiftProducts.filter((p) => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const platosOrPizzas = isMorningShift
+    ? shiftProducts.filter((p) => p.category !== 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    : shiftProducts.filter((p) => p.category === 'Pizzas' || p.category !== 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const pizzas = platosOrPizzas;
   const bebidas = shiftProducts.filter((p) => p.category === 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const shiftIngredients = ingredients.filter(i => !i.shift || i.shift === 'ambos' || i.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const baseIngredientsAvailable = shiftIngredients.filter((i) => i.isBaseForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
@@ -330,17 +344,23 @@ export const MenuManagementPage: React.FC = () => {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-6 rounded-3xl bg-gradient-to-r from-white via-slate-50 to-slate-100 border border-emerald-500/30 backdrop-blur-xl shadow-2xl">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-white border border-emerald-500/40 flex items-center justify-center shadow-lg">
-            <IoPizza className="text-3xl text-emerald-600" />
+            {isMorningShift ? (
+              <IoRestaurantOutline className="text-3xl text-emerald-600" />
+            ) : (
+              <IoPizza className="text-3xl text-emerald-600" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-black tracking-tight">Gestión del Menú & Mesas</h1>
               <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 border border-emerald-500/30 text-[10px] font-black uppercase">
-                ADMINISTRADOR
+                ADMINISTRADOR ({isMorningShift ? 'TURNO MAÑANA' : 'TURNO NOCHE'})
               </span>
             </div>
             <p className="text-xs text-slate-700/70 mt-1">
-              Agrega y administra pizzas, bebidas, ingredientes y configuración de mesas del restaurante.
+              {isMorningShift
+                ? 'Agrega y administra platos, almuerzos, bebidas, contornos y configuración de mesas del restaurante.'
+                : 'Agrega y administra pizzas, bebidas, ingredientes y configuración de mesas del restaurante.'}
             </p>
           </div>
         </div>
@@ -353,8 +373,8 @@ export const MenuManagementPage: React.FC = () => {
               activeTab === 'pizzas' ? 'bg-emerald-600 text-slate-900 shadow-lg' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <IoPizza />
-            <span>PIZZAS ({pizzas.length})</span>
+            {isMorningShift ? <IoRestaurantOutline /> : <IoPizza />}
+            <span>{isMorningShift ? 'PLATOS' : 'PIZZAS'} ({pizzas.length})</span>
           </button>
 
           <button
@@ -374,7 +394,7 @@ export const MenuManagementPage: React.FC = () => {
             }`}
           >
             <IoSparkles />
-            <span>INGREDIENTES ({shiftIngredients.length})</span>
+            <span>{isMorningShift ? 'CONTORNOS' : 'INGREDIENTES'} ({shiftIngredients.length})</span>
           </button>
 
           <button
@@ -383,7 +403,7 @@ export const MenuManagementPage: React.FC = () => {
               activeTab === 'mesas' ? 'bg-emerald-600 text-slate-900 shadow-lg' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <IoPizza />
+            <IoLayersOutline />
             <span>MESAS ({tables.length})</span>
           </button>
 
@@ -409,21 +429,30 @@ export const MenuManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* TAB 1: PIZZAS */}
+      {/* TAB 1: PIZZAS O PLATOS */}
       {activeTab === 'pizzas' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-              <IoPizza className="text-emerald-600 text-xl" />
-              <span>CATÁLOGO DE PIZZAS</span>
+              {isMorningShift ? <IoRestaurantOutline className="text-emerald-600 text-xl" /> : <IoPizza className="text-emerald-600 text-xl" />}
+              <span>{isMorningShift ? 'CATÁLOGO DE PLATOS Y ALMUERZOS' : 'CATÁLOGO DE PIZZAS'}</span>
             </h2>
 
             <button
-              onClick={() => setIsAddPizzaOpen(true)}
+              onClick={() => {
+                setEditingProductId(null);
+                setPizzaName('');
+                setDishCategory(isMorningShift ? 'Platos' : 'Pizzas');
+                setPizzaPrice('');
+                setPizzaSmallPrice('');
+                setPizzaDesc('');
+                setSelectedBaseIngredients([]);
+                setIsAddPizzaOpen(true);
+              }}
               className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900 font-black text-xs transition-all flex items-center gap-1.5 shadow-lg"
             >
               <IoAdd className="text-lg" />
-              <span>NUEVA PIZZA</span>
+              <span>{isMorningShift ? 'NUEVO PLATO' : 'NUEVA PIZZA'}</span>
             </button>
           </div>
 
@@ -433,33 +462,43 @@ export const MenuManagementPage: React.FC = () => {
                 <div className="space-y-3">
                   <div className="relative h-44 rounded-2xl overflow-hidden border border-slate-200">
                     <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
-                    {p.badge && (
-                      <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-md bg-emerald-600 text-slate-900 text-[10px] font-black uppercase">
-                        {p.badge}
-                      </span>
-                    )}
+                    <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-md bg-emerald-600 text-slate-900 text-[10px] font-black uppercase">
+                      {p.badge || (isMorningShift ? (p.category || 'PLATO') : 'PIZZA')}
+                    </span>
                   </div>
                   <div>
                     <h3 className="text-lg font-black text-slate-900">{p.name}</h3>
                     <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">{p.description}</p>
                     
                     {p.baseIngredients && p.baseIngredients.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1">
-                        {p.baseIngredients.map((ing, idx) => (
-                          <span key={idx} className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-emerald-800 font-medium">
-                            ✓ {ing}
-                          </span>
-                        ))}
+                      <div className="mt-3">
+                        <span className="text-[10px] font-bold text-slate-400 block mb-1">
+                          {isMorningShift ? 'Acompañantes Base:' : 'Ingredientes Base:'}
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {p.baseIngredients.map((ing, idx) => (
+                            <span key={idx} className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-emerald-800 font-medium">
+                              ✓ {ing}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between pt-3 border-t border-slate-200">
-                  <div className="flex flex-col">
-                    <span className="text-base font-black text-emerald-700">${p.price.toFixed(2)} USD (Grande)</span>
-                    <span className="text-[10px] font-bold text-amber-700">Pequeña: ${(p.priceSmall ?? (p.price - 4)).toFixed(2)} USD</span>
-                  </div>
+                  {isMorningShift ? (
+                    <div className="flex flex-col">
+                      <span className="text-xl font-black text-emerald-700">${p.price.toFixed(2)} USD</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">{p.category || 'Plato'}</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      <span className="text-base font-black text-emerald-700">${p.price.toFixed(2)} USD (Grande)</span>
+                      <span className="text-[10px] font-bold text-amber-700">Pequeña: ${(p.priceSmall ?? (p.price - 4)).toFixed(2)} USD</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleStartEditPizza(p)}
@@ -532,20 +571,20 @@ export const MenuManagementPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 3: INGREDIENTES */}
+      {/* TAB 3: INGREDIENTES O CONTORNOS */}
       {activeTab === 'ingredientes' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
               <IoSparkles className="text-emerald-600 text-xl" />
-              <span>CATÁLOGO DE INGREDIENTES</span>
+              <span>{isMorningShift ? 'CATÁLOGO DE ACOMPAÑANTES Y CONTORNOS' : 'CATÁLOGO DE INGREDIENTES'}</span>
             </h2>
 
             <button
               onClick={() => {
                 setEditingIngredientId(null);
                 setIngName('');
-                setIngPriceGrandeCompleta('2.00');
+                setIngPriceGrandeCompleta(isMorningShift ? '1.50' : '2.00');
                 setIngPriceGrandeMitad('1.00');
                 setIngPricePequenaCompleta('1.00');
                 setIngPricePequenaMitad('0.50');
@@ -556,23 +595,33 @@ export const MenuManagementPage: React.FC = () => {
               className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900 font-black text-xs transition-all flex items-center gap-1.5 shadow-lg"
             >
               <IoAdd className="text-lg" />
-              <span>NUEVO INGREDIENTE</span>
+              <span>{isMorningShift ? 'NUEVO CONTORNO / ACOMPAÑANTE' : 'NUEVO INGREDIENTE'}</span>
             </button>
           </div>
 
           <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-slate-50 backdrop-blur-xl shadow-2xl">
             <table className="w-full text-left text-xs text-slate-600">
               <thead className="bg-slate-100 text-slate-900 uppercase text-[10px] font-black border-b border-slate-200">
-                <tr>
-                  <th className="p-4">Nombre del Ingrediente</th>
-                  <th className="p-4">🍕 Grande Completa</th>
-                  <th className="p-4">🌓 Grande Mitad</th>
-                  <th className="p-4">🍕 Pequeña Completa</th>
-                  <th className="p-4">🌓 Pequeña Mitad</th>
-                  <th className="p-4">Base</th>
-                  <th className="p-4">Extra</th>
-                  <th className="p-4 text-right">Acciones</th>
-                </tr>
+                {isMorningShift ? (
+                  <tr>
+                    <th className="p-4">Acompañante / Contorno</th>
+                    <th className="p-4">Precio Adicional (USD)</th>
+                    <th className="p-4">Acompañante Base de Platos</th>
+                    <th className="p-4">Contorno Adicional Cobrable</th>
+                    <th className="p-4 text-right">Acciones</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th className="p-4">Nombre del Ingrediente</th>
+                    <th className="p-4">🍕 Grande Completa</th>
+                    <th className="p-4">🌓 Grande Mitad</th>
+                    <th className="p-4">🍕 Pequeña Completa</th>
+                    <th className="p-4">🌓 Pequeña Mitad</th>
+                    <th className="p-4">Base</th>
+                    <th className="p-4">Extra</th>
+                    <th className="p-4 text-right">Acciones</th>
+                  </tr>
+                )}
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {shiftIngredients.map((ing) => {
@@ -580,6 +629,45 @@ export const MenuManagementPage: React.FC = () => {
                   const pMit = ing.priceGrandeMitad !== undefined ? ing.priceGrandeMitad : (pComp > 0 ? pComp / 2 : 0);
                   const pPeqComp = ing.pricePequenaCompleta !== undefined ? ing.pricePequenaCompleta : (pComp > 0 ? pComp / 2 : 0);
                   const pPeqMit = ing.pricePequenaMitad !== undefined ? ing.pricePequenaMitad : (pPeqComp > 0 ? pPeqComp / 2 : 0);
+
+                  if (isMorningShift) {
+                    return (
+                      <tr key={ing.id} className="hover:bg-slate-100">
+                        <td className="p-4 font-bold text-slate-900 flex items-center gap-2">
+                          <IoSparkles className="text-emerald-600" />
+                          <span>{ing.name}</span>
+                        </td>
+                        <td className="p-4 font-black text-emerald-700">+${pComp.toFixed(2)} USD</td>
+                        <td className="p-4">
+                          {ing.isBaseForPizza ? (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 border border-emerald-200 text-[10px] font-bold">✓ INCLUIDO EN PLATOS</span>
+                          ) : (
+                            <span className="text-slate-400">NO</span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {ing.isExtraForPizza ? (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 border border-amber-200 text-[10px] font-bold">✓ DISPONIBLE ADICIONAL</span>
+                          ) : (
+                            <span className="text-slate-400">NO</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleStartEditIngredient(ing)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500 hover:text-slate-900 border border-emerald-500/30 transition-all text-xs font-bold flex items-center gap-1"
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button onClick={() => deleteIngredient(ing.id)} className="p-2 rounded-xl bg-red-500/20 text-red-600 hover:bg-red-500 hover:text-slate-900 border border-red-500/30 transition-all">
+                              <IoTrash size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
 
                   return (
                     <tr key={ing.id} className="hover:bg-slate-100">
@@ -1176,56 +1264,97 @@ export const MenuManagementPage: React.FC = () => {
         />
       )}
 
-      {/* MODAL CREAR PIZZA */}
+      {/* MODAL CREAR PIZZA / PLATO */}
       {isAddPizzaOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
           <div className="relative w-full max-w-lg p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-              <h3 className="text-lg font-black">{editingProductId ? 'EDITAR PIZZA' : 'NUEVA PIZZA EN EL MENÚ'}</h3>
+              <h3 className="text-lg font-black">
+                {editingProductId
+                  ? (isMorningShift ? 'EDITAR PLATO' : 'EDITAR PIZZA')
+                  : (isMorningShift ? 'NUEVO PLATO / ALMUERZO EN EL MENÚ' : 'NUEVA PIZZA EN EL MENÚ')}
+              </h3>
               <button onClick={() => { setIsAddPizzaOpen(false); setEditingProductId(null); }}><IoClose size={20} /></button>
             </div>
 
             <form onSubmit={handleCreatePizza} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1">Nombre de la Pizza:</label>
+                <label className="text-xs font-bold text-slate-600 block mb-1">
+                  {isMorningShift ? 'Nombre del Plato / Almuerzo:' : 'Nombre de la Pizza:'}
+                </label>
                 <input
                   type="text"
                   required
                   value={pizzaName}
                   onChange={(e) => setPizzaName(e.target.value)}
-                  placeholder="Ej: Pizza Cuatro Quesos"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
+                  placeholder={isMorningShift ? 'Ej: Pabellón Criollo, Pollo a la Plancha...' : 'Ej: Pizza Cuatro Quesos'}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500 font-bold"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {isMorningShift && (
                 <div>
-                  <label className="text-xs font-bold text-slate-600 block mb-1">Precio Grande (12") USD ($):</label>
+                  <label className="text-xs font-bold text-slate-600 block mb-1">Categoría del Plato:</label>
+                  <select
+                    value={dishCategory}
+                    onChange={(e) => setDishCategory(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500 font-bold"
+                  >
+                    <option value="Platos">Platos Principales</option>
+                    <option value="Especialidades">Especialidades</option>
+                    <option value="Pastas">Pastas</option>
+                    <option value="Entradas">Entradas / Sopas</option>
+                  </select>
+                </div>
+              )}
+
+              {isMorningShift ? (
+                <div>
+                  <label className="text-xs font-bold text-slate-600 block mb-1">Precio del Plato ($ USD):</label>
                   <input
                     type="number"
                     step="0.5"
                     required
                     value={pizzaPrice}
                     onChange={(e) => setPizzaPrice(e.target.value)}
-                    placeholder="14.50"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
+                    placeholder="8.50"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500 font-black text-emerald-700"
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-amber-700 block mb-1">Precio Pequeña (8") USD ($):</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={pizzaSmallPrice}
-                    onChange={(e) => setPizzaSmallPrice(e.target.value)}
-                    placeholder="10.50"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-amber-200 text-xs text-amber-200 outline-none focus:border-amber-300 font-bold"
-                  />
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-600 block mb-1">Precio Grande (12") USD ($):</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      required
+                      value={pizzaPrice}
+                      onChange={(e) => setPizzaPrice(e.target.value)}
+                      placeholder="14.50"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-amber-700 block mb-1">Precio Pequeña (8") USD ($):</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={pizzaSmallPrice}
+                      onChange={(e) => setPizzaSmallPrice(e.target.value)}
+                      placeholder="10.50"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-amber-200 text-xs text-amber-200 outline-none focus:border-amber-300 font-bold"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1">Seleccionar Ingredientes Base de la Pizza:</label>
+                <label className="text-xs font-bold text-slate-600 block mb-1">
+                  {isMorningShift
+                    ? 'Seleccionar Acompañantes Base del Plato (Arroz, Caraotas, Ensalada, etc.):'
+                    : 'Seleccionar Ingredientes Base de la Pizza:'}
+                </label>
                 <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
                   {baseIngredientsAvailable.map((ing) => {
                     const isSelected = selectedBaseIngredients.includes(ing.name);
@@ -1242,7 +1371,23 @@ export const MenuManagementPage: React.FC = () => {
                       </button>
                     );
                   })}
+                  {baseIngredientsAvailable.length === 0 && (
+                    <span className="text-xs text-slate-400 p-1">
+                      {isMorningShift ? 'Sin acompañantes configurados aún.' : 'Sin ingredientes base configurados.'}
+                    </span>
+                  )}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Descripción Breve:</label>
+                <input
+                  type="text"
+                  value={pizzaDesc}
+                  onChange={(e) => setPizzaDesc(e.target.value)}
+                  placeholder={isMorningShift ? 'Ej: Acompañado de arroz blanco, caraotas negras y tajadas' : 'Ej: Salsa pomodoro, queso mozzarella fresco'}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
+                />
               </div>
 
               <div>
@@ -1258,7 +1403,7 @@ export const MenuManagementPage: React.FC = () => {
               </div>
 
               <button type="submit" className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900 font-black text-xs shadow-lg">
-                GUARDAR PIZZA EN EL MENÚ
+                {isMorningShift ? 'GUARDAR PLATO EN EL MENÚ' : 'GUARDAR PIZZA EN EL MENÚ'}
               </button>
             </form>
           </div>
@@ -1270,7 +1415,7 @@ export const MenuManagementPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
           <div className="relative w-full max-w-lg p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-              <h3 className="text-lg font-black">NUEVA BEBIDA EN EL MENÚ</h3>
+              <h3 className="text-lg font-black">{editingDrinkId ? 'EDITAR BEBIDA' : 'NUEVA BEBIDA EN EL MENÚ'}</h3>
               <button onClick={() => setIsAddDrinkOpen(false)}><IoClose size={20} /></button>
             </div>
 
@@ -1344,106 +1489,141 @@ export const MenuManagementPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL CREAR INGREDIENTE */}
+      {/* MODAL CREAR INGREDIENTE / CONTORNO */}
       {isAddIngOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
           <div className="relative w-full max-w-md p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-              <h3 className="text-lg font-black">NUEVO INGREDIENTE</h3>
+              <h3 className="text-lg font-black">
+                {editingIngredientId
+                  ? (isMorningShift ? 'EDITAR ACOMPAÑANTE / CONTORNO' : 'EDITAR INGREDIENTE')
+                  : (isMorningShift ? 'NUEVO ACOMPAÑANTE / CONTORNO' : 'NUEVO INGREDIENTE')}
+              </h3>
               <button onClick={() => setIsAddIngOpen(false)}><IoClose size={20} /></button>
             </div>
 
             <form onSubmit={handleCreateIngredient} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1">Nombre del Ingrediente:</label>
+                <label className="text-xs font-bold text-slate-600 block mb-1">
+                  {isMorningShift ? 'Nombre del Acompañante / Contorno:' : 'Nombre del Ingrediente:'}
+                </label>
                 <input
                   type="text"
                   required
                   value={ingName}
                   onChange={(e) => setIngName(e.target.value)}
-                  placeholder="Ej: Jamón Serrano"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
+                  placeholder={isMorningShift ? 'Ej: Papas Fritas, Tajadas, Arroz Extra...' : 'Ej: Jamón Serrano'}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500 font-bold"
                 />
               </div>
 
-              <div className="p-3 bg-white/60 rounded-2xl border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-emerald-800 tracking-wider block">
-                  Matriz de Precios Adicionales ($ USD):
-                </span>
+              {isMorningShift ? (
+                <div>
+                  <label className="text-xs font-bold text-slate-600 block mb-1">
+                    Precio Adicional como Contorno ($ USD):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    required
+                    value={ingPriceGrandeCompleta}
+                    onChange={(e) => setIngPriceGrandeCompleta(e.target.value)}
+                    placeholder="1.50"
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-emerald-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+              ) : (
+                <div className="p-3 bg-white/60 rounded-2xl border border-slate-200 space-y-3">
+                  <span className="text-[11px] font-black uppercase text-emerald-800 tracking-wider block">
+                    Matriz de Precios Adicionales ($ USD):
+                  </span>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🍕 Grande Completa ($):</label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      required
-                      value={ingPriceGrandeCompleta}
-                      onChange={(e) => setIngPriceGrandeCompleta(e.target.value)}
-                      placeholder="2.00"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
-                    />
-                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">🍕 Grande Completa ($):</label>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        required
+                        value={ingPriceGrandeCompleta}
+                        onChange={(e) => setIngPriceGrandeCompleta(e.target.value)}
+                        placeholder="2.00"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🌓 Grande Mitad ($):</label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      required
-                      value={ingPriceGrandeMitad}
-                      onChange={(e) => setIngPriceGrandeMitad(e.target.value)}
-                      placeholder="1.00"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
-                    />
-                  </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">🌓 Grande Mitad ($):</label>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        required
+                        value={ingPriceGrandeMitad}
+                        onChange={(e) => setIngPriceGrandeMitad(e.target.value)}
+                        placeholder="1.00"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🍕 Pequeña Completa ($):</label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      required
-                      value={ingPricePequenaCompleta}
-                      onChange={(e) => setIngPricePequenaCompleta(e.target.value)}
-                      placeholder="1.00"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
-                    />
-                  </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">🍕 Pequeña Completa ($):</label>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        required
+                        value={ingPricePequenaCompleta}
+                        onChange={(e) => setIngPricePequenaCompleta(e.target.value)}
+                        placeholder="1.00"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">🌓 Pequeña Mitad ($):</label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      required
-                      value={ingPricePequenaMitad}
-                      onChange={(e) => setIngPricePequenaMitad(e.target.value)}
-                      placeholder="0.50"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
-                    />
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">🌓 Pequeña Mitad ($):</label>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        required
+                        value={ingPricePequenaMitad}
+                        onChange={(e) => setIngPricePequenaMitad(e.target.value)}
+                        placeholder="0.50"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-black text-slate-900 outline-none focus:border-emerald-500"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1">Categoría del Ingrediente:</label>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Categoría:</label>
                 <select
                   value={ingCategory}
                   onChange={(e) => setIngCategory(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-500"
                 >
-                  <option value="Ingredientes">General</option>
-                  <option value="Quesos">Quesos</option>
-                  <option value="Carnes">Carnes</option>
-                  <option value="Vegetales">Vegetales</option>
-                  <option value="Salsas">Salsas</option>
-                  <option value="Especias">Especias</option>
-                  <option value="Orillas">Orillas</option>
+                  {isMorningShift ? (
+                    <>
+                      <option value="Contornos">Contornos / Guarniciones</option>
+                      <option value="Acompañantes">Acompañantes Base</option>
+                      <option value="Proteínas">Proteínas Extra</option>
+                      <option value="Salsas">Salsas / Aderezos</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Ingredientes">General</option>
+                      <option value="Quesos">Quesos</option>
+                      <option value="Carnes">Carnes</option>
+                      <option value="Vegetales">Vegetales</option>
+                      <option value="Salsas">Salsas</option>
+                      <option value="Especias">Especias</option>
+                      <option value="Orillas">Orillas</option>
+                    </>
+                  )}
                 </select>
               </div>
 
@@ -1455,7 +1635,11 @@ export const MenuManagementPage: React.FC = () => {
                     onChange={(e) => setIngIsBase(e.target.checked)}
                     className="rounded accent-emerald-600"
                   />
-                  <span>Usar como Ingrediente Base para Pizzas</span>
+                  <span>
+                    {isMorningShift
+                      ? 'Usar como Acompañante Base de Platos (Viene con el plato)'
+                      : 'Usar como Ingrediente Base para Pizzas'}
+                  </span>
                 </label>
 
                 <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
@@ -1465,12 +1649,16 @@ export const MenuManagementPage: React.FC = () => {
                     onChange={(e) => setIngIsExtra(e.target.checked)}
                     className="rounded accent-emerald-600"
                   />
-                  <span>Disponible como Adicional / Extra al pedir</span>
+                  <span>
+                    {isMorningShift
+                      ? 'Disponible como Contorno Adicional Cobrable al pedir'
+                      : 'Disponible como Adicional / Extra al pedir'}
+                  </span>
                 </label>
               </div>
 
               <button type="submit" className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900 font-black text-xs shadow-lg">
-                GUARDAR INGREDIENTE
+                {isMorningShift ? 'GUARDAR ACOMPAÑANTE / CONTORNO' : 'GUARDAR INGREDIENTE'}
               </button>
             </form>
           </div>

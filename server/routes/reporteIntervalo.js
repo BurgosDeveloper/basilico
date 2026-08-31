@@ -57,17 +57,26 @@ module.exports = function (io) {
         return res.status(400).json({ error: 'Fecha inicio debe ser menor o igual a fecha fin.' });
       }
 
-      // Asegurar que toDate cubra hasta el final del minuto o día indicado
-      if (typeof to === 'string' && to.length === 16) {
-        toDate.setSeconds(59, 999);
-      } else if (typeof to === 'string' && to.length === 10) {
-        toDate.setHours(23, 59, 59, 999);
+      // Normalizar límites de fecha para coincidir exactamente con los timestamps de PostgreSQL en hora local
+      let fromClean = String(from || '').trim().replace('T', ' ');
+      let toClean = String(to || '').trim().replace('T', ' ');
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(fromClean)) {
+        fromClean += ' 00:00:00';
+      } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(fromClean)) {
+        fromClean += ':00';
       }
-      const fromIso = fromDate.toISOString();
-      const toIso = toDate.toISOString();
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(toClean)) {
+        toClean += ' 23:59:59.999';
+      } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(toClean)) {
+        toClean += ':59.999';
+      } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(toClean)) {
+        toClean += '.999';
+      }
 
       const shiftScope = req.user.shift === 'ambos' ? '' : ' AND orders.shift = $3';
-      const shiftParams = req.user.shift === 'ambos' ? [fromIso, toIso] : [fromIso, toIso, req.user.shift];
+      const shiftParams = req.user.shift === 'ambos' ? [fromClean, toClean] : [fromClean, toClean, req.user.shift];
 
       // 1. Órdenes pagadas o a crédito en el rango.
       const { rows: orderRows } = await query(
@@ -103,14 +112,31 @@ module.exports = function (io) {
       }
 
       // 3. Pagos de esas órdenes
-      const { rows: paymentRows } = await query(
-        `SELECT op.*, o.order_number FROM order_payments op
-         JOIN orders o ON o.id = op.order_id
-         WHERE op.created_at >= $1 AND op.created_at <= $2
+      let paymentRows = [];
+      if (orderIds.length > 0) {
+        const { rows } = await query(
+          `SELECT op.*, o.order_number FROM order_payments op
+           JOIN orders o ON o.id = op.order_id
+           WHERE (
+             (op.created_at >= $1 AND op.created_at <= $2)
+             OR op.order_id = ANY($3::text[])
+           )
+           ${req.user.shift === 'ambos' ? '' : 'AND o.shift = $4'}
+           ORDER BY op.created_at ASC`,
+          req.user.shift === 'ambos' ? [fromClean, toClean, orderIds] : [fromClean, toClean, orderIds, req.user.shift]
+        );
+        paymentRows = rows;
+      } else {
+        const { rows } = await query(
+          `SELECT op.*, o.order_number FROM order_payments op
+           JOIN orders o ON o.id = op.order_id
+           WHERE op.created_at >= $1 AND op.created_at <= $2
            ${req.user.shift === 'ambos' ? '' : 'AND o.shift = $3'}
-         ORDER BY op.created_at ASC`,
-        shiftParams
-      );
+           ORDER BY op.created_at ASC`,
+          shiftParams
+        );
+        paymentRows = rows;
+      }
 
       // 4. Transacciones de caja en el rango
       const { rows: txRows } = await query(
@@ -186,7 +212,7 @@ module.exports = function (io) {
       // Construir respuesta estructurada
       const orders = orderRows.map((ord) => ({
         id: ord.id,
-        orderNumber: ord.order_number,
+        orderNumber: String(ord.order_number || '').replace(/^#+/, ''),
         type: ord.type,
         tableNumber: ord.table_number,
         customerName: ord.customer_name,
@@ -210,14 +236,23 @@ module.exports = function (io) {
             extras = typeof it.extras_json === 'string' ? JSON.parse(it.extras_json) : it.extras_json;
           }
         } catch (e) {}
+        let halfDetails = undefined;
+        try {
+          if (it.half_details) {
+            halfDetails = typeof it.half_details === 'string' ? JSON.parse(it.half_details) : it.half_details;
+          }
+        } catch (e) {}
         return {
           id: it.id,
           orderId: it.order_id,
-          orderNumber: it.order_number,
+          orderNumber: String(it.order_number || '').replace(/^#+/, ''),
           productName: it.product_name,
           price: parseFloat(it.price) || 0,
           quantity: it.quantity || 1,
           category: it.category || 'Sin categoría',
+          drinkType: it.drink_type,
+          isHalfHalf: !!it.is_half_half,
+          halfDetails,
           extras,
         };
       });
@@ -225,7 +260,7 @@ module.exports = function (io) {
       const payments = paymentRows.map((pm) => ({
         id: pm.id,
         orderId: pm.order_id,
-        orderNumber: pm.order_number,
+        orderNumber: String(pm.order_number || '').replace(/^#+/, ''),
         payerName: pm.payer_name || 'Cliente General',
         paymentMethod: pm.payment_method,
         amountPaidUSD: parseFloat(pm.amount_paid_usd) || 0,

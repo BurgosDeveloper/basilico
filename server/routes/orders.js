@@ -829,6 +829,24 @@ module.exports = function(io) {
         [newTotalUSD, nextStatus, id]
       );
 
+      // Registrar auditoría de edición en order_edits
+      const editDetails = [];
+      if (addedItems.length > 0) {
+        editDetails.push(`Adicionados ${addedItems.length} ítem(s): ${addedItems.map(it => it.productName || it.name || 'Producto').join(', ')}`);
+      }
+      if (removedItemIds.length > 0) {
+        editDetails.push(`Eliminados ${removedItemIds.length} ítem(s)`);
+      }
+      const editId = `edit-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      try {
+        await client.query(
+          `INSERT INTO order_edits (id, order_id, order_number, edited_by, edit_type, edit_details) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [editId, id, order.order_number || '', req.user.username || 'usuario', 'adicion_items', editDetails.join('; ')]
+        );
+      } catch (editErr) {
+        console.warn('Aviso: No se pudo registrar auditoría de adición:', editErr.message);
+      }
+
       await client.query('COMMIT');
       client.release();
       client = null;
@@ -857,6 +875,51 @@ module.exports = function(io) {
       res.status(500).json({ error: err.message || 'Error al adicionar productos' });
     } finally {
       if (client) client.release();
+    }
+  });
+
+  router.post('/:id/reprint-kitchen', requireRole('mesero', 'caja', 'admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { targetPrinter = 'cocina' } = req.body || {};
+      const { rows: orderRows } = await query(`SELECT * FROM orders WHERE id = $1`, [id]);
+      if (orderRows.length === 0) return res.status(404).json({ error: 'Comanda no encontrada' });
+      const ord = orderRows[0];
+      const { rows: items } = await query(`SELECT * FROM order_items WHERE order_id = $1`, [id]);
+      const fullOrder = {
+        ...ord,
+        orderNumber: ord.order_number,
+        customerName: ord.customer_name,
+        tableNumber: ord.table_number,
+        items: items.map((it) => ({
+          ...it,
+          productName: it.product_name,
+          price: parseFloat(it.price) || 0,
+          quantity: parseInt(it.quantity, 10) || 1,
+          drinkType: it.drink_type,
+          category: it.category,
+          sugarPreference: it.sugar_preference,
+          size: it.size,
+          isHalfHalf: it.is_half_half,
+          halfDetails: safeJsonParseObj(it.half_details),
+          extras: safeJsonParse(it.extras_json),
+          removedIngredients: safeJsonParse(it.removed_ingredients),
+          notes: it.notes,
+          isTakeaway: it.is_takeaway,
+        }))
+      };
+
+      const printResult = await printKitchenTicket(fullOrder, targetPrinter);
+      if (!printResult || printResult.printed === false) {
+        if (printResult?.reason === 'no_kitchen_items') {
+          return res.status(400).json({ error: 'Esta comanda no contiene ítems que requieran preparación en cocina.' });
+        }
+        return res.status(502).json({ error: 'No se pudo conectar con la impresora de cocina/caja.' });
+      }
+      return res.json({ success: true, message: 'Comanda de cocina reimpresa exitosamente.' });
+    } catch (err) {
+      console.error('Error al reimprimir comanda:', err);
+      return res.status(500).json({ error: 'Error al procesar la reimpresión de comanda.' });
     }
   });
 

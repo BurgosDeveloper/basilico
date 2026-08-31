@@ -62,6 +62,7 @@ export const CajaPage: React.FC = () => {
     fetchReporteIntervalo,
     printReporteIntervalo,
     printOrderReceipt,
+    reprintKitchenOrder,
     userSession,
     editOrder,
     deletePaymentEntry,
@@ -678,7 +679,7 @@ export const CajaPage: React.FC = () => {
                             <div className="ml-3 text-[11px] text-emerald-400 font-bold space-y-0.5">
                               {(it.extras || []).map((ex, exIdx) => (
                                 <div key={exIdx} className="flex justify-between">
-                                  <span className="break-words">➕ EXTRA: {ex.name}</span>
+                                  <span className="break-words">{it.category && it.category !== 'Pizzas' ? '🥗 CONTORNO:' : '➕ EXTRA:'} {ex.name}</span>
                                   {ex.price > 0 && <span>+${ex.price.toFixed(2)}</span>}
                                 </div>
                               ))}
@@ -830,6 +831,23 @@ export const CajaPage: React.FC = () => {
                       >
                         <IoDocumentTextOutline className="text-base" />
                         <span>🧾 PRE-CUENTA</span>
+                      </button>
+
+                      {/* Botón Reimprimir Cocina */}
+                      <button
+                        onClick={async () => {
+                          try {
+                            await reprintKitchenOrder(ord.id);
+                            alert(`✅ Comanda #${ord.orderNumber} enviada a reimpresión en cocina.`);
+                          } catch (e: any) {
+                            alert(`⚠️ ${e.message || 'Error al reimprimir'}`);
+                          }
+                        }}
+                        className="w-full py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-400/50 font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                        title="Reimprimir comanda en impresora de cocina"
+                      >
+                        <IoPrintOutline className="text-base" />
+                        <span>🖨️ COCINA</span>
                       </button>
 
                       {(userSession?.role === 'admin' || userSession?.role === 'caja') && (
@@ -1218,6 +1236,89 @@ export const CajaPage: React.FC = () => {
                 <span>REPORTE CONTABLE POR INTERVALO DE FECHAS</span>
               </h3>
 
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const day = String(now.getDate()).padStart(2, '0');
+                    setIntervaloFrom(`${year}-${month}-${day}T00:00`);
+                    setIntervaloTo(`${year}-${month}-${day}T23:59`);
+                    setReporteError('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold transition-all border border-white/15"
+                >
+                  📅 Hoy Completo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const day = String(now.getDate()).padStart(2, '0');
+                    const apDate = filteredApertura.openedAt ? new Date(filteredApertura.openedAt) : null;
+                    if (apDate && !isNaN(apDate.getTime())) {
+                      const apYear = apDate.getFullYear();
+                      const apMonth = String(apDate.getMonth() + 1).padStart(2, '0');
+                      const apDay = String(apDate.getDate()).padStart(2, '0');
+                      const apHour = String(apDate.getHours()).padStart(2, '0');
+                      const apMin = String(apDate.getMinutes()).padStart(2, '0');
+                      setIntervaloFrom(`${apYear}-${apMonth}-${apDay}T${apHour}:${apMin}`);
+                    } else {
+                      setIntervaloFrom(`${year}-${month}-${day}T00:00`);
+                    }
+                    const curHour = String(now.getHours()).padStart(2, '0');
+                    const curMin = String(now.getMinutes()).padStart(2, '0');
+                    setIntervaloTo(`${year}-${month}-${day}T${curHour}:${curMin}`);
+                    setReporteError('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[11px] font-bold transition-all border border-emerald-500/30"
+                >
+                  🌅 Turno Actual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const fourHoursAgo = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+                    const fYear = fourHoursAgo.getFullYear();
+                    const fMonth = String(fourHoursAgo.getMonth() + 1).padStart(2, '0');
+                    const fDay = String(fourHoursAgo.getDate()).padStart(2, '0');
+                    const fHour = String(fourHoursAgo.getHours()).padStart(2, '0');
+                    const fMin = String(fourHoursAgo.getMinutes()).padStart(2, '0');
+                    const tYear = now.getFullYear();
+                    const tMonth = String(now.getMonth() + 1).padStart(2, '0');
+                    const tDay = String(now.getDate()).padStart(2, '0');
+                    const tHour = String(now.getHours()).padStart(2, '0');
+                    const tMin = String(now.getMinutes()).padStart(2, '0');
+                    setIntervaloFrom(`${fYear}-${fMonth}-${fDay}T${fHour}:${fMin}`);
+                    setIntervaloTo(`${tYear}-${tMonth}-${tDay}T${tHour}:${tMin}`);
+                    setReporteError('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold transition-all border border-white/15"
+                >
+                  🕒 Últimas 4 Horas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                    const year = yesterday.getFullYear();
+                    const month = String(yesterday.getMonth() + 1).padStart(2, '0');
+                    const day = String(yesterday.getDate()).padStart(2, '0');
+                    setIntervaloFrom(`${year}-${month}-${day}T00:00`);
+                    setIntervaloTo(`${year}-${month}-${day}T23:59`);
+                    setReporteError('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold transition-all border border-white/15"
+                >
+                  ⏪ Ayer
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
                 <div>
                   <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Fecha/Hora Inicio</label>
@@ -1243,7 +1344,6 @@ export const CajaPage: React.FC = () => {
                     const fromDate = new Date(intervaloFrom);
                     const toDate = new Date(intervaloTo);
                     if (fromDate > toDate) { setReporteError('La fecha inicio debe ser menor o igual a la fecha fin.'); return; }
-                    if (toDate > new Date()) { setReporteError('La fecha fin no puede ser mayor a la fecha/hora actual.'); return; }
                     setIsLoadingReporte(true);
                     setReporteError('');
                     setReporteIntervaloData(null);

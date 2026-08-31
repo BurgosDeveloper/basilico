@@ -205,25 +205,55 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   XLSX.utils.book_append_sheet(wb, ws2, 'Cuentas');
 
   // --- Hoja 3: Ítems Vendidos ---
-  const itemTally: Record<string, { category: string; quantity: number; totalUSD: number }> = {};
+  const itemTally: Record<string, { category: string; name: string; quantity: number; totalUSD: number }> = {};
   data.items.forEach((it) => {
-    if (!itemTally[it.productName]) {
-      itemTally[it.productName] = { category: it.category, quantity: 0, totalUSD: 0 };
+    const category = it.category || 'General';
+    const key = `${category}|${it.productName}`;
+    if (!itemTally[key]) {
+      itemTally[key] = { category, name: it.productName, quantity: 0, totalUSD: 0 };
     }
-    itemTally[it.productName].quantity += it.quantity;
-    itemTally[it.productName].totalUSD += it.price * it.quantity;
+    itemTally[key].quantity += it.quantity;
+    itemTally[key].totalUSD += it.price * it.quantity;
   });
 
-  const itemEntries = Object.entries(itemTally)
+  // Agregar Deliverys
+  Object.entries(deliveryMap).forEach(([feeStr, count]) => {
+    const fee = Number(feeStr) || 0;
+    if (fee > 0 && count > 0) {
+      const key = `Delivery|Delivery de $${fee.toFixed(2)}`;
+      itemTally[key] = {
+        category: 'Delivery',
+        name: `Delivery de $${fee.toFixed(2)}`,
+        quantity: count,
+        totalUSD: fee * count,
+      };
+    }
+  });
+
+  // Agregar Adicionales
+  Object.entries(extrasMap).forEach(([priceStr, info]) => {
+    const price = Number(priceStr) || 0;
+    if (info.count > 0) {
+      const key = `Adicionales|Adicional de $${price.toFixed(2)}`;
+      itemTally[key] = {
+        category: 'Adicionales',
+        name: `Adicional de $${price.toFixed(2)}`,
+        quantity: info.count,
+        totalUSD: info.totalUSD,
+      };
+    }
+  });
+
+  const itemEntries = Object.values(itemTally)
     .sort((a, b) => {
-      const catCmp = a[1].category.localeCompare(b[1].category);
-      return catCmp !== 0 ? catCmp : a[0].localeCompare(b[0]);
+      const catCmp = a.category.localeCompare(b.category);
+      return catCmp !== 0 ? catCmp : a.name.localeCompare(b.name);
     });
 
   const itemsHeader = ['Categoría', 'Producto', 'Cantidad', 'Total USD'];
-  const itemsRows = itemEntries.map(([name, info]) => [
+  const itemsRows = itemEntries.map((info) => [
     info.category,
-    name,
+    info.name,
     info.quantity.toString(),
     info.totalUSD.toFixed(2),
   ]);

@@ -1134,7 +1134,7 @@ export const MeseroPage: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
                     {availableExtras.map((extra) => {
                       const isSelected = pizzaExtras.some((e) => e.name === extra.name);
                       return (
@@ -1472,7 +1472,7 @@ export const MeseroPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar pr-1">
               {availableExtras.map((extra) => {
                 const isHalfTarget = extrasTargetHalf === 'half1' || extrasTargetHalf === 'half2';
                 const calculatedPrice = getIngredientExtraPrice(extra, pizzaSize, isHalfTarget);

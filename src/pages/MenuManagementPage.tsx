@@ -1267,7 +1267,7 @@ export const MenuManagementPage: React.FC = () => {
       {/* MODAL CREAR PIZZA / PLATO */}
       {isAddPizzaOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
-          <div className="relative w-full max-w-lg p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
+          <div className="relative w-full max-w-lg p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
               <h3 className="text-lg font-black">
                 {editingProductId
@@ -1355,7 +1355,7 @@ export const MenuManagementPage: React.FC = () => {
                     ? 'Seleccionar Acompañantes Base del Plato (Arroz, Caraotas, Ensalada, etc.):'
                     : 'Seleccionar Ingredientes Base de la Pizza:'}
                 </label>
-                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto custom-scrollbar p-2.5 bg-slate-50 rounded-xl border border-slate-200">
                   {baseIngredientsAvailable.map((ing) => {
                     const isSelected = selectedBaseIngredients.includes(ing.name);
                     return (
@@ -1413,7 +1413,7 @@ export const MenuManagementPage: React.FC = () => {
       {/* MODAL CREAR BEBIDA */}
       {isAddDrinkOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
-          <div className="relative w-full max-w-lg p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
+          <div className="relative w-full max-w-lg p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
               <h3 className="text-lg font-black">{editingDrinkId ? 'EDITAR BEBIDA' : 'NUEVA BEBIDA EN EL MENÚ'}</h3>
               <button onClick={() => setIsAddDrinkOpen(false)}><IoClose size={20} /></button>
@@ -1492,7 +1492,7 @@ export const MenuManagementPage: React.FC = () => {
       {/* MODAL CREAR INGREDIENTE / CONTORNO */}
       {isAddIngOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
-          <div className="relative w-full max-w-md p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
+          <div className="relative w-full max-w-md p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
               <h3 className="text-lg font-black">
                 {editingIngredientId
@@ -1668,7 +1668,7 @@ export const MenuManagementPage: React.FC = () => {
       {/* MODAL CREAR MESA */}
       {isAddTableOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md">
-          <div className="relative w-full max-w-md p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900">
+          <div className="relative w-full max-w-md p-6 bg-gradient-to-br from-white via-slate-50 to-slate-100 border border-emerald-500/40 rounded-3xl shadow-2xl space-y-4 text-slate-900 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
               <h3 className="text-lg font-black">NUEVA MESA</h3>
               <button onClick={() => setIsAddTableOpen(false)}><IoClose size={20} /></button>

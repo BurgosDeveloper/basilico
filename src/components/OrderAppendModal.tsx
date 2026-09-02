@@ -142,30 +142,32 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
     );
   };
 
+  const effectiveShift = (order as any)?.shift || (userSession?.shift === 'manana' ? 'manana' : 'noche');
+
   // Listas ordenadas alfabéticamente A-Z
   const availableExtras = useMemo(() => {
     return ingredients
-      .filter((i) => i.isExtraForPizza && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift))
+      .filter((i) => i.isExtraForPizza && i.shift === effectiveShift)
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  }, [ingredients, userSession?.shift]);
+  }, [ingredients, effectiveShift]);
 
   const pizzaProducts = useMemo(() => {
     return products
-      .filter((p) => (isMorningShift ? ['Entradas', 'Especialidades', 'Pastas', 'Pizzas'].includes(p.category) : p.category === 'Pizzas') && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
+      .filter((p) => (effectiveShift === 'manana' ? ['Entradas', 'Especialidades', 'Pastas', 'Pizzas'].includes(p.category) : p.category === 'Pizzas') && p.shift === effectiveShift)
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  }, [products, userSession?.shift, isMorningShift]);
+  }, [products, effectiveShift]);
 
   const drinkProducts = useMemo(() => {
     return products
-      .filter((p) => p.category === 'Bebidas' && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
+      .filter((p) => p.category === 'Bebidas' && p.shift === effectiveShift)
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  }, [products, userSession?.shift]);
+  }, [products, effectiveShift]);
 
   const otherProducts = useMemo(() => {
     return products
-      .filter((p) => (isMorningShift ? !['Entradas', 'Especialidades', 'Pastas', 'Pizzas', 'Bebidas'].includes(p.category) : (p.category !== 'Pizzas' && p.category !== 'Bebidas')) && (!p.shift || p.shift === 'ambos' || p.shift === userSession?.shift))
+      .filter((p) => (effectiveShift === 'manana' ? !['Entradas', 'Especialidades', 'Pastas', 'Pizzas', 'Bebidas'].includes(p.category) : (p.category !== 'Pizzas' && p.category !== 'Bebidas')) && p.shift === effectiveShift)
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  }, [products, userSession?.shift, isMorningShift]);
+  }, [products, effectiveShift]);
 
   const filteredProducts = useMemo(() => {
     const currentList = activeCategory === 'Pizzas' ? pizzaProducts : activeCategory === 'Bebidas' ? drinkProducts : otherProducts;

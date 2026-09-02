@@ -107,8 +107,11 @@ async function fetchAllOrders(user) {
   }));
 }
 
-async function fetchAllProducts(user) {
-  const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
+async function fetchAllProducts(user, requestedShift) {
+  const targetShift = (requestedShift === 'manana' || requestedShift === 'noche')
+    ? requestedShift
+    : (user?.shift === 'manana' || user?.shift === 'noche' ? user.shift : null);
+  const parameters = targetShift ? [targetShift] : [];
   const whereClause = parameters.length ? "WHERE shift = $1" : '';
   const { rows } = await query(`SELECT * FROM products ${whereClause} ORDER BY name ASC`, parameters);
   return rows.map((p) => ({
@@ -127,8 +130,11 @@ async function fetchAllProducts(user) {
   }));
 }
 
-async function fetchAllIngredients(user) {
-  const parameters = user?.shift && user.shift !== 'ambos' ? [user.shift] : [];
+async function fetchAllIngredients(user, requestedShift) {
+  const targetShift = (requestedShift === 'manana' || requestedShift === 'noche')
+    ? requestedShift
+    : (user?.shift === 'manana' || user?.shift === 'noche' ? user.shift : null);
+  const parameters = targetShift ? [targetShift] : [];
   const whereClause = parameters.length ? "WHERE shift = $1" : '';
   const { rows } = await query(`SELECT * FROM ingredients ${whereClause} ORDER BY name ASC`, parameters);
   return rows.map((i) => {

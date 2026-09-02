@@ -7,7 +7,7 @@ const { requireRole } = require('../helpers/sessionAuth');
 module.exports = function(io) {
   router.get('/', async (req, res) => {
     try {
-      const products = await fetchAllProducts(req.user);
+      const products = await fetchAllProducts(req.user, req.query.shift);
       res.json(products);
     } catch (err) {
       res.status(500).json({ error: 'Error al obtener productos' });
@@ -18,7 +18,7 @@ module.exports = function(io) {
     try {
       const { id: inputId, name, category, drinkType, price, priceSmall, description, image, badge, baseIngredients, shift } = req.body;
       const id = inputId || `prod-${Date.now()}`;
-      const targetShift = shift || req.user.shift || 'manana';
+      const targetShift = (shift === 'manana' || shift === 'noche') ? shift : (req.user?.shift === 'manana' ? 'manana' : 'noche');
 
       if (inputId) {
         await query(
@@ -33,13 +33,15 @@ module.exports = function(io) {
         );
       }
 
-      const shiftProducts = await fetchAllProducts(req.user);
-      io.to(`shift:${targetShift}`).emit('products:sync', shiftProducts);
-      if (targetShift !== 'ambos') {
-        const ambosProducts = await fetchAllProducts({ shift: 'ambos' });
-        io.to('shift:ambos').emit('products:sync', ambosProducts);
-      }
-      res.status(201).json(shiftProducts.find((p) => p.id === id) || { id, name });
+      const morningProducts = await fetchAllProducts(null, 'manana');
+      const nightProducts = await fetchAllProducts(null, 'noche');
+      const allProducts = await fetchAllProducts(null, 'ambos');
+      io.to('shift:manana').emit('products:sync', morningProducts);
+      io.to('shift:noche').emit('products:sync', nightProducts);
+      io.to('shift:ambos').emit('products:sync', allProducts);
+
+      const targetList = targetShift === 'manana' ? morningProducts : nightProducts;
+      res.status(201).json(targetList.find((p) => p.id === id) || { id, name });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al crear o actualizar producto' });
@@ -50,20 +52,22 @@ module.exports = function(io) {
     try {
       const { id } = req.params;
       const { name, category, drinkType, price, priceSmall, description, image, badge, baseIngredients, shift } = req.body;
-      const targetShift = shift || req.user.shift || 'manana';
+      const targetShift = (shift === 'manana' || shift === 'noche') ? shift : (req.user?.shift === 'manana' ? 'manana' : 'noche');
 
       await query(
         `UPDATE products SET name = $1, category = $2, drink_type = $3, price = $4, price_small = $5, description = $6, image = $7, badge = $8, base_ingredients = $9, shift = $10 WHERE id = $11`,
         [name, category, drinkType || null, price || 0, priceSmall || null, description || '', image || '', badge || null, baseIngredients || [], targetShift, id]
       );
 
-      const shiftProducts = await fetchAllProducts(req.user);
-      io.to(`shift:${targetShift}`).emit('products:sync', shiftProducts);
-      if (targetShift !== 'ambos') {
-        const ambosProducts = await fetchAllProducts({ shift: 'ambos' });
-        io.to('shift:ambos').emit('products:sync', ambosProducts);
-      }
-      res.json(shiftProducts.find((p) => p.id === id) || { success: true });
+      const morningProducts = await fetchAllProducts(null, 'manana');
+      const nightProducts = await fetchAllProducts(null, 'noche');
+      const allProducts = await fetchAllProducts(null, 'ambos');
+      io.to('shift:manana').emit('products:sync', morningProducts);
+      io.to('shift:noche').emit('products:sync', nightProducts);
+      io.to('shift:ambos').emit('products:sync', allProducts);
+
+      const targetList = targetShift === 'manana' ? morningProducts : nightProducts;
+      res.json(targetList.find((p) => p.id === id) || { success: true });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al actualizar producto' });
@@ -74,12 +78,14 @@ module.exports = function(io) {
     try {
       const { id } = req.params;
       await query(`DELETE FROM products WHERE id = $1`, [id]);
-      const shiftProducts = await fetchAllProducts(req.user);
-      io.to(`shift:${req.user.shift}`).emit('products:sync', shiftProducts);
-      if (req.user.shift !== 'ambos') {
-        const ambosProducts = await fetchAllProducts({ shift: 'ambos' });
-        io.to('shift:ambos').emit('products:sync', ambosProducts);
-      }
+
+      const morningProducts = await fetchAllProducts(null, 'manana');
+      const nightProducts = await fetchAllProducts(null, 'noche');
+      const allProducts = await fetchAllProducts(null, 'ambos');
+      io.to('shift:manana').emit('products:sync', morningProducts);
+      io.to('shift:noche').emit('products:sync', nightProducts);
+      io.to('shift:ambos').emit('products:sync', allProducts);
+
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Error al eliminar producto' });

@@ -43,8 +43,10 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const availableExtras = useMemo(() => ingredients.filter(i => i.isExtraForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [ingredients]);
-  const allPizzaProducts = useMemo(() => products.filter(p => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [products]);
+  const orderShift = (order as any)?.shift || 'noche';
+  const shiftProducts = useMemo(() => products.filter(p => p.shift === orderShift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [products, orderShift]);
+  const availableExtras = useMemo(() => ingredients.filter(i => i.isExtraForPizza && i.shift === orderShift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [ingredients, orderShift]);
+  const allPizzaProducts = useMemo(() => shiftProducts.filter(p => (orderShift === 'manana' ? p.category !== 'Bebidas' : p.category === 'Pizzas')).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [shiftProducts, orderShift]);
 
   useEffect(() => {
     if (order) {
@@ -652,7 +654,7 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
                 className="flex-1 px-3 py-2 rounded-xl border border-slate-600 bg-[#1e293b] font-medium text-xs text-white outline-none"
               >
                 <option value="">-- Añadir nuevo producto del menú --</option>
-                {products.map((p) => (
+                {shiftProducts.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} (${(p.priceSmall || p.price || 0).toFixed(2)})
                   </option>

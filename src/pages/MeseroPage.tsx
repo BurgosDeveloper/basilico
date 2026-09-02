@@ -76,10 +76,11 @@ export const MeseroPage: React.FC = () => {
   const [configuringJugo, setConfiguringJugo] = useState<Product | null>(null);
   const [jugoIsTakeaway, setJugoIsTakeaway] = useState<boolean>(false);
 
-  const categories = ['Todas', ...Array.from(new Set(products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).map(p => p.category))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))];
-  const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const currentShift = userSession?.shift === 'manana' ? 'manana' : 'noche';
+  const shiftProducts = products.filter(p => p.shift === currentShift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const categories = ['Todas', ...Array.from(new Set(shiftProducts.map(p => p.category))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))];
   const allPizzaProducts = shiftProducts.filter((p) => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  const availableExtras = ingredients.filter((i) => i.isExtraForPizza && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift)).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const availableExtras = ingredients.filter((i) => i.isExtraForPizza && i.shift === currentShift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
   const handleOpenMenuModal = (type: 'mesa' | 'delivery' | 'pickup', tableNumber?: number, title?: string) => {
     setActiveOrderTarget({
@@ -353,7 +354,7 @@ export const MeseroPage: React.FC = () => {
   };
 
 
-  const filteredProducts = products.filter((p) => {
+  const filteredProducts = shiftProducts.filter((p) => {
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

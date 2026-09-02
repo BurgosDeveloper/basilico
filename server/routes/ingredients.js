@@ -7,7 +7,7 @@ const { requireRole } = require('../helpers/sessionAuth');
 module.exports = function(io) {
   router.get('/', async (req, res) => {
     try {
-      const ingredients = await fetchAllIngredients(req.user);
+      const ingredients = await fetchAllIngredients(req.user, req.query.shift);
       res.json(ingredients);
     } catch (err) {
       res.status(500).json({ error: 'Error al obtener ingredientes' });
@@ -30,7 +30,7 @@ module.exports = function(io) {
         shift
       } = req.body;
       const id = `ing-${Date.now()}`;
-      const targetShift = shift || req.user.shift || 'manana';
+      const targetShift = (shift === 'manana' || shift === 'noche') ? shift : (req.user?.shift === 'manana' ? 'manana' : 'noche');
 
       const pGrandeComp = priceGrandeCompleta !== undefined ? (parseFloat(priceGrandeCompleta) || 0) : (parseFloat(priceUSD) || 0);
       const pGrandeMit = priceGrandeMitad !== undefined ? (parseFloat(priceGrandeMitad) || 0) : (pGrandeComp > 0 ? pGrandeComp / 2 : 0);
@@ -56,13 +56,15 @@ module.exports = function(io) {
         ]
       );
 
-      const shiftIngredients = await fetchAllIngredients(req.user);
-      io.to(`shift:${targetShift}`).emit('ingredients:sync', shiftIngredients);
-      if (targetShift !== 'ambos') {
-        const ambosIngredients = await fetchAllIngredients({ shift: 'ambos' });
-        io.to('shift:ambos').emit('ingredients:sync', ambosIngredients);
-      }
-      res.status(201).json(shiftIngredients.find((i) => i.name === name) || { id, name });
+      const morningIngredients = await fetchAllIngredients(null, 'manana');
+      const nightIngredients = await fetchAllIngredients(null, 'noche');
+      const allIngredients = await fetchAllIngredients(null, 'ambos');
+      io.to('shift:manana').emit('ingredients:sync', morningIngredients);
+      io.to('shift:noche').emit('ingredients:sync', nightIngredients);
+      io.to('shift:ambos').emit('ingredients:sync', allIngredients);
+
+      const targetList = targetShift === 'manana' ? morningIngredients : nightIngredients;
+      res.status(201).json(targetList.find((i) => i.name === name) || { id, name });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al guardar ingrediente' });
@@ -85,7 +87,7 @@ module.exports = function(io) {
         available,
         shift
       } = req.body;
-      const targetShift = shift || req.user.shift || 'manana';
+      const targetShift = (shift === 'manana' || shift === 'noche') ? shift : (req.user?.shift === 'manana' ? 'manana' : 'noche');
 
       const pGrandeComp = priceGrandeCompleta !== undefined ? (parseFloat(priceGrandeCompleta) || 0) : (parseFloat(priceUSD) || 0);
       const pGrandeMit = priceGrandeMitad !== undefined ? (parseFloat(priceGrandeMitad) || 0) : (pGrandeComp > 0 ? pGrandeComp / 2 : 0);
@@ -128,17 +130,24 @@ module.exports = function(io) {
         );
       }
 
-      const shiftIngredients = await fetchAllIngredients(req.user);
-      const shiftProducts = await fetchAllProducts(req.user);
-      io.to(`shift:${targetShift}`).emit('ingredients:sync', shiftIngredients);
+      const morningIngredients = await fetchAllIngredients(null, 'manana');
+      const nightIngredients = await fetchAllIngredients(null, 'noche');
+      const allIngredients = await fetchAllIngredients(null, 'ambos');
+      io.to('shift:manana').emit('ingredients:sync', morningIngredients);
+      io.to('shift:noche').emit('ingredients:sync', nightIngredients);
+      io.to('shift:ambos').emit('ingredients:sync', allIngredients);
+
       if (oldName && oldName !== name) {
-        io.to(`shift:${targetShift}`).emit('products:sync', shiftProducts);
+        const morningProducts = await fetchAllProducts(null, 'manana');
+        const nightProducts = await fetchAllProducts(null, 'noche');
+        const allProducts = await fetchAllProducts(null, 'ambos');
+        io.to('shift:manana').emit('products:sync', morningProducts);
+        io.to('shift:noche').emit('products:sync', nightProducts);
+        io.to('shift:ambos').emit('products:sync', allProducts);
       }
-      if (targetShift !== 'ambos') {
-        const ambosIngredients = await fetchAllIngredients({ shift: 'ambos' });
-        io.to('shift:ambos').emit('ingredients:sync', ambosIngredients);
-      }
-      res.json(shiftIngredients.find((i) => i.id === id) || { success: true });
+
+      const targetList = targetShift === 'manana' ? morningIngredients : nightIngredients;
+      res.json(targetList.find((i) => i.id === id) || { success: true });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al actualizar ingrediente' });
@@ -150,12 +159,13 @@ module.exports = function(io) {
       const { id } = req.params;
       await query(`DELETE FROM ingredients WHERE id = $1`, [id]);
       
-      const shiftIngredients = await fetchAllIngredients(req.user);
-      io.to(`shift:${req.user.shift}`).emit('ingredients:sync', shiftIngredients);
-      if (req.user.shift !== 'ambos') {
-        const ambosIngredients = await fetchAllIngredients({ shift: 'ambos' });
-        io.to('shift:ambos').emit('ingredients:sync', ambosIngredients);
-      }
+      const morningIngredients = await fetchAllIngredients(null, 'manana');
+      const nightIngredients = await fetchAllIngredients(null, 'noche');
+      const allIngredients = await fetchAllIngredients(null, 'ambos');
+      io.to('shift:manana').emit('ingredients:sync', morningIngredients);
+      io.to('shift:noche').emit('ingredients:sync', nightIngredients);
+      io.to('shift:ambos').emit('ingredients:sync', allIngredients);
+
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Error al eliminar ingrediente' });

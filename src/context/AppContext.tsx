@@ -926,7 +926,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders([]);
   };
 
-  const extras = ingredients.filter((i) => i.isExtraForPizza);
+  const extras = ingredients.filter(
+    (i) => i.isExtraForPizza && (!userSession?.shift || userSession.shift === 'ambos' || i.shift === userSession.shift)
+  );
 
   return (
     <AppContext.Provider

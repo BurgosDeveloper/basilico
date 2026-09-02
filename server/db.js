@@ -183,16 +183,10 @@ async function initDb() {
       `CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`,
       `INSERT INTO system_settings (key, value) VALUES ('admin_pin', '1234') ON CONFLICT (key) DO NOTHING;`,
       `ALTER TABLE ingredients DROP CONSTRAINT IF EXISTS ingredients_name_key;`,
-      `INSERT INTO products (id, name, category, drink_type, price, price_small, description, image, badge, base_ingredients, shift)
-       SELECT id || '-noche', name, category, drink_type, price, price_small, description, image, badge, base_ingredients, 'noche'
-       FROM products WHERE shift = 'ambos' OR shift = 'manana'
-       ON CONFLICT (id) DO NOTHING;`,
-      `UPDATE products SET shift = 'manana' WHERE shift = 'ambos';`,
-      `INSERT INTO ingredients (id, name, price_usd, is_base_for_pizza, is_extra_for_pizza, category, available, shift)
-       SELECT id || '-noche', name, price_usd, is_base_for_pizza, is_extra_for_pizza, category, available, 'noche'
-       FROM ingredients WHERE shift = 'ambos' OR shift = 'manana'
-       ON CONFLICT (id) DO NOTHING;`,
-      `UPDATE ingredients SET shift = 'manana' WHERE shift = 'ambos';`,
+      `DELETE FROM products WHERE shift = 'noche' AND id LIKE 'prod-man-%-noche';`,
+      `DELETE FROM ingredients WHERE shift = 'noche' AND id LIKE 'ing-man-%-noche';`,
+      `UPDATE products SET shift = 'manana' WHERE shift = 'ambos' OR shift IS NULL;`,
+      `UPDATE ingredients SET shift = 'manana' WHERE shift = 'ambos' OR shift IS NULL;`,
     ];
 
     for (const q of migrationQueries) {

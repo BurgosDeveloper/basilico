@@ -71,13 +71,15 @@ export const MenuManagementPage: React.FC = () => {
     }
   }, [userSession, isCashierUnlocked, getAdminPin, getPrintersConfig]);
 
-  const isMorningShift = userSession?.shift === 'manana';
+  const [selectedShift, setSelectedShift] = useState<'manana' | 'noche'>(userSession?.shift === 'manana' ? 'manana' : 'noche');
+  const isMorningShift = selectedShift === 'manana';
 
   // Modal Pizza / Plato (Crear / Editar)
   const [isAddPizzaOpen, setIsAddPizzaOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editingProductShift, setEditingProductShift] = useState<'manana' | 'noche' | null>(null);
   const [pizzaName, setPizzaName] = useState('');
-  const [dishCategory, setDishCategory] = useState<string>('Platos');
+  const [dishCategory, setDishCategory] = useState<string>(userSession?.shift === 'manana' ? 'Platos' : 'Pizzas');
   const [pizzaPrice, setPizzaPrice] = useState('');
   const [pizzaSmallPrice, setPizzaSmallPrice] = useState('');
   const [pizzaDesc, setPizzaDesc] = useState('');
@@ -86,8 +88,9 @@ export const MenuManagementPage: React.FC = () => {
 
   const handleStartEditPizza = (product: any) => {
     setEditingProductId(product.id);
+    setEditingProductShift((product.shift === 'manana' || product.shift === 'noche') ? product.shift : selectedShift);
     setPizzaName(product.name);
-    setDishCategory(product.category || (isMorningShift ? 'Platos' : 'Pizzas'));
+    setDishCategory(product.category || (selectedShift === 'manana' ? 'Platos' : 'Pizzas'));
     setPizzaPrice(product.price.toString());
     setPizzaSmallPrice((product.priceSmall ?? (product.price > 4 ? product.price - 4 : product.price)).toString());
     setPizzaDesc(product.description || '');
@@ -99,6 +102,7 @@ export const MenuManagementPage: React.FC = () => {
   // Modal Nueva Bebida / Editar
   const [isAddDrinkOpen, setIsAddDrinkOpen] = useState(false);
   const [editingDrinkId, setEditingDrinkId] = useState<string | null>(null);
+  const [editingDrinkShift, setEditingDrinkShift] = useState<'manana' | 'noche' | null>(null);
   const [drinkName, setDrinkName] = useState('');
   const [drinkType, setDrinkType] = useState<'refresco' | 'jugo' | 'licor'>('refresco');
   const [drinkPrice, setDrinkPrice] = useState('');
@@ -108,14 +112,15 @@ export const MenuManagementPage: React.FC = () => {
   // Modal Nuevo Ingrediente / Contorno / Editar
   const [isAddIngOpen, setIsAddIngOpen] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null);
+  const [editingIngredientShift, setEditingIngredientShift] = useState<'manana' | 'noche' | null>(null);
   const [ingName, setIngName] = useState('');
-  const [ingPriceGrandeCompleta, setIngPriceGrandeCompleta] = useState('2.00');
+  const [ingPriceGrandeCompleta, setIngPriceGrandeCompleta] = useState(userSession?.shift === 'manana' ? '1.50' : '2.00');
   const [ingPriceGrandeMitad, setIngPriceGrandeMitad] = useState('1.00');
   const [ingPricePequenaCompleta, setIngPricePequenaCompleta] = useState('1.00');
   const [ingPricePequenaMitad, setIngPricePequenaMitad] = useState('0.50');
   const [ingIsBase, setIngIsBase] = useState(true);
   const [ingIsExtra, setIngIsExtra] = useState(true);
-  const [ingCategory, setIngCategory] = useState(isMorningShift ? 'Contornos' : 'Ingredientes');
+  const [ingCategory, setIngCategory] = useState(userSession?.shift === 'manana' ? 'Contornos' : 'Ingredientes');
 
   // Modal Nueva Mesa / Editar
   const [isAddTableOpen, setIsAddTableOpen] = useState(false);
@@ -174,7 +179,7 @@ export const MenuManagementPage: React.FC = () => {
       image: pizzaImg,
       baseIngredients: selectedBaseIngredients.length > 0 ? selectedBaseIngredients : defaultIngredients,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || (isMorningShift ? 'manana' : 'noche')
+      shift: editingProductShift || selectedShift
     };
 
     if (editingProductId) {
@@ -184,6 +189,7 @@ export const MenuManagementPage: React.FC = () => {
     }
 
     setEditingProductId(null);
+    setEditingProductShift(null);
     setPizzaName('');
     setDishCategory(isMorningShift ? 'Platos' : 'Pizzas');
     setPizzaPrice('');
@@ -195,6 +201,7 @@ export const MenuManagementPage: React.FC = () => {
 
   const handleStartEditDrink = (p: Product) => {
     setEditingDrinkId(p.id);
+    setEditingDrinkShift((p.shift === 'manana' || p.shift === 'noche') ? p.shift : selectedShift);
     setDrinkName(p.name);
     setDrinkType(p.drinkType || 'refresco');
     setDrinkPrice(p.price.toString());
@@ -215,7 +222,7 @@ export const MenuManagementPage: React.FC = () => {
       description: drinkDesc || 'Bebida fría.',
       image: drinkImg,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || (isMorningShift ? 'manana' : 'noche')
+      shift: editingDrinkShift || selectedShift
     };
 
     if (editingDrinkId) {
@@ -225,6 +232,7 @@ export const MenuManagementPage: React.FC = () => {
     }
 
     setEditingDrinkId(null);
+    setEditingDrinkShift(null);
     setDrinkName('');
     setDrinkPrice('');
     setDrinkDesc('');
@@ -233,6 +241,7 @@ export const MenuManagementPage: React.FC = () => {
 
   const handleStartEditIngredient = (ing: Ingredient) => {
     setEditingIngredientId(ing.id);
+    setEditingIngredientShift((ing.shift === 'manana' || ing.shift === 'noche') ? ing.shift : selectedShift);
     setIngName(ing.name);
     const pComp = (ing.priceGrandeCompleta !== undefined ? ing.priceGrandeCompleta : (ing.priceUSD || 0)).toString();
     const pMit = (ing.priceGrandeMitad !== undefined ? ing.priceGrandeMitad : (parseFloat(pComp) > 0 ? parseFloat(pComp) / 2 : 0)).toString();
@@ -268,7 +277,7 @@ export const MenuManagementPage: React.FC = () => {
       isBaseForPizza: ingIsBase,
       isExtraForPizza: ingIsExtra,
       category: ingCategory || (isMorningShift ? 'Contornos' : 'Ingredientes'),
-      shift: userSession?.shift || (isMorningShift ? 'manana' : 'noche')
+      shift: editingIngredientShift || selectedShift
     };
 
     if (editingIngredientId) {
@@ -278,6 +287,7 @@ export const MenuManagementPage: React.FC = () => {
     }
 
     setEditingIngredientId(null);
+    setEditingIngredientShift(null);
     setIngName('');
     setIngPriceGrandeCompleta(isMorningShift ? '1.50' : '2.00');
     setIngPriceGrandeMitad('1.00');
@@ -329,13 +339,13 @@ export const MenuManagementPage: React.FC = () => {
     );
   };
 
-  const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const shiftProducts = products.filter(p => p.shift === selectedShift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const platosOrPizzas = isMorningShift
     ? shiftProducts.filter((p) => p.category !== 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
     : shiftProducts.filter((p) => p.category === 'Pizzas' || p.category !== 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const pizzas = platosOrPizzas;
   const bebidas = shiftProducts.filter((p) => p.category === 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  const shiftIngredients = ingredients.filter(i => !i.shift || i.shift === 'ambos' || i.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const shiftIngredients = ingredients.filter(i => i.shift === selectedShift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const baseIngredientsAvailable = shiftIngredients.filter((i) => i.isBaseForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
   return (
@@ -357,6 +367,44 @@ export const MenuManagementPage: React.FC = () => {
                 ADMINISTRADOR ({isMorningShift ? 'TURNO MAÑANA' : 'TURNO NOCHE'})
               </span>
             </div>
+
+            {/* Selector interactivo de Turno */}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="text-[11px] font-bold text-slate-500">Gestión de Turno:</span>
+              <div className="inline-flex p-1 rounded-2xl bg-slate-200/90 border border-slate-300 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedShift('manana');
+                    setDishCategory('Platos');
+                    setIngCategory('Contornos');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                    selectedShift === 'manana'
+                      ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>🌞 TURNO MAÑANA</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedShift('noche');
+                    setDishCategory('Pizzas');
+                    setIngCategory('Ingredientes');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                    selectedShift === 'noche'
+                      ? 'bg-indigo-600 text-white shadow-md scale-105'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>🌙 TURNO NOCHE</span>
+                </button>
+              </div>
+            </div>
+
             <p className="text-xs text-slate-700/70 mt-1">
               {isMorningShift
                 ? 'Agrega y administra platos, almuerzos, bebidas, contornos y configuración de mesas del restaurante.'

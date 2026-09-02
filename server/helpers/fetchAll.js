@@ -61,6 +61,7 @@ async function fetchAllOrders(user) {
     isEdited: !!ord.is_edited,
     mergedFromOrders: ord.merged_from_orders || [],
     deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
+    shift: ord.shift || 'ambos',
     createdAt: ord.created_at,
     paymentHistory: payments
       .filter((pm) => pm.order_id === ord.id)

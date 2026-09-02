@@ -14,6 +14,15 @@ const LINE_WIDTH = 28;
 const PRINT_FORMAT_SETUP = '\x1B \x08\x1B3\x2C\x1BM\x00';
 const PRINT_FORMAT_RESET = '\x1B \x00\x1B2';
 
+const KITCHEN_LINE_WIDTH = 21;
+// Configuración ESC/POS para COCINA y REPORTE CONTABLE (doble alto + doble ancho + negrita):
+// - \x1B \x00: 0 espacio extra entre letras (texto continuo y natural)
+// - \x1B3\x26: Interlineado compacto adecuado para fuente doble altura
+// - \x1BM\x00: Fuente A estándar
+// - \x1D!\x11: Doble alto + Doble ancho en TODO el ticket (tamaño gigante idéntico a COMANDA:#6)
+// - \x1BE\x01: Negrita de alto contraste
+const KITCHEN_FORMAT_SETUP = '\x1B \x00\x1B3\x26\x1BM\x00\x1D!\x11\x1BE\x01';
+
 function loadDualPrinterConfig() {
   let fileConfig = {};
   try {
@@ -125,13 +134,13 @@ function wrapText(value, width = LINE_WIDTH, indent = '') {
   return lines;
 }
 
-function divider(character = '-') {
-  return character.repeat(LINE_WIDTH);
+function divider(character = '-', width = LINE_WIDTH) {
+  return character.repeat(width);
 }
 
-function centered(value) {
-  const text = printableText(value).slice(0, LINE_WIDTH);
-  const padding = Math.max(0, Math.floor((LINE_WIDTH - text.length) / 2));
+function centered(value, width = LINE_WIDTH) {
+  const text = printableText(value).slice(0, width);
+  const padding = Math.max(0, Math.floor((width - text.length) / 2));
   return `${' '.repeat(padding)}${text}`;
 }
 
@@ -183,9 +192,15 @@ function isKitchenItem(item) {
   return true;
 }
 
-function itemDetails(item) {
+function itemDetails(item, order = {}) {
+  const isMorningOrder = order.shift === 'manana' || order.shiftType === 'manana' || item.shift === 'manana';
+  const isPizza = (item.category || '').toLowerCase() === 'pizzas' || (item.productName || '').toLowerCase().includes('pizza');
   const details = [];
-  if (item.size) details.push(`Tamano: ${item.size}`);
+
+  // En la comanda de cocina de la mañana NO debe salir el tamaño. Solo sale para pizzas en el turno de noche.
+  if (item.size && !isMorningOrder && isPizza) {
+    details.push(`Tamano: ${item.size}`);
+  }
   if (item.isTakeaway || item.is_takeaway) details.push('*** PARA LLEVAR ***');
   if (item.sugarPreference) details.push(`Azucar: ${item.sugarPreference}`);
 
@@ -269,8 +284,8 @@ function reportService(order) {
   return printableText(order.type || 'SIN TIPO');
 }
 
-function addSection(lines, title) {
-  lines.push('', divider(), '\x1BE\x01', ...wrapText(title), '\x1BE\x00');
+function addSection(lines, title, width = LINE_WIDTH) {
+  lines.push('', divider('-', width), '\x1BE\x01', ...wrapText(title, width), '\x1BE\x00');
 }
 
 function addAmountLines(lines, amounts, prefix = '  ', includeZeroAmounts = false) {
@@ -292,22 +307,22 @@ function paymentChangeAmounts(payment) {
   };
 }
 
-function addReportHeader(lines, title, data) {
+function addReportHeader(lines, title, data, width = LINE_WIDTH, formatSetup = PRINT_FORMAT_SETUP) {
   lines.push(
     '\x1B@',
-    PRINT_FORMAT_SETUP,
+    formatSetup,
     '\x1Ba\x01',
     '\x1BE\x01',
-    centered('BASILICO PIZZERIA'),
-    centered(title),
+    centered('BASILICO PIZZERIA', width),
+    centered(title, width),
     '\x1BE\x00',
     `EMITIDO: ${reportTimestamp(new Date().toISOString())}`,
     '\x1Ba\x00',
-    divider('='),
+    divider('=', width),
   );
-  lines.push(...wrapText(`DESDE: ${reportTimestamp(data?.dateRange?.from)}`));
-  lines.push(...wrapText(`HASTA: ${reportTimestamp(data?.dateRange?.to)}`));
-  lines.push(...wrapText(`TASAS: 1 USD = ${Number(data?.exchangeRates?.COP) || 3950} COP | ${Number(data?.exchangeRates?.Bs) || 36.5} Bs`));
+  lines.push(...wrapText(`DESDE: ${reportTimestamp(data?.dateRange?.from)}`, width));
+  lines.push(...wrapText(`HASTA: ${reportTimestamp(data?.dateRange?.to)}`, width));
+  lines.push(...wrapText(`TASAS: 1 USD = ${Number(data?.exchangeRates?.COP) || 3950} COP | ${Number(data?.exchangeRates?.Bs) || 36.5} Bs`, width));
 }
 
 function buildReportTicket(reportType, data) {
@@ -321,14 +336,22 @@ function buildReportTicket(reportType, data) {
   const title = titles[reportType];
   if (!title) throw new Error('Tipo de reporte térmico no válido.');
 
+  const isContable = reportType === 'contable';
+  const reportWidth = isContable ? KITCHEN_LINE_WIDTH : LINE_WIDTH;
+  const formatSetup = isContable ? KITCHEN_FORMAT_SETUP : PRINT_FORMAT_SETUP;
+
   const lines = [];
-  addReportHeader(lines, title, data);
+  addReportHeader(lines, title, data, reportWidth, formatSetup);
 
   if (reportType === 'pizzas') {
     const grouped = new Map();
     for (const item of data.items || []) {
-      const key = `${item.category || 'Sin categoria'}|${item.productName || 'Item'}`;
-      const current = grouped.get(key) || { category: item.category || 'Sin categoria', name: item.productName || 'Item', quantity: 0, totalUSD: 0 };
+      const isPizza = (item.category || '').toLowerCase().includes('pizza') || (item.productName || '').toLowerCase().includes('pizza') || !!item.size || !!item.isHalfHalf;
+      const sizeLabel = item.size ? ` (${item.size})` : '';
+      const fullName = `${item.productName || item.name || 'Item'}${sizeLabel}`;
+      const category = isPizza ? 'Pizzas' : (item.category || 'Sin categoria');
+      const key = `${category}|${fullName}`;
+      const current = grouped.get(key) || { category, name: fullName, quantity: 0, totalUSD: 0 };
       current.quantity += Number(item.quantity) || 0;
       current.totalUSD += (Number(item.price) || 0) * (Number(item.quantity) || 0);
       grouped.set(key, current);
@@ -457,8 +480,8 @@ function buildReportTicket(reportType, data) {
     const firstOrder = data.orders?.[0]?.orderNumber || 'N/A';
     const lastOrder = data.orders?.[data.orders.length - 1]?.orderNumber || 'N/A';
 
-    lines.push(`COMANDA INICIAL: #${firstOrder}`);
-    lines.push(`COMANDA FINAL:   #${lastOrder}`);
+    lines.push(...wrapText(`COMANDA INICIAL: #${firstOrder}`, reportWidth));
+    lines.push(...wrapText(`COMANDA FINAL:   #${lastOrder}`, reportWidth));
 
     // Desglose de Deliverys por tarifa
     const deliveryMap = new Map();
@@ -508,27 +531,27 @@ function buildReportTicket(reportType, data) {
     }, 0);
 
     // SECCIÓN 2 — TOTAL FACTURADO POR MONEDA
-    addSection(lines, 'SECCION 2: TOTAL FACTURADO POR MONEDA');
-    lines.push(`DOLARES (USD): $${billedTotals.usd.toFixed(2)}`);
-    lines.push(`PESOS (COP):   $${Math.round(billedTotals.cop).toLocaleString('en-US')} COP`);
-    lines.push(`BOLIVARES(Bs): Bs ${billedTotals.bs.toFixed(2)}`);
-    lines.push(divider('-'));
+    addSection(lines, 'SECCION 2: FACTURADO', reportWidth);
+    lines.push(...wrapText(`USD: $${billedTotals.usd.toFixed(2)}`, reportWidth));
+    lines.push(...wrapText(`COP: $${Math.round(billedTotals.cop).toLocaleString('en-US')} COP`, reportWidth));
+    lines.push(...wrapText(`Bs:  Bs ${billedTotals.bs.toFixed(2)}`, reportWidth));
+    lines.push(divider('-', reportWidth));
     lines.push('\x1BE\x01');
-    lines.push(`TOTAL FACTURADO: $${totalFacturadoUSD.toFixed(2)} USD`);
+    lines.push(...wrapText(`TOTAL: $${totalFacturadoUSD.toFixed(2)} USD`, reportWidth));
     lines.push('\x1BE\x00');
-    lines.push(divider('-'));
-    lines.push(`TOTAL COMANDAS:  ${(data.orders || []).length}`);
-    lines.push(`  • Al Contado:  ${cashOrders.length}`);
-    lines.push(`  • A Credito:   ${creditOrders.length}`);
+    lines.push(divider('-', reportWidth));
+    lines.push(...wrapText(`TOTAL COMANDAS: ${(data.orders || []).length}`, reportWidth));
+    lines.push(...wrapText(`  • Al Contado: ${cashOrders.length}`, reportWidth));
+    lines.push(...wrapText(`  • A Credito:  ${creditOrders.length}`, reportWidth));
 
     // SECCIÓN 3 — DESGLOSE DE COBROS POR TIPO DE PAGO
-    addSection(lines, 'SECCION 3: FACTURADO POR METODO');
+    addSection(lines, 'SECCION 3: POR METODO', reportWidth);
     if (byMethod.size === 0) {
       lines.push('SIN COBROS EN EL INTERVALO');
     } else {
       for (const [method, amounts] of byMethod) {
         const count = paymentCounts.get(method) || 1;
-        lines.push('', ...wrapText(`• ${method} (${count} pagos):`));
+        lines.push('', ...wrapText(`• ${method} (${count}):`, reportWidth));
         addAmountLines(lines, amounts, '    ');
       }
     }
@@ -565,32 +588,79 @@ function buildReportTicket(reportType, data) {
     const cajaChicaEsperadaUSD = aperturaUSD + totalIngresosEfectivoUSD - totalEgresosEfectivoUSD;
     const cajaChicaEsperadaCOP = aperturaCOP + totalIngresosEfectivoCOP - totalEgresosEfectivoCOP;
 
-    addSection(lines, 'SECCION 4: CAJA CHICA');
-    lines.push('EFECTIVO EN DOLARES (USD):');
-    lines.push(`  1. Fondo Apertura:   $${aperturaUSD.toFixed(2)} USD`);
-    lines.push(`  2. (+) Ingresos Cash:+$${totalIngresosEfectivoUSD.toFixed(2)} USD`);
-    lines.push(`  3. (-) Egresos Cash: -$${totalEgresosEfectivoUSD.toFixed(2)} USD`);
-    lines.push(`  4. (=) ESPERADO USD: $${cajaChicaEsperadaUSD.toFixed(2)} USD`);
+    addSection(lines, 'SECCION 4: CAJA CHICA', reportWidth);
+    lines.push(...wrapText('EFECTIVO USD:', reportWidth));
+    lines.push(...wrapText(` 1.Apertura:  $${aperturaUSD.toFixed(2)}`, reportWidth));
+    lines.push(...wrapText(` 2.(+)Cobros: +$${totalIngresosEfectivoUSD.toFixed(2)}`, reportWidth));
+    lines.push(...wrapText(` 3.(-)Egresos:-$${totalEgresosEfectivoUSD.toFixed(2)}`, reportWidth));
+    lines.push(...wrapText(` 4.ESPERADO:  $${cajaChicaEsperadaUSD.toFixed(2)}`, reportWidth));
     lines.push('');
-    lines.push('EFECTIVO EN PESOS (COP):');
-    lines.push(`  1. Fondo Apertura:   $${Math.round(aperturaCOP).toLocaleString('en-US')} COP`);
-    lines.push(`  2. (+) Ingresos Cash:+$${Math.round(totalIngresosEfectivoCOP).toLocaleString('en-US')} COP`);
-    lines.push(`  3. (-) Egresos Cash: -$${Math.round(totalEgresosEfectivoCOP).toLocaleString('en-US')} COP`);
-    lines.push(`  4. (=) ESPERADO COP: $${Math.round(cajaChicaEsperadaCOP).toLocaleString('en-US')} COP`);
+    lines.push(...wrapText('EFECTIVO COP:', reportWidth));
+    lines.push(...wrapText(` 1.Apertura:  $${Math.round(aperturaCOP).toLocaleString('en-US')}`, reportWidth));
+    lines.push(...wrapText(` 2.(+)Cobros: +$${Math.round(totalIngresosEfectivoCOP).toLocaleString('en-US')}`, reportWidth));
+    lines.push(...wrapText(` 3.(-)Egresos:-$${Math.round(totalEgresosEfectivoCOP).toLocaleString('en-US')}`, reportWidth));
+    lines.push(...wrapText(` 4.ESPERADO:  $${Math.round(cajaChicaEsperadaCOP).toLocaleString('en-US')}`, reportWidth));
+
+    // SECCIÓN 5 — DESGLOSE DE CRÉDITOS Y CUENTAS POR COBRAR (SI APLICA)
+    if (creditOrders.length > 0) {
+      const totalCreditUSD = creditOrders.reduce((sum, o) => sum + (Number(o.totalUSD) || 0), 0);
+      addSection(lines, 'SECCION 5: CUENTAS POR COBRAR', reportWidth);
+      for (const ord of creditOrders) {
+        lines.push('', ...wrapText(`#${ord.orderNumber} | ${ord.customerName || 'Cliente'}`, reportWidth));
+        lines.push(...wrapText(`  DEUDA: $${(Number(ord.totalUSD) || 0).toFixed(2)} USD`, reportWidth));
+      }
+      lines.push(divider('-', reportWidth));
+      lines.push(...wrapText(`TOTAL A CREDITO: $${totalCreditUSD.toFixed(2)} USD`, reportWidth));
+    }
+
+    // SECCIÓN FINAL — ÍTEMS FACTURADOS (DE ÚLTIMO)
+    const itemMap = new Map();
+    for (const item of (data.items || [])) {
+      const category = item.category || 'General';
+      const isPizza = category.toLowerCase().includes('pizza') || (item.productName || '').toLowerCase().includes('pizza') || !!item.size || !!item.isHalfHalf;
+      const sizeLabel = item.size ? ` (${item.size})` : '';
+      const fullName = `${item.productName || item.name || 'Item'}${sizeLabel}`;
+      const key = `${category}|${fullName}`;
+      const current = itemMap.get(key) || { category, name: fullName, quantity: 0 };
+      current.quantity += Number(item.quantity) || 1;
+      itemMap.set(key, current);
+    }
+
+    // Agregar Deliverys
+    deliveryMap.forEach((count, fee) => {
+      if (fee > 0 && count > 0) {
+        const key = `Delivery|Delivery de $${fee.toFixed(2)}`;
+        itemMap.set(key, { category: 'Delivery', name: `Delivery de $${fee.toFixed(2)}`, quantity: count });
+      }
+    });
+
+    // Agregar Adicionales
+    extrasMap.forEach((info, price) => {
+      if (info.count > 0) {
+        const key = `Adicionales|Adicional de $${price.toFixed(2)}`;
+        itemMap.set(key, { category: 'Adicionales', name: `Adicional de $${price.toFixed(2)}`, quantity: info.count });
+      }
+    });
+
+    addSection(lines, 'SECCION 6: ITEMS FACTURADOS', reportWidth);
+    if (itemMap.size === 0) {
+      lines.push('SIN ITEMS FACTURADOS');
+    } else {
+      let currentCategory = '';
+      const sortedItems = [...itemMap.values()].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+      for (const it of sortedItems) {
+        if (it.category !== currentCategory) {
+          currentCategory = it.category;
+          lines.push('', ...wrapText(`• ${currentCategory}:`, reportWidth));
+        }
+        lines.push(...wrapText(`  ${it.quantity}x ${it.name}`, reportWidth, '  '));
+      }
+    }
   }
 
-  lines.push('', divider('='), centered('FIN DEL REPORTE'), centered('BASILICO PIZZERIA'), PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
+  lines.push('', divider('=', reportWidth), centered('FIN DEL REPORTE', reportWidth), centered('BASILICO PIZZERIA', reportWidth), PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
   return Buffer.from(lines.join('\n'), 'ascii');
 }
-
-const KITCHEN_LINE_WIDTH = 21;
-// Configuración ESC/POS para COCINA:
-// - \x1B \x00: 0 espacio extra entre letras (texto continuo y natural)
-// - \x1B3\x26: Interlineado compacto adecuado para fuente doble altura
-// - \x1BM\x00: Fuente A estándar
-// - \x1D!\x11: Doble alto + Doble ancho en TODO el ticket (tamaño gigante idéntico a COMANDA:#6)
-// - \x1BE\x01: Negrita de alto contraste
-const KITCHEN_FORMAT_SETUP = '\x1B \x00\x1B3\x26\x1BM\x00\x1D!\x11\x1BE\x01';
 
 function kitchenDivider(char = '=') {
   return char.repeat(KITCHEN_LINE_WIDTH);
@@ -645,7 +715,7 @@ function buildKitchenTicket(order) {
 
   for (const item of kitchenItems) {
     lines.push(...kitchenWrap(`${item.quantity || 1}x ${item.productName || 'Producto'}`));
-    for (const detail of itemDetails(item)) {
+    for (const detail of itemDetails(item, order)) {
       lines.push(...kitchenWrap(`* ${detail}`));
     }
   }
@@ -706,7 +776,7 @@ function buildKitchenAdditionTicket(order, addedItems) {
 
   for (const item of kitchenItems) {
     lines.push(...kitchenWrap(`${item.quantity || 1}x ${item.productName || 'Producto'}`));
-    for (const detail of itemDetails(item)) {
+    for (const detail of itemDetails(item, order)) {
       lines.push(...kitchenWrap(`* ${detail}`));
     }
   }
@@ -892,7 +962,7 @@ function buildReceiptTicket(order, rates = {}) {
     lines.push('\x1BE\x01');
     lines.push(...wrapText(`${qty}x ${item.productName || 'Producto'}`));
     lines.push('\x1BE\x00');
-    for (const detail of itemDetails(item)) {
+    for (const detail of itemDetails(item, order)) {
       lines.push(...wrapText(detail, LINE_WIDTH, '  '));
     }
     lines.push(`  SUBTOTAL: $${itemSubtotal.toFixed(2)} USD`);
@@ -1024,6 +1094,10 @@ async function printCierreShiftTicket(cierreData, targetPrinter = 'caja') {
 }
 
 module.exports = {
+  LINE_WIDTH,
+  PRINT_FORMAT_SETUP,
+  KITCHEN_LINE_WIDTH,
+  KITCHEN_FORMAT_SETUP,
   isKitchenItem,
   buildKitchenTicket,
   buildKitchenAdditionTicket,

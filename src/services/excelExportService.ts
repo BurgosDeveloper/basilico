@@ -25,7 +25,14 @@ export interface ReporteIntervaloData {
     productName: string;
     price: number;
     quantity: number;
+    size?: 'Grande' | 'Pequeña' | string;
     category: string;
+    drinkType?: string;
+    sugarPreference?: string;
+    isHalfHalf?: boolean;
+    halfDetails?: any;
+    isTakeaway?: boolean;
+    notes?: string;
     extras?: Array<{ name: string; price: number }>;
     extrasJson?: Array<{ name: string; price: number }>;
   }>;

@@ -153,6 +153,7 @@ module.exports = function(io) {
         paymentStatus: 'no_pagado',
         totalUSD,
         deliveryFeeUSD,
+        shift: req.user.shift || 'ambos',
         createdAt: new Date().toISOString(),
         items: items || []
       };
@@ -891,6 +892,11 @@ module.exports = function(io) {
         orderNumber: ord.order_number,
         customerName: ord.customer_name,
         tableNumber: ord.table_number,
+        waiterName: ord.waiter_name || 'Mesero',
+        kitchenNotes: ord.kitchen_notes,
+        createdAt: ord.created_at,
+        type: ord.type,
+        shiftType: ord.shift_type || 'noche',
         items: items.map((it) => ({
           ...it,
           productName: it.product_name,
@@ -903,7 +909,7 @@ module.exports = function(io) {
           isHalfHalf: it.is_half_half,
           halfDetails: safeJsonParseObj(it.half_details),
           extras: safeJsonParse(it.extras_json),
-          removedIngredients: safeJsonParse(it.removed_ingredients),
+          removedIngredients: Array.isArray(it.removed_ingredients) ? it.removed_ingredients : (safeJsonParse(it.removed_ingredients) || []),
           notes: it.notes,
           isTakeaway: it.is_takeaway,
         }))

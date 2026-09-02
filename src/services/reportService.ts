@@ -249,15 +249,18 @@ export class ReportService {
 
     paidOrders.forEach((o) => {
       o.items.forEach((it) => {
-        if (!tally[it.productName]) {
-          tally[it.productName] = {
+        const isPizza = (it.category || '').toLowerCase().includes('pizza') || it.productName.toLowerCase().includes('pizza') || !!it.size || !!it.isHalfHalf;
+        const sizeLabel = it.size ? ` (${it.size})` : '';
+        const displayName = `${it.productName}${sizeLabel}`;
+        if (!tally[displayName]) {
+          tally[displayName] = {
             qty: 0,
             revenueUSD: 0,
-            category: it.productName.toLowerCase().includes('pizza') ? 'Pizzas' : 'Bebidas/Adicionales',
+            category: isPizza ? 'Pizzas' : (it.category || 'Bebidas/Adicionales'),
           };
         }
-        tally[it.productName].qty += it.quantity;
-        tally[it.productName].revenueUSD += it.price * it.quantity;
+        tally[displayName].qty += it.quantity;
+        tally[displayName].revenueUSD += it.price * it.quantity;
       });
     });
 
@@ -467,8 +470,12 @@ export class ReportService {
   generatePizzasSoldIntervalReport(data: ReporteIntervaloData) {
     const tally: Record<string, { category: string; name: string; quantity: number; totalUSD: number }> = {};
     data.items.forEach((item) => {
-      const key = `${item.category}|${item.productName}`;
-      if (!tally[key]) tally[key] = { category: item.category, name: item.productName, quantity: 0, totalUSD: 0 };
+      const isPizza = (item.category || '').toLowerCase().includes('pizza') || item.productName.toLowerCase().includes('pizza') || !!item.size || !!item.isHalfHalf;
+      const sizeLabel = item.size ? ` (${item.size})` : '';
+      const displayName = `${item.productName}${sizeLabel}`;
+      const category = isPizza ? 'Pizzas' : (item.category || 'Sin categoría');
+      const key = `${category}|${displayName}`;
+      if (!tally[key]) tally[key] = { category, name: displayName, quantity: 0, totalUSD: 0 };
       tally[key].quantity += item.quantity;
       tally[key].totalUSD += item.price * item.quantity;
     });
@@ -717,12 +724,16 @@ export class ReportService {
       `;
     }).join('');
 
-    // Ítems Facturados (incluyendo platos, pizzas, bebidas, deliverys y adicionales)
+    // Ítems Facturados (incluyendo platos, pizzas con tamaño, bebidas, deliverys y adicionales)
     const itemMap: Record<string, { category: string; name: string; quantity: number }> = {};
     data.items.forEach((item) => {
       const category = item.category || 'General';
-      const key = `${category}|${item.productName}`;
-      if (!itemMap[key]) itemMap[key] = { category, name: item.productName, quantity: 0 };
+      const isPizza = category.toLowerCase().includes('pizza') || item.productName.toLowerCase().includes('pizza') || !!item.size || !!item.isHalfHalf;
+      const effectiveCategory = isPizza ? 'Pizzas' : category;
+      const sizeLabel = item.size ? ` (${item.size})` : '';
+      const displayName = `${item.productName}${sizeLabel}`;
+      const key = `${effectiveCategory}|${displayName}`;
+      if (!itemMap[key]) itemMap[key] = { category: effectiveCategory, name: displayName, quantity: 0 };
       itemMap[key].quantity += item.quantity;
     });
 
@@ -754,9 +765,6 @@ export class ReportService {
       .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
       .map((item) => `<tr><td>${this.escapeHtml(item.category)}</td><td>${this.escapeHtml(item.name)}</td><td style="text-align:right;">${item.quantity}</td></tr>`)
       .join('');
-
-    // Comandas Editadas
-    const editRows = data.edits.map((edit) => `<tr><td>#${this.escapeHtml(edit.orderNumber)}</td><td>${this.reportDate(edit.createdAt)}</td><td>${this.escapeHtml(edit.editedBy)}</td><td>${this.escapeHtml(edit.editDetails)}</td></tr>`).join('');
 
     // Historial por Método de Pago (Moneda y Monto Facturado)
     const historyByMethod = Array.from(methodTotals.keys()).map((method) => {
@@ -924,7 +932,10 @@ export class ReportService {
         </table>
       `}
 
-      <div class="section-title">SECCIÓN 6 — ÍTEMS FACTURADOS</div>
+      <div class="section-title">SECCIÓN 6 — HISTORIAL POR MÉTODO DE PAGO</div>
+      ${historyByMethod || '<p style="font-size:10px; color:#6b7280; text-align:center;">Sin pagos en el intervalo.</p>'}
+
+      <div class="section-title">SECCIÓN 7 — ÍTEMS FACTURADOS</div>
       <table>
         <thead>
           <tr>
@@ -937,24 +948,6 @@ export class ReportService {
           ${itemRows || '<tr><td colspan="3" style="text-align:center;">Sin ítems facturados.</td></tr>'}
         </tbody>
       </table>
-
-      <div class="section-title">SECCIÓN 7 — COMANDAS EDITADAS</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Comanda</th>
-            <th>Fecha / Hora</th>
-            <th>Usuario</th>
-            <th>Detalle del cambio</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${editRows || '<tr><td colspan="4" style="text-align:center;">Sin ediciones en el intervalo.</td></tr>'}
-        </tbody>
-      </table>
-
-      <div class="section-title">SECCIÓN 8 — HISTORIAL POR MÉTODO DE PAGO</div>
-      ${historyByMethod || '<p style="font-size:10px; color:#6b7280; text-align:center;">Sin pagos en el intervalo.</p>'}
     `;
 
     this.openPrintWindow('Reporte_Contable_Intervalo', content);

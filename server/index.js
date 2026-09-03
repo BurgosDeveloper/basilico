@@ -52,7 +52,11 @@ if (!fs.existsSync(uploadsDir)) {
 app.use('/uploads', express.static(uploadsDir));
 
 app.get('/api/connection-info', (req, res) => {
-  res.json(refreshLanConnectionInfo());
+  res.json({
+    ...refreshLanConnectionInfo(),
+    app: 'basilico',
+    appName: 'Basilico Pizzeria',
+  });
 });
 
 const server = http.createServer(app);

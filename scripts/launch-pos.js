@@ -1,16 +1,37 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 const rootDir = path.join(__dirname, '..');
 const port = 3001;
 const startupTimeoutMs = 15000;
 const retryDelayMs = 250;
 
+function freePort(targetPort) {
+  try {
+    const netstatOutput = execSync(`netstat -ano -p tcp | findstr :${targetPort}`, { encoding: 'utf8' });
+    const lines = netstatOutput.split('\n');
+    for (const line of lines) {
+      if (line.includes('LISTENING')) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && parseInt(pid, 10) > 0 && parseInt(pid, 10) !== process.pid) {
+          console.log(`Liberando puerto ${targetPort} ocupado por proceso ajeno (PID ${pid})...`);
+          try {
+            execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {
+    // Port was not occupied or command failed
+  }
+}
+
 function getConnectionInfo() {
   return new Promise((resolve, reject) => {
-    const request = http.get({ host: '127.0.0.1', port, path: '/api/connection-info', timeout: 1000 }, (response) => {
+    const request = http.get({ host: '127.0.0.1', port, path: '/api/connection-info', timeout: 1500 }, (response) => {
       let body = '';
       response.setEncoding('utf8');
       response.on('data', (chunk) => { body += chunk; });
@@ -21,6 +42,12 @@ function getConnectionInfo() {
         }
         try {
           const connectionInfo = JSON.parse(body);
+          if (connectionInfo.app && connectionInfo.app !== 'basilico') {
+            const err = new Error(`El puerto ${port} está ocupado por otra aplicación (${connectionInfo.app}).`);
+            err.code = 'FOREIGN_APP';
+            reject(err);
+            return;
+          }
           if (!connectionInfo.backendUrl) throw new Error('No se detectó una IP LAN válida.');
           resolve(connectionInfo);
         } catch (error) {
@@ -34,7 +61,8 @@ function getConnectionInfo() {
 }
 
 function startBackend() {
-  const child = spawn(process.execPath, ['server/index.js'], {
+  const serverPath = path.join(rootDir, 'server', 'index.js');
+  const child = spawn(process.execPath, [serverPath], {
     cwd: rootDir,
     detached: true,
     stdio: 'ignore',
@@ -96,6 +124,10 @@ async function launch() {
     await openPos(connectionInfo.backendUrl);
     return;
   } catch (error) {
+    if (error.code === 'FOREIGN_APP') {
+      freePort(port);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
     startBackend();
   }
 

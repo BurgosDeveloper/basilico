@@ -79,7 +79,7 @@ const batPath = path.join(exportDir, 'BasilicoPOS_Con_Consola.bat');
 const batContent = `@echo off
 title SERVIDOR & POS BASILICO PIZZERIA
 cd /d "%~dp0.."
-node scripts\launch-pos.js
+node scripts\\launch-pos.js
 `;
 fs.writeFileSync(batPath, batContent);
 

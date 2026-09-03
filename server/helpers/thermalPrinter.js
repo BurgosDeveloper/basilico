@@ -981,8 +981,6 @@ function buildReceiptTicket(order, rates = {}) {
   lines.push(`TOTAL COP: ${Math.round(totalUSD * copRate).toLocaleString('en-US')} COP`);
   lines.push(`TOTAL Bs:  ${(totalUSD * bsRate).toFixed(2)} Bs`);
   lines.push('\x1BE\x00');
-  lines.push(divider('-'));
-  lines.push(`TASAS: 1 USD = ${copRate} COP | ${bsRate} Bs`);
   lines.push('');
   lines.push('\x1Ba\x01');
   lines.push('¡GRACIAS POR SU PREFERENCIA!');

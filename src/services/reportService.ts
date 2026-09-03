@@ -1038,10 +1038,6 @@ export class ReportService {
         </div>
       </div>
 
-      <div style="font-size: 8px; color: #6b7280; text-align: center; margin-top: 8px;">
-        Tasas de referencia: 1 USD = ${copRate.toLocaleString()} COP | ${bsRate.toFixed(2)} Bs
-      </div>
-
       <div class="footer" style="text-align: center; margin-top: 10px; border-top: 1px dashed #9ca3af; padding-top: 6px; font-size: 9px; font-weight: 800;">
         ¡GRACIAS POR SU PREFERENCIA!<br>
         <span style="font-size: 8px; font-weight: 600; color: #6b7280;">BASILICO PIZZERIA</span>

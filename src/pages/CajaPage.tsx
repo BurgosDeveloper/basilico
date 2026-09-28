@@ -2003,7 +2003,7 @@ export const CajaPage: React.FC = () => {
                     <button
                       onClick={() => setPendingReportChoice({
                         type: 'pizzas',
-                        title: 'Hamburguesas Vendidas e Ítems Facturados',
+                        title: 'Pizzas Vendidas e Ítems Facturados',
                         generator: () => reportService.generatePizzasSoldIntervalReport(reporteIntervaloData),
                       })}
                       className="px-4 py-3 rounded-xl bg-white hover:bg-yellow-50 text-gray-900 border border-gray-300 hover:border-yellow-400 font-black text-xs flex items-center justify-center gap-2 shadow-xs"

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Product, Ingredient, BurgerUnitConfig, OrderItem } from '../../data/mockData';
-import { getExtraPrice } from '../../utils/burgerPricing';
+import { Product, Ingredient, BurgerUnitConfig, OrderItem, HalfDetails } from '../../data/mockData';
+import { getIngredientExtraPrice } from '../../utils/pizzaPricing';
 import { roundCOP } from '../../utils/currencyRounding';
-import { getCleanItemNote, normalizeProteinName, areProteinsDefault, formatRemovedIngredients, getProteinIcon } from '../../utils/burgerProteins';
+import { getCleanItemNote } from '../../utils/burgerProteins';
 import {
   IoClose,
   IoAdd,
@@ -16,198 +16,34 @@ import {
   IoRefreshOutline,
 } from 'react-icons/io5';
 
+// Constantes y fallbacks de compatibilidad
 export const AVAILABLE_BURGER_PROTEINS = [
-  { id: 'novillo', name: 'CARNE DE NOVILLO', icon: '🥩' },
-  { id: 'pollo_crispy', name: 'POLLO CRISPY', icon: '🍗' },
-  { id: 'pollo_plancha', name: 'PECHUGA DE POLLO A LA PLANCHA', icon: '🍳' },
-  { id: 'chuleta', name: 'CHULETA DE CERDO AHUMADA', icon: '🥓' },
-  { id: 'mechada', name: 'CARNE MECHADA', icon: '🍲' },
-  { id: 'smash', name: 'SMASH DE CARNE', icon: '🍔' },
+  { id: 'queso_mozzarella', name: 'QUESO MOZZARELLA', icon: '🧀' },
+  { id: 'pepperoni', name: 'PEPPERONI', icon: '🍕' },
+  { id: 'jamon', name: 'JAMÓN', icon: '🥓' },
+  { id: 'tocineta', name: 'TOCINETA', icon: '🥓' },
+  { id: 'pollo', name: 'POLLO', icon: '🍗' },
+  { id: 'lomito', name: 'LOMITO', icon: '🥩' },
 ];
 
-export const STRICT_FREE_TOPPINGS = [
-  { id: 'free-jalapenos', name: 'Jalapeños Picantes' },
-  { id: 'free-cebolla-caram', name: 'Cebolla Caramelizada' },
-  { id: 'free-sweet-relish', name: 'Sweet Relish' },
-  { id: 'free-maiz', name: 'Maíz' },
-  { id: 'free-pepinillos', name: 'Pepinillos' },
-];
+export const STRICT_FREE_TOPPINGS: { id: string; name: string }[] = [];
 
-const DEFAULT_BURGER_BASE_INGREDIENTS = [
-  'Pan Brioche',
-  'Queso Cheddar',
-  'Lechuga',
-  'Tomate',
-  'Cebolla',
-  'Salsa Crispy Especial',
-];
-
-const getInitialProteins = (
-  burger: Product,
-  dbProteins: { id: string; name: string; icon: string }[] = AVAILABLE_BURGER_PROTEINS
-): string[] => {
-  const count = burger.proteinCount !== undefined && burger.proteinCount !== null ? burger.proteinCount : 1;
-  const nameLower = (burger.name || '').toLowerCase();
-  const descLower = (burger.description || '').toLowerCase();
-
-  if (count === 0 || nameLower.includes('papas') || nameLower.includes('nuggets')) {
-    return [];
-  }
-
-  // Si el producto tiene defaultProteins configuradas en la BD, resolverlas con dbProteins
-  if (burger.defaultProteins && Array.isArray(burger.defaultProteins) && burger.defaultProteins.length > 0) {
-    return burger.defaultProteins.map((dp) => {
-      const match = dbProteins.find(
-        (p) =>
-          p.name.toUpperCase() === String(dp || '').toUpperCase() ||
-          normalizeProteinName(p.name) === normalizeProteinName(dp)
-      );
-      return match ? match.name : String(dp || '').toUpperCase();
-    });
-  }
-
-  // Fallback si no hay defaultProteins explícitos: buscar la proteína que coincida en la BD
-  const findProtein = (keyword: string) =>
-    dbProteins.find(
-      (p) =>
-        p.name.toLowerCase().includes(keyword) ||
-        normalizeProteinName(p.name).includes(keyword)
-    )?.name;
-
-  const novillo = findProtein('novillo') || findProtein('carne') || findProtein('res') || dbProteins[0]?.name || 'CARNE DE NOVILLO';
-  const polloCrispy = findProtein('crispy') || findProtein('pollo') || novillo;
-  const chuleta = findProtein('chuleta') || findProtein('cerdo') || findProtein('pork') || novillo;
-  const smash = findProtein('smash') || novillo;
-  const mechada = findProtein('mechada') || findProtein('street') || novillo;
-  const plancha = findProtein('plancha') || findProtein('pechuga') || findProtein('grill') || polloCrispy;
-
-  if (nameLower.includes('3.0') || nameLower.includes('triple') || count === 3) {
-    return [novillo, polloCrispy, chuleta];
-  }
-  if (nameLower.includes('mixtura')) {
-    return [novillo, polloCrispy];
-  }
-  if (nameLower.includes('house')) {
-    return [polloCrispy, chuleta];
-  }
-  if (nameLower.includes('super smash') || nameLower.includes('tasty')) {
-    return [smash, smash];
-  }
-  if (nameLower.includes('doble') || count === 2) {
-    return [novillo, novillo];
-  }
-  if (nameLower.includes('mr pork') || descLower.includes('chuleta')) {
-    return [chuleta];
-  }
-  if (nameLower.includes('street') || descLower.includes('mechada')) {
-    return [mechada];
-  }
-  if (nameLower.includes('chicken grill') || descLower.includes('plancha')) {
-    return [plancha];
-  }
-  if (nameLower.includes('crispy') || descLower.includes('pollo')) {
-    return [polloCrispy];
-  }
-  return [novillo];
-};
-
-const createInitialUnitConfig = (
-  unitIndex: number,
-  burger: Product,
-  defaultTakeaway: boolean,
-  defaultDelivery: boolean = false,
-  dbProteins: { id: string; name: string; icon: string }[] = AVAILABLE_BURGER_PROTEINS
-): BurgerUnitConfig => ({
-  unitIndex,
-  proteins: getInitialProteins(burger, dbProteins),
-  removedIngredients: [],
-  selectedFreeToppings: [],
-  selectedPaidExtras: [],
-  isTakeaway: defaultTakeaway && !defaultDelivery,
-  isDelivery: defaultDelivery,
-  isCut: false,
-  cutPreference: 'Entera',
-  notes: '',
-  subtotalUSD: burger.price,
-});
-
-const createEditUnitConfig = (
-  unitIndex: number,
-  burger: Product,
-  item: OrderItem,
-  dbProteins: { id: string; name: string; icon: string }[] = AVAILABLE_BURGER_PROTEINS
-): BurgerUnitConfig => {
-  const allExtras = Array.isArray(item.extras) ? item.extras : [];
-  const freeTops = allExtras
-    .filter((e) => Number(e.price) === 0)
-    .map((e) => (e.name || '').replace(/\s*\(GRATIS\)\s*/gi, '').trim())
-    .filter(Boolean);
-  const paidExtras = allExtras
-    .filter((e) => Number(e.price) > 0)
-    .map((e) => {
-      const cleanName = (e.name || '').replace(/^\+?\s*(ADD|EXTRA):?\s*/i, '').trim();
-      const match = cleanName.match(/^(\d+)x\s*(.*)$/i);
-      const quantity = e.quantity || (match ? parseInt(match[1], 10) : 1);
-      const name = match ? match[2].trim() : cleanName;
-      const totalPrice = Number(e.price);
-      const unitPrice = e.unitPrice || (quantity > 0 ? totalPrice / quantity : totalPrice);
-      return {
-        name,
-        price: totalPrice,
-        unitPrice,
-        quantity,
-      };
-    });
-
-  const paidExtrasTotal = paidExtras.reduce((sum, e) => sum + e.price, 0);
-
-  return {
-    unitIndex,
-    proteins: item.proteins && item.proteins.length > 0 ? item.proteins : getInitialProteins(burger, dbProteins),
-    removedIngredients: item.removedIngredients || [],
-    selectedFreeToppings: freeTops,
-    selectedPaidExtras: paidExtras,
-    isTakeaway: !!item.isTakeaway && !item.isDelivery,
-    isDelivery: !!item.isDelivery,
-    isCut: !!item.isCut || item.cutPreference === 'Picada',
-    cutPreference: item.cutPreference || (item.isCut ? 'Picada' : 'Entera'),
-    notes: getCleanItemNote(item.notes) || '',
-    subtotalUSD: (burger.price || item.price || 0) + paidExtrasTotal,
-  };
-};
-
-function areUnitsIdentical(a: BurgerUnitConfig, b: BurgerUnitConfig): boolean {
-  if (Boolean(a.isTakeaway) !== Boolean(b.isTakeaway)) return false;
-  if (Boolean(a.isDelivery) !== Boolean(b.isDelivery)) return false;
-  if (a.isCut !== b.isCut) return false;
-  if (a.cutPreference !== b.cutPreference) return false;
-  if (getCleanItemNote(a.notes) !== getCleanItemNote(b.notes)) return false;
-
-  const aProt = [...(a.proteins || [])].map(normalizeProteinName).sort().join('|');
-  const bProt = [...(b.proteins || [])].map(normalizeProteinName).sort().join('|');
-  if (aProt !== bProt) return false;
-
-  const aRem = [...a.removedIngredients].sort().join('|');
-  const bRem = [...b.removedIngredients].sort().join('|');
-  if (aRem !== bRem) return false;
-
-  const aFree = [...a.selectedFreeToppings].sort().join('|');
-  const bFree = [...b.selectedFreeToppings].sort().join('|');
-  if (aFree !== bFree) return false;
-
-  const aPaid = (a.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
-  const bPaid = (b.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
-  if (aPaid !== bPaid) return false;
-
-  return true;
+export interface PizzaHalfDetail {
+  flavor: string;
+  baseIngredients: string[];
+  removedIngredients: string[];
+  selectedPaidExtras: { name: string; price: number; quantity?: number; unitPrice?: number; category?: string }[];
 }
 
 export interface BurgerOrderConfirmationItem {
   burger: Product;
   quantity: number;
+  size: 'Grande' | 'Pequeña';
+  isHalfHalf: boolean;
+  halfDetails?: HalfDetails;
   proteins?: string[];
   removedIngredients: string[];
-  extras: Array<{ name: string; price: number; quantity?: number; unitPrice?: number }>;
+  extras: Array<{ name: string; price: number; quantity?: number; unitPrice?: number; category?: string }>;
   isTakeaway: boolean;
   isDelivery?: boolean;
   isCut: boolean;
@@ -221,6 +57,7 @@ interface BurgerBuilderModalProps {
   availableExtras: Ingredient[];
   availableProteins?: Ingredient[];
   availableFreeToppings?: Ingredient[];
+  availablePizzas?: Product[];
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (config: BurgerOrderConfirmationItem | BurgerOrderConfirmationItem[]) => void;
@@ -231,11 +68,219 @@ interface BurgerBuilderModalProps {
   initialEditItem?: OrderItem | null;
 }
 
+/**
+ * Obtiene el precio base de una pizza según su tamaño.
+ */
+function getPizzaBasePrice(product: Product, size: 'Grande' | 'Pequeña'): number {
+  if (size === 'Pequeña') {
+    if (product.priceSmall !== undefined && product.priceSmall !== null && Number(product.priceSmall) > 0) {
+      return Number(product.priceSmall);
+    }
+    const largePrice = Number(product.price) || 0;
+    return largePrice > 4 ? largePrice - 4 : Number((largePrice * 0.6).toFixed(2));
+  }
+  return Number(product.price) || 0;
+}
+
+/**
+ * Recalcula dinámicamente los precios de los adicionales al cambiar de tamaño o mitad
+ */
+function recalculateExtrasForSize(
+  extras: { name: string; price: number; quantity?: number; unitPrice?: number }[],
+  newSize: 'Grande' | 'Pequeña',
+  isHalf: boolean,
+  availableExtras: Ingredient[]
+) {
+  return extras.map((e) => {
+    const ing = availableExtras.find(
+      (a) => a.name.toLowerCase().trim() === e.name.toLowerCase().trim()
+    );
+    const unitPrice = getIngredientExtraPrice(ing, newSize, isHalf);
+    const quantity = e.quantity || 1;
+    return {
+      name: e.name,
+      unitPrice,
+      price: unitPrice * quantity,
+      quantity,
+    };
+  });
+}
+
+/**
+ * Crea la configuración inicial de una pizza
+ */
+const createInitialUnitConfig = (
+  unitIndex: number,
+  burger: Product,
+  defaultTakeaway: boolean,
+  defaultDelivery: boolean = false,
+  availablePizzas: Product[] = []
+): BurgerUnitConfig => {
+  const isMorningItem = burger.shift === 'manana' || (!burger.category?.toLowerCase().includes('pizza') && burger.shift !== 'noche');
+  const initialSize: 'Grande' | 'Pequeña' = 'Grande';
+  const otherPizza = availablePizzas.find((p) => p.id !== burger.id && (p.category || '').toLowerCase().includes('pizza')) || burger;
+  const baseIngredients = burger.baseIngredients && burger.baseIngredients.length > 0
+    ? burger.baseIngredients
+    : (isMorningItem ? [] : ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano']);
+
+  const otherBaseIngredients = otherPizza.baseIngredients && otherPizza.baseIngredients.length > 0
+    ? otherPizza.baseIngredients
+    : ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano'];
+
+  return {
+    unitIndex,
+    size: initialSize,
+    isHalfHalf: false,
+    removedIngredients: [],
+    selectedPaidExtras: [],
+    half1: {
+      flavor: burger.name,
+      baseIngredients: [...baseIngredients],
+      removedIngredients: [],
+      selectedPaidExtras: [],
+    },
+    half2: {
+      flavor: otherPizza.name,
+      baseIngredients: [...otherBaseIngredients],
+      removedIngredients: [],
+      selectedPaidExtras: [],
+    },
+    activeHalf: 0,
+    isTakeaway: defaultTakeaway && !defaultDelivery,
+    isDelivery: defaultDelivery,
+    isCut: false,
+    cutPreference: 'Entera',
+    notes: '',
+    subtotalUSD: isMorningItem ? (Number(burger.price) || 0) : getPizzaBasePrice(burger, initialSize),
+    proteins: [],
+    selectedFreeToppings: [],
+  };
+};
+
+/**
+ * Crea la configuración a partir de un ítem existente a editar
+ */
+const createEditUnitConfig = (
+  unitIndex: number,
+  burger: Product,
+  item: OrderItem,
+  availablePizzas: Product[] = []
+): BurgerUnitConfig => {
+  const initialSize: 'Grande' | 'Pequeña' = (item.size as 'Grande' | 'Pequeña') || 'Grande';
+  const isHalfHalf = Boolean(item.isHalfHalf);
+
+  const allExtras = Array.isArray(item.extras) ? item.extras : [];
+  const paidExtras = allExtras
+    .filter((e) => Number(e.price) > 0)
+    .map((e) => {
+      const cleanName = (e.name || '').replace(/^\+?\s*(ADD|EXTRA):?\s*/i, '').trim();
+      const match = cleanName.match(/^(\d+)x\s*(.*)$/i);
+      const quantity = e.quantity || (match ? parseInt(match[1], 10) : 1);
+      const name = match ? match[2].trim() : cleanName;
+      const totalPrice = Number(e.price);
+      const unitPrice = e.unitPrice || (quantity > 0 ? totalPrice / quantity : totalPrice);
+      return { name, price: totalPrice, unitPrice, quantity };
+    });
+
+  const h1Name = item.halfDetails?.half1Name || burger.name;
+  const p1 = availablePizzas.find((p) => p.name.toUpperCase() === h1Name.toUpperCase()) || burger;
+
+  const h2Name = item.halfDetails?.half2Name || availablePizzas.find((p) => p.id !== burger.id)?.name || burger.name;
+  const p2 = availablePizzas.find((p) => p.name.toUpperCase() === h2Name.toUpperCase()) || p1;
+
+  const h1Extras = (item.halfDetails?.half1Extras || []).map((e) => ({
+    name: e.name,
+    price: Number(e.price) || 0,
+    unitPrice: e.unitPrice || (Number(e.price) || 0),
+    quantity: e.quantity || 1,
+  }));
+
+  const h2Extras = (item.halfDetails?.half2Extras || []).map((e) => ({
+    name: e.name,
+    price: Number(e.price) || 0,
+    unitPrice: e.unitPrice || (Number(e.price) || 0),
+    quantity: e.quantity || 1,
+  }));
+
+  const baseIngredients = burger.baseIngredients && burger.baseIngredients.length > 0
+    ? burger.baseIngredients
+    : ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano'];
+
+  return {
+    unitIndex,
+    size: initialSize,
+    isHalfHalf,
+    removedIngredients: item.removedIngredients || [],
+    selectedPaidExtras: isHalfHalf ? [] : paidExtras,
+    half1: {
+      flavor: h1Name,
+      baseIngredients: p1.baseIngredients || baseIngredients,
+      removedIngredients: item.halfDetails?.half1Removed || [],
+      selectedPaidExtras: h1Extras,
+    },
+    half2: {
+      flavor: h2Name,
+      baseIngredients: p2.baseIngredients || baseIngredients,
+      removedIngredients: item.halfDetails?.half2Removed || [],
+      selectedPaidExtras: h2Extras,
+    },
+    activeHalf: 0,
+    isTakeaway: !!item.isTakeaway && !item.isDelivery,
+    isDelivery: !!item.isDelivery,
+    isCut: !!item.isCut || item.cutPreference === 'Picada',
+    cutPreference: item.cutPreference || (item.isCut ? 'Picada' : 'Entera'),
+    notes: getCleanItemNote(item.notes) || '',
+    subtotalUSD: item.price || burger.price || 0,
+    proteins: [],
+    selectedFreeToppings: [],
+  };
+};
+
+function areUnitsIdentical(a: BurgerUnitConfig, b: BurgerUnitConfig): boolean {
+  if (a.size !== b.size) return false;
+  if (Boolean(a.isHalfHalf) !== Boolean(b.isHalfHalf)) return false;
+  if (Boolean(a.isTakeaway) !== Boolean(b.isTakeaway)) return false;
+  if (Boolean(a.isDelivery) !== Boolean(b.isDelivery)) return false;
+  if (a.isCut !== b.isCut) return false;
+  if (a.cutPreference !== b.cutPreference) return false;
+  if (getCleanItemNote(a.notes) !== getCleanItemNote(b.notes)) return false;
+
+  if (!a.isHalfHalf) {
+    const aRem = [...a.removedIngredients].sort().join('|');
+    const bRem = [...b.removedIngredients].sort().join('|');
+    if (aRem !== bRem) return false;
+
+    const aPaid = (a.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
+    const bPaid = (b.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
+    if (aPaid !== bPaid) return false;
+  } else {
+    if (a.half1?.flavor !== b.half1?.flavor) return false;
+    if (a.half2?.flavor !== b.half2?.flavor) return false;
+
+    const aH1Rem = [...(a.half1?.removedIngredients || [])].sort().join('|');
+    const bH1Rem = [...(b.half1?.removedIngredients || [])].sort().join('|');
+    if (aH1Rem !== bH1Rem) return false;
+
+    const aH2Rem = [...(a.half2?.removedIngredients || [])].sort().join('|');
+    const bH2Rem = [...(b.half2?.removedIngredients || [])].sort().join('|');
+    if (aH2Rem !== bH2Rem) return false;
+
+    const aH1Paid = (a.half1?.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
+    const bH1Paid = (b.half1?.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
+    if (aH1Paid !== bH1Paid) return false;
+
+    const aH2Paid = (a.half2?.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
+    const bH2Paid = (b.half2?.selectedPaidExtras || []).map((e) => `${e.name}:${e.quantity || 1}:${e.price}`).sort().join('|');
+    if (aH2Paid !== bH2Paid) return false;
+  }
+
+  return true;
+}
+
 export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
   burger,
   availableExtras,
-  availableProteins,
-  availableFreeToppings,
+  availablePizzas = [],
   isOpen,
   onClose,
   onConfirm,
@@ -247,104 +292,66 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
 }) => {
   const [units, setUnits] = useState<BurgerUnitConfig[]>([]);
   const [activeUnitIndex, setActiveUnitIndex] = useState<number>(0);
-  const [showProteinas, setShowProteinas] = useState<boolean>(false);
-  const [showAdicionales, setShowAdicionales] = useState<boolean>(false);
+  const [showExtrasPanel, setShowExtrasPanel] = useState<boolean>(false);
+  const [showHalfExtrasPanel, setShowHalfExtrasPanel] = useState<boolean>(false);
   const [copyToast, setCopyToast] = useState<string>('');
 
-  // Sincronizar proteínas disponibles dinámicas de la base de datos
-  const effectiveProteins = useMemo(() => {
-    if (availableProteins && availableProteins.length > 0) {
-      return availableProteins.map((ing) => ({
-        id: ing.id,
-        name: ing.name,
-        icon: getProteinIcon(ing.name),
-      }));
+  // Catálogo completo de pizzas disponibles para selección de sabores en Mitad y Mitad
+  const effectivePizzas = useMemo(() => {
+    if (availablePizzas && availablePizzas.length > 0) {
+      return availablePizzas;
     }
-    return AVAILABLE_BURGER_PROTEINS;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableProteins ? availableProteins.map((p) => `${p.id}:${p.name}`).join('|') : '']);
+    return burger ? [burger] : [];
+  }, [availablePizzas, burger]);
 
-  // Ref para controlar que la inicialización de unidades solo ocurra al abrir el modal o cambiar de hamburguesa/edición
-  // Esto previene que re-renders del padre o eventos Socket.IO deseleccionen ingredientes
-  const activeBurgerIdRef = React.useRef<string | null>(null);
+  // Ref de control para inicialización
+  const activePizzaIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     if (isOpen && burger) {
       const activeKey = initialEditItem ? `edit-${initialEditItem.id}` : `create-${burger.id}`;
-      if (activeBurgerIdRef.current !== activeKey) {
-        activeBurgerIdRef.current = activeKey;
+      if (activePizzaIdRef.current !== activeKey) {
+        activePizzaIdRef.current = activeKey;
         if (initialEditItem) {
           const qty = Math.max(1, initialEditItem.quantity || 1);
           const editUnits: BurgerUnitConfig[] = [];
           for (let i = 0; i < qty; i++) {
-            editUnits.push(createEditUnitConfig(i, burger, initialEditItem, effectiveProteins));
+            editUnits.push(createEditUnitConfig(i, burger, initialEditItem, effectivePizzas));
           }
           setUnits(editUnits);
         } else {
-          setUnits([createInitialUnitConfig(0, burger, defaultTakeaway, defaultDelivery, effectiveProteins)]);
+          setUnits([createInitialUnitConfig(0, burger, defaultTakeaway, defaultDelivery, effectivePizzas)]);
         }
         setActiveUnitIndex(0);
-        setShowProteinas(false);
-        setShowAdicionales(false);
         setCopyToast('');
       }
     } else if (!isOpen) {
-      activeBurgerIdRef.current = null;
+      activePizzaIdRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, burger?.id, initialEditItem?.id]);
+  }, [isOpen, burger?.id, initialEditItem?.id, effectivePizzas]);
 
-  // Lista dinámica de Toppings Gratis (leídos desde la BD vía availableFreeToppings o filtrados de availableExtras, con fallback seguro)
-  const freeToppingsList = useMemo(() => {
-    let list: Ingredient[] = [];
-    if (availableFreeToppings && availableFreeToppings.length > 0) {
-      list = availableFreeToppings;
-    } else if (availableExtras && availableExtras.length > 0) {
-      list = availableExtras.filter(
-        (i) => i.ingredientType === 'gratis' || i.category?.toLowerCase() === 'gratis'
-      );
-    }
+  const isMorning = Boolean(
+    burger?.shift === 'manana' ||
+    (burger?.category && ['ENTRADAS', 'PASTAS', 'ESPECIALIDADES'].includes(burger.category.toUpperCase())) ||
+    (!burger?.category?.toLowerCase().includes('pizza') && burger?.shift !== 'noche')
+  );
 
-    if (list.length > 0) {
-      return list.map((ing) => ({
-        id: ing.id,
-        // Limpiar sufijo "(GRATIS)" para la etiqueta visual de los botones
-        name: ing.name.replace(/\s*\(GRATIS\)\s*/gi, '').trim(),
-        rawName: ing.name,
-      }));
-    }
-
-    return STRICT_FREE_TOPPINGS.map((t) => ({ ...t, rawName: t.name }));
-  }, [availableFreeToppings, availableExtras]);
-
-  // Lista de Adicionales Pagos (excluyendo cualquier adicional gratis de la BD para evitar duplicados)
+  // Lista de adicionales pagos válidos (contornos para turno mañana, toppings para pizza en la noche)
   const paidExtrasList = useMemo(() => {
-    const freeNames = freeToppingsList.map((t) => t.name.toLowerCase().trim());
-    const freeRawNames = freeToppingsList.map((t) => (t.rawName || t.name).toLowerCase().trim());
-    const freeIds = freeToppingsList.map((t) => t.id.toLowerCase());
-
+    if (isMorning) {
+      return availableExtras.filter((extra) => {
+        const isNotGratis = extra.ingredientType !== 'gratis' && extra.category?.toLowerCase() !== 'gratis';
+        const isContorno = extra.category?.toUpperCase() === 'CONTORNOS' || extra.shift === 'manana';
+        return isNotGratis && (isContorno || (!extra.shift && extra.category?.toUpperCase() !== 'PIZZA'));
+      });
+    }
     return availableExtras.filter((extra) => {
-      const extraId = (extra.id || '').toLowerCase();
-      const extraName = (extra.name || '').toLowerCase().trim();
-      const cleanExtraName = extraName.replace(/\s*\(gratis\)\s*/gi, '').trim();
-      const price = getExtraPrice(extra);
-
-      // Excluir si es tipo gratis o categoría gratis
-      if (extra.ingredientType === 'gratis' || extra.category?.toLowerCase() === 'gratis') {
-        return false;
-      }
-      if (freeIds.includes(extraId)) return false;
-      if (freeNames.includes(cleanExtraName) || freeRawNames.includes(extraName)) return false;
-
-      return price >= 0;
+      const isExtraAllowed = extra.isExtraForPizza !== false && extra.isExtra !== false && extra.shift !== 'manana';
+      const isNotGratis = extra.ingredientType !== 'gratis' && extra.category?.toLowerCase() !== 'gratis';
+      return isExtraAllowed && isNotGratis;
     });
-  }, [availableExtras, freeToppingsList]);
-
-  // Proteínas predeterminadas de la receta original
-  const defaultRecipeProteins = useMemo(() => {
-    if (!burger) return [];
-    return getInitialProteins(burger, effectiveProteins);
-  }, [burger, effectiveProteins]);
+  }, [availableExtras, isMorning]);
 
   if (!isOpen || !burger || units.length === 0) return null;
 
@@ -357,7 +364,86 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
     );
   };
 
-  // Manejo de Cantidad
+  // Alternar tamaño de la pizza (Grande <-> Pequeña) y recalcular todos sus adicionales
+  const handleToggleSize = (newSize: 'Grande' | 'Pequeña') => {
+    if (currentUnit.size === newSize) return;
+    updateCurrentUnit((prev) => {
+      const updatedCompletaExtras = recalculateExtrasForSize(
+        prev.selectedPaidExtras,
+        newSize,
+        false,
+        availableExtras
+      );
+      const updatedH1Extras = recalculateExtrasForSize(
+        prev.half1?.selectedPaidExtras || [],
+        newSize,
+        true,
+        availableExtras
+      );
+      const updatedH2Extras = recalculateExtrasForSize(
+        prev.half2?.selectedPaidExtras || [],
+        newSize,
+        true,
+        availableExtras
+      );
+
+      return {
+        ...prev,
+        size: newSize,
+        selectedPaidExtras: updatedCompletaExtras,
+        half1: {
+          ...prev.half1!,
+          selectedPaidExtras: updatedH1Extras,
+        },
+        half2: {
+          ...prev.half2!,
+          selectedPaidExtras: updatedH2Extras,
+        },
+      };
+    });
+  };
+
+  // Alternar formato (Completa <-> Mitad y Mitad)
+  const handleToggleFormat = (isHalf: boolean) => {
+    if (currentUnit.isHalfHalf === isHalf) return;
+    updateCurrentUnit((prev) => {
+      if (isHalf) {
+        // Al pasar a Mitad y Mitad:
+        // La 1ra mitad hereda la configuración de la pizza completa si estaba vacía
+        const h1Extras = prev.half1?.selectedPaidExtras.length
+          ? prev.half1.selectedPaidExtras
+          : recalculateExtrasForSize(prev.selectedPaidExtras, prev.size || 'Grande', true, availableExtras);
+
+        return {
+          ...prev,
+          isHalfHalf: true,
+          activeHalf: 0,
+          half1: {
+            flavor: prev.half1?.flavor || burger.name,
+            baseIngredients: prev.half1?.baseIngredients || burger.baseIngredients || ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano'],
+            removedIngredients: prev.half1?.removedIngredients.length ? prev.half1.removedIngredients : [...prev.removedIngredients],
+            selectedPaidExtras: h1Extras,
+          },
+        };
+      } else {
+        // Al pasar a Completa:
+        const completaExtras = recalculateExtrasForSize(
+          prev.half1?.selectedPaidExtras || prev.selectedPaidExtras,
+          prev.size || 'Grande',
+          false,
+          availableExtras
+        );
+        return {
+          ...prev,
+          isHalfHalf: false,
+          selectedPaidExtras: completaExtras,
+          removedIngredients: prev.half1?.removedIngredients || prev.removedIngredients,
+        };
+      }
+    });
+  };
+
+  // Manejo de Cantidad de Pizzas
   const handleIncreaseQuantity = () => {
     setUnits((prev) => {
       const nextIndex = prev.length;
@@ -365,14 +451,23 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
       const newUnit: BurgerUnitConfig = {
         ...source,
         unitIndex: nextIndex,
-        proteins: [...source.proteins],
         removedIngredients: [...source.removedIngredients],
-        selectedFreeToppings: [...source.selectedFreeToppings],
         selectedPaidExtras: source.selectedPaidExtras.map((e) => ({ ...e })),
+        half1: {
+          ...source.half1!,
+          baseIngredients: [...source.half1!.baseIngredients],
+          removedIngredients: [...source.half1!.removedIngredients],
+          selectedPaidExtras: source.half1!.selectedPaidExtras.map((e) => ({ ...e })),
+        },
+        half2: {
+          ...source.half2!,
+          baseIngredients: [...source.half2!.baseIngredients],
+          removedIngredients: [...source.half2!.removedIngredients],
+          selectedPaidExtras: source.half2!.selectedPaidExtras.map((e) => ({ ...e })),
+        },
       };
       return [...prev, newUnit];
     });
-    // Cambiar automáticamente a la nueva unidad para que el usuario pueda personalizarla si desea
     setActiveUnitIndex(units.length);
   };
 
@@ -395,172 +490,268 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
           : {
               ...active,
               unitIndex: idx,
-              proteins: [...active.proteins],
               removedIngredients: [...active.removedIngredients],
-              selectedFreeToppings: [...active.selectedFreeToppings],
               selectedPaidExtras: active.selectedPaidExtras.map((e) => ({ ...e })),
+              half1: {
+                ...active.half1!,
+                baseIngredients: [...active.half1!.baseIngredients],
+                removedIngredients: [...active.half1!.removedIngredients],
+                selectedPaidExtras: active.half1!.selectedPaidExtras.map((e) => ({ ...e })),
+              },
+              half2: {
+                ...active.half2!,
+                baseIngredients: [...active.half2!.baseIngredients],
+                removedIngredients: [...active.half2!.removedIngredients],
+                selectedPaidExtras: active.half2!.selectedPaidExtras.map((e) => ({ ...e })),
+              },
             }
       )
     );
-    setCopyToast(`¡Personalización de #${activeUnitIndex + 1} copiada a las ${units.length} hamburguesas!`);
+    setCopyToast(`¡Personalización de #${activeUnitIndex + 1} copiada a las ${units.length} pizzas!`);
     setTimeout(() => setCopyToast(''), 2500);
   };
 
   // Resetear unidad activa a valores iniciales
   const handleResetCurrentUnit = () => {
     if (!burger) return;
-    const fresh = createInitialUnitConfig(activeUnitIndex, burger, defaultTakeaway, defaultDelivery, effectiveProteins);
+    const fresh = createInitialUnitConfig(activeUnitIndex, burger, defaultTakeaway, defaultDelivery, effectivePizzas);
     updateCurrentUnit(() => fresh);
-    setCopyToast(`Hamburguesa #${activeUnitIndex + 1} restablecida a su receta base.`);
+    setCopyToast(`Pizza #${activeUnitIndex + 1} restablecida a su receta base.`);
     setTimeout(() => setCopyToast(''), 2000);
   };
 
-  // Base ingredients for this burger, filtrando proteínas porque las proteínas tienen su propio selector
-  const rawBaseIngredients =
-    burger.baseIngredients && burger.baseIngredients.length > 0
-      ? burger.baseIngredients
-      : DEFAULT_BURGER_BASE_INGREDIENTS;
-
-  const isProteinName = (name: string) =>
-    /carne|pollo|chuleta|mechada|smash|res|novillo|pechuga|proteina|proteína/i.test(name);
-
-  const customizableBaseIngredients = rawBaseIngredients.filter((ing) => !isProteinName(ing));
-
-  const toggleRemoveBase = (ingName: string) => {
+  // Manejo de Sabor para Mitades en Mitad y Mitad
+  const handleSelectHalfFlavor = (halfIndex: 0 | 1, pizza: Product) => {
     updateCurrentUnit((prev) => {
-      const alreadyRemoved = prev.removedIngredients.some(
-        (i) => i.toLowerCase().trim() === ingName.toLowerCase().trim()
-      );
+      const targetHalfKey = halfIndex === 0 ? 'half1' : 'half2';
+      const existingHalf = prev[targetHalfKey]!;
+      const baseIngredients = pizza.baseIngredients && pizza.baseIngredients.length > 0
+        ? pizza.baseIngredients
+        : ['Salsa de Tomate', 'Queso Mozzarella', 'Orégano'];
+
       return {
         ...prev,
-        removedIngredients: alreadyRemoved
-          ? prev.removedIngredients.filter(
-              (i) => i.toLowerCase().trim() !== ingName.toLowerCase().trim()
-            )
-          : [...prev.removedIngredients, ingName],
+        [targetHalfKey]: {
+          ...existingHalf,
+          flavor: pizza.name,
+          baseIngredients: [...baseIngredients],
+          removedIngredients: [], // Reiniciar exclusiones para la nueva receta
+        },
       };
     });
   };
 
-  const isAllVegetablesRemoved =
-    currentUnit.removedIngredients.some((i) => /lechuga/i.test(i)) &&
-    currentUnit.removedIngredients.some((i) => /tomate/i.test(i)) &&
-    currentUnit.removedIngredients.some((i) => /cebolla/i.test(i));
-
-  const toggleAllVegetables = () => {
+  // Toggle para remover ingredientes base ("SIN ...")
+  const toggleRemoveBase = (ingName: string, halfIndex?: 0 | 1) => {
     updateCurrentUnit((prev) => {
-      const isAll =
-        prev.removedIngredients.some((i) => /lechuga/i.test(i)) &&
-        prev.removedIngredients.some((i) => /tomate/i.test(i)) &&
-        prev.removedIngredients.some((i) => /cebolla/i.test(i));
-      if (isAll) {
+      if (prev.isHalfHalf && halfIndex !== undefined) {
+        const targetHalfKey = halfIndex === 0 ? 'half1' : 'half2';
+        const targetHalf = prev[targetHalfKey]!;
+        const alreadyRemoved = targetHalf.removedIngredients.some(
+          (i) => i.toLowerCase().trim() === ingName.toLowerCase().trim()
+        );
+        const updatedRemoved = alreadyRemoved
+          ? targetHalf.removedIngredients.filter((i) => i.toLowerCase().trim() !== ingName.toLowerCase().trim())
+          : [...targetHalf.removedIngredients, ingName];
+
         return {
           ...prev,
-          removedIngredients: prev.removedIngredients.filter(
-            (i) => !/lechuga|tomate|cebolla/i.test(i)
-          ),
+          [targetHalfKey]: {
+            ...targetHalf,
+            removedIngredients: updatedRemoved,
+          },
         };
       } else {
-        const base = prev.removedIngredients.filter(
-          (i) => !/lechuga|tomate|cebolla/i.test(i)
+        const alreadyRemoved = prev.removedIngredients.some(
+          (i) => i.toLowerCase().trim() === ingName.toLowerCase().trim()
         );
-        // Garantizar que los 3 vegetales (Lechuga, Tomate, Cebolla) se incluyan exactamente
-        // con el nombre que tengan en la receta base (o fallback a mayúsculas)
-        const findVegName = (regex: RegExp, fallback: string) => {
-          const found = customizableBaseIngredients.find((ing) => regex.test(ing));
-          return found || fallback;
-        };
-        const vegNames = [
-          findVegName(/lechuga/i, 'LECHUGA'),
-          findVegName(/tomate/i, 'TOMATE'),
-          findVegName(/cebolla/i, 'CEBOLLA'),
-        ];
+        const updatedRemoved = alreadyRemoved
+          ? prev.removedIngredients.filter((i) => i.toLowerCase().trim() !== ingName.toLowerCase().trim())
+          : [...prev.removedIngredients, ingName];
+
         return {
           ...prev,
-          removedIngredients: [...base, ...vegNames],
+          removedIngredients: updatedRemoved,
         };
       }
     });
   };
 
-  const toggleFreeTopping = (toppingName: string) => {
-    updateCurrentUnit((prev) => ({
-      ...prev,
-      selectedFreeToppings: prev.selectedFreeToppings.includes(toppingName)
-        ? prev.selectedFreeToppings.filter((t) => t !== toppingName)
-        : [...prev.selectedFreeToppings, toppingName],
-    }));
-  };
+  // Toggle de Adicional con Costo (+ ADD / CONTORNO)
+  const togglePaidExtra = (extraIng: Ingredient, halfIndex?: 0 | 1) => {
+    const isHalf = Boolean(currentUnit.isHalfHalf);
+    const unitPrice = isMorning
+      ? (Number(extraIng.priceUSD) || 1.0)
+      : getIngredientExtraPrice(extraIng, currentUnit.size, isHalf);
 
-  const togglePaidExtra = (extraIng: Ingredient) => {
-    const unitPrice = getExtraPrice(extraIng);
     updateCurrentUnit((prev) => {
-      const existingIndex = prev.selectedPaidExtras.findIndex(
-        (e) => e.name.toLowerCase().trim() === extraIng.name.toLowerCase().trim()
-      );
+      if (prev.isHalfHalf && halfIndex !== undefined) {
+        const targetHalfKey = halfIndex === 0 ? 'half1' : 'half2';
+        const targetHalf = prev[targetHalfKey]!;
+        const existingIndex = targetHalf.selectedPaidExtras.findIndex(
+          (e) => e.name.toLowerCase().trim() === extraIng.name.toLowerCase().trim()
+        );
 
-      if (existingIndex === -1) {
+        if (existingIndex === -1) {
+          return {
+            ...prev,
+            [targetHalfKey]: {
+              ...targetHalf,
+              selectedPaidExtras: [
+                ...targetHalf.selectedPaidExtras,
+                { name: extraIng.name, price: unitPrice, unitPrice, quantity: 1, category: extraIng.category },
+              ],
+            },
+          };
+        }
+
+        const existing = targetHalf.selectedPaidExtras[existingIndex];
+        const currentQty = existing.quantity || 1;
+
+        if (currentQty < 3) {
+          const nextQty = currentQty + 1;
+          const updated = [...targetHalf.selectedPaidExtras];
+          updated[existingIndex] = {
+            ...existing,
+            quantity: nextQty,
+            unitPrice,
+            price: unitPrice * nextQty,
+            category: extraIng.category || existing.category,
+          };
+          return {
+            ...prev,
+            [targetHalfKey]: {
+              ...targetHalf,
+              selectedPaidExtras: updated,
+            },
+          };
+        }
+
         return {
           ...prev,
-          selectedPaidExtras: [
-            ...prev.selectedPaidExtras,
-            { name: extraIng.name, price: unitPrice, unitPrice, quantity: 1 },
-          ],
+          [targetHalfKey]: {
+            ...targetHalf,
+            selectedPaidExtras: targetHalf.selectedPaidExtras.filter((_, idx) => idx !== existingIndex),
+          },
         };
-      }
+      } else {
+        const existingIndex = prev.selectedPaidExtras.findIndex(
+          (e) => e.name.toLowerCase().trim() === extraIng.name.toLowerCase().trim()
+        );
 
-      const existing = prev.selectedPaidExtras[existingIndex];
-      const currentQty = existing.quantity || 1;
+        if (existingIndex === -1) {
+          return {
+            ...prev,
+            selectedPaidExtras: [
+              ...prev.selectedPaidExtras,
+              { name: extraIng.name, price: unitPrice, unitPrice, quantity: 1, category: extraIng.category || (isMorning ? 'CONTORNOS' : undefined) },
+            ],
+          };
+        }
 
-      if (currentQty < 3) {
-        const nextQty = currentQty + 1;
-        const basePrice = existing.unitPrice ?? unitPrice;
-        const updatedExtras = [...prev.selectedPaidExtras];
-        updatedExtras[existingIndex] = {
-          ...existing,
-          quantity: nextQty,
-          unitPrice: basePrice,
-          price: basePrice * nextQty,
-        };
+        const existing = prev.selectedPaidExtras[existingIndex];
+        const currentQty = existing.quantity || 1;
+
+        if (currentQty < 3) {
+          const nextQty = currentQty + 1;
+          const updated = [...prev.selectedPaidExtras];
+          updated[existingIndex] = {
+            ...existing,
+            quantity: nextQty,
+            unitPrice,
+            price: unitPrice * nextQty,
+            category: extraIng.category || existing.category || (isMorning ? 'CONTORNOS' : undefined),
+          };
+          return {
+            ...prev,
+            selectedPaidExtras: updated,
+          };
+        }
+
         return {
           ...prev,
-          selectedPaidExtras: updatedExtras,
+          selectedPaidExtras: prev.selectedPaidExtras.filter((_, idx) => idx !== existingIndex),
         };
       }
-
-      return {
-        ...prev,
-        selectedPaidExtras: prev.selectedPaidExtras.filter((_, idx) => idx !== existingIndex),
-      };
     });
   };
 
-  const removePaidExtra = (extraName: string) => {
-    updateCurrentUnit((prev) => ({
-      ...prev,
-      selectedPaidExtras: prev.selectedPaidExtras.filter(
-        (e) => e.name.toLowerCase().trim() !== extraName.toLowerCase().trim()
-      ),
-    }));
+  // Quitar adicional directamente
+  const removePaidExtra = (extraName: string, halfIndex?: 0 | 1) => {
+    updateCurrentUnit((prev) => {
+      if (prev.isHalfHalf && halfIndex !== undefined) {
+        const targetHalfKey = halfIndex === 0 ? 'half1' : 'half2';
+        const targetHalf = prev[targetHalfKey]!;
+        return {
+          ...prev,
+          [targetHalfKey]: {
+            ...targetHalf,
+            selectedPaidExtras: targetHalf.selectedPaidExtras.filter(
+              (e) => e.name.toLowerCase().trim() !== extraName.toLowerCase().trim()
+            ),
+          },
+        };
+      } else {
+        return {
+          ...prev,
+          selectedPaidExtras: prev.selectedPaidExtras.filter(
+            (e) => e.name.toLowerCase().trim() !== extraName.toLowerCase().trim()
+          ),
+        };
+      }
+    });
   };
+
+  // Cálculos Financieros de la Unidad Activa
+  const currentUnitSize = currentUnit.size || 'Grande';
+  let currentUnitBasePrice = 0;
+  let currentUnitExtrasTotal = 0;
+
+  if (currentUnit.isHalfHalf && currentUnit.half1 && currentUnit.half2) {
+    const p1 = effectivePizzas.find((p) => p.name.toUpperCase() === currentUnit.half1.flavor.toUpperCase()) || burger;
+    const p2 = effectivePizzas.find((p) => p.name.toUpperCase() === currentUnit.half2.flavor.toUpperCase()) || burger;
+    const p1Base = getPizzaBasePrice(p1, currentUnitSize);
+    const p2Base = getPizzaBasePrice(p2, currentUnitSize);
+    // En Mitad y Mitad el precio base es el mayor de ambas mitades
+    currentUnitBasePrice = Math.max(p1Base, p2Base);
+    const h1Sum = currentUnit.half1.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
+    const h2Sum = currentUnit.half2.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
+    currentUnitExtrasTotal = h1Sum + h2Sum;
+  } else {
+    currentUnitBasePrice = isMorning ? (Number(burger.price) || 0) : getPizzaBasePrice(burger, currentUnitSize);
+    currentUnitExtrasTotal = currentUnit.selectedPaidExtras.reduce((sum, e) => sum + e.price, 0);
+  }
+
+  const currentUnitPrice = currentUnitBasePrice + currentUnitExtrasTotal;
+
+  // Gran Total de todas las unidades seleccionadas
+  const grandTotalPrice = units.reduce((total, u) => {
+    const uSize = u.size || 'Grande';
+    let uBase = 0;
+    let uExtras = 0;
+
+    if (u.isHalfHalf && u.half1 && u.half2) {
+      const p1 = effectivePizzas.find((p) => p.name.toUpperCase() === u.half1.flavor.toUpperCase()) || burger;
+      const p2 = effectivePizzas.find((p) => p.name.toUpperCase() === u.half2.flavor.toUpperCase()) || burger;
+      uBase = Math.max(getPizzaBasePrice(p1, uSize), getPizzaBasePrice(p2, uSize));
+      uExtras = u.half1.selectedPaidExtras.reduce((s, e) => s + e.price, 0) + u.half2.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
+    } else {
+      uBase = isMorning ? (Number(burger.price) || 0) : getPizzaBasePrice(burger, uSize);
+      uExtras = u.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
+    }
+
+    return total + (uBase + uExtras);
+  }, 0);
 
   const copRate = exchangeRates?.COP || 3950;
   const bsRate = exchangeRates?.Bs || 36.5;
 
-  const currentUnitExtrasTotal = currentUnit.selectedPaidExtras.reduce((sum, e) => sum + e.price, 0);
-  const currentUnitPrice = burger.price + currentUnitExtrasTotal;
-
-  const grandTotalPrice = units.reduce(
-    (total, u) => total + (burger.price + u.selectedPaidExtras.reduce((sum, e) => sum + e.price, 0)),
-    0
-  );
-
+  // Guardar y confirmar pedido
   const handleSave = () => {
     if (!burger || units.length === 0) return;
 
-    // Agrupar unidades que tengan la MISMA configuración exacta
+    // Agrupar unidades idénticas
     const groups: { unit: BurgerUnitConfig; quantity: number }[] = [];
-
     for (const u of units) {
       const match = groups.find((g) => areUnitsIdentical(g.unit, u));
       if (match) {
@@ -571,36 +762,74 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
     }
 
     const itemsToEmit: BurgerOrderConfirmationItem[] = groups.map(({ unit: u, quantity }) => {
-      const combinedExtras: Array<{ name: string; price: number; quantity?: number; unitPrice?: number }> = [
-        ...u.selectedFreeToppings.map((name) => ({ name, price: 0, quantity: 1 })),
-        ...u.selectedPaidExtras.map((e) => ({
-          name: e.name,
-          price: e.price,
-          unitPrice: e.unitPrice ?? (e.quantity ? e.price / e.quantity : e.price),
-          quantity: e.quantity || 1,
-        })),
-      ];
-      const extrasCost = u.selectedPaidExtras.reduce((sum, e) => sum + e.price, 0);
-      const unitPrice = burger.price + extrasCost;
-
-      // NOTA: Únicamente si el usuario escribió una nota real en el input.
-      // NUNCA agregar tags artificiales como [#1], [#2] si el usuario no escribió nada.
+      const uSize = u.size || 'Grande';
       const userNote = getCleanItemNote(u.notes);
-      const isProteinChanged = !areProteinsDefault(burger.name, u.proteins, burger.defaultProteins);
 
-      return {
-        burger,
-        quantity,
-        proteins: isProteinChanged && u.proteins.length > 0 ? u.proteins : undefined,
-        removedIngredients: u.removedIngredients,
-        extras: combinedExtras,
-        isTakeaway: Boolean(u.isTakeaway),
-        isDelivery: Boolean(u.isDelivery),
-        isCut: u.isCut,
-        cutPreference: u.cutPreference,
-        notes: userNote || undefined,
-        finalPrice: unitPrice,
-      };
+      if (u.isHalfHalf && u.half1 && u.half2) {
+        const p1 = effectivePizzas.find((p) => p.name.toUpperCase() === u.half1.flavor.toUpperCase()) || burger;
+        const p2 = effectivePizzas.find((p) => p.name.toUpperCase() === u.half2.flavor.toUpperCase()) || burger;
+        const basePrice = Math.max(getPizzaBasePrice(p1, uSize), getPizzaBasePrice(p2, uSize));
+        const h1Extras = u.half1.selectedPaidExtras;
+        const h2Extras = u.half2.selectedPaidExtras;
+        const extrasCost = h1Extras.reduce((s, e) => s + e.price, 0) + h2Extras.reduce((s, e) => s + e.price, 0);
+        const finalPrice = basePrice + extrasCost;
+
+        // Adicionales unificados con tag de mitad para reportes contables
+        const combinedExtras = [
+          ...h1Extras.map((e) => ({
+            ...e,
+            name: `(1ra Mitad) ${e.name}`,
+          })),
+          ...h2Extras.map((e) => ({
+            ...e,
+            name: `(2da Mitad) ${e.name}`,
+          })),
+        ];
+
+        const halfDetails: HalfDetails = {
+          half1Name: u.half1.flavor,
+          half2Name: u.half2.flavor,
+          half1Removed: u.half1.removedIngredients,
+          half2Removed: u.half2.removedIngredients,
+          half1Extras: u.half1.selectedPaidExtras,
+          half2Extras: u.half2.selectedPaidExtras,
+        };
+
+        return {
+          burger,
+          quantity,
+          size: uSize,
+          isHalfHalf: true,
+          halfDetails,
+          removedIngredients: [] as string[],
+          extras: combinedExtras,
+          isTakeaway: Boolean(u.isTakeaway),
+          isDelivery: Boolean(u.isDelivery),
+          isCut: u.isCut,
+          cutPreference: u.cutPreference,
+          notes: userNote || undefined,
+          finalPrice,
+        };
+      } else {
+        const basePrice = isMorning ? (Number(burger.price) || 0) : getPizzaBasePrice(burger, uSize);
+        const extrasCost = u.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
+        const finalPrice = basePrice + extrasCost;
+
+        return {
+          burger,
+          quantity,
+          size: uSize,
+          isHalfHalf: false,
+          removedIngredients: u.removedIngredients,
+          extras: u.selectedPaidExtras,
+          isTakeaway: Boolean(u.isTakeaway),
+          isDelivery: Boolean(u.isDelivery),
+          isCut: false,
+          cutPreference: isMorning ? undefined : u.cutPreference,
+          notes: userNote || undefined,
+          finalPrice,
+        };
+      }
     });
 
     if (itemsToEmit.length === 1) {
@@ -612,41 +841,68 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
     onClose();
   };
 
+  // Datos para renderizar la mitad activa o la pizza completa
+  const activeHalfIndex = currentUnit.activeHalf ?? 0;
+  const currentHalf = activeHalfIndex === 0 ? currentUnit.half1! : currentUnit.half2!;
+
   const modalContent = (
     <div className={inline ? "flex flex-col h-full bg-stone-100 text-gray-900 w-full overflow-hidden select-none" : "fixed inset-0 z-[100] flex flex-col bg-stone-100 text-gray-900 w-full h-full max-h-screen overflow-hidden select-none"}>
-      {/* 1. TOP HEADER (CORTE COMPACTO Y CLARO) */}
-      <header className={`bg-white text-gray-900 ${inline ? 'px-3.5 py-2' : 'px-4 sm:px-6 py-3.5'} flex items-center justify-between border-b-2 border-yellow-400 shrink-0 shadow-xs`}>
+      {/* 1. TOP HEADER (CORTE COMPACTO Y CLARO CON IDENTIDAD BASILICO) */}
+      <header className={`bg-white text-gray-900 ${inline ? 'px-3.5 py-2' : 'px-4 sm:px-6 py-3'} flex items-center justify-between border-b-2 ${isMorning ? 'border-amber-500' : 'border-green-500'} shrink-0 shadow-xs`}>
         <div className="flex items-center gap-3 flex-wrap">
-          <span className={inline ? "text-2xl sm:text-3xl" : "text-3xl sm:text-4xl"}>🍔</span>
+          <span className={inline ? "text-2xl sm:text-3xl" : "text-3xl sm:text-4xl"}>
+            {isMorning ? '🍽️' : '🍕'}
+          </span>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className={`${inline ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl'} font-black text-gray-950 tracking-wide flex items-center gap-2`}>
+              <h2 className={`${inline ? 'text-lg sm:text-xl' : 'text-xl sm:text-2xl'} font-black text-gray-950 tracking-wide flex items-center gap-2`}>
                 {initialEditItem && (
                   <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-lg font-black tracking-wider uppercase shadow-xs">
                     ✏️ Editando
                   </span>
                 )}
-                <span>{burger.name.toUpperCase()}</span>
+                <span>
+                  {isMorning
+                    ? `PERSONALIZACIÓN DE PLATO - ${burger.name.toUpperCase()}`
+                    : (currentUnit.isHalfHalf && currentUnit.half1 && currentUnit.half2
+                        ? `${currentUnit.half1.flavor} / ${currentUnit.half2.flavor}`
+                        : burger.name.toUpperCase())}
+                </span>
               </h2>
-              <span className="bg-yellow-400 text-black text-xs sm:text-sm px-2.5 py-0.5 rounded-xl font-black shadow-xs border border-yellow-500">
-                {currentUnit.proteins.length === 0
-                  ? 'Plato / Ración'
-                  : currentUnit.proteins.length === 1
-                  ? 'Sencilla'
-                  : currentUnit.proteins.length === 2
-                  ? 'Doble Carne'
-                  : 'Triple Carne'}
-              </span>
+
+              {isMorning ? (
+                <span className="bg-amber-400 text-black text-xs sm:text-sm px-2.5 py-0.5 rounded-xl font-black shadow-xs border border-amber-500 uppercase">
+                  🍽️ {burger.category?.toUpperCase() || 'PLATO'}
+                </span>
+              ) : (
+                <>
+                  <span className="bg-green-500 text-black text-xs sm:text-sm px-2.5 py-0.5 rounded-xl font-black shadow-xs border border-green-600">
+                    🍕 {currentUnit.size === 'Pequeña' ? 'PEQUEÑA' : 'GRANDE'}
+                  </span>
+
+                  <span className={`text-xs sm:text-sm px-2.5 py-0.5 rounded-xl font-black shadow-xs border ${
+                    currentUnit.isHalfHalf
+                      ? 'bg-amber-400 text-black border-amber-500'
+                      : 'bg-stone-800 text-white border-stone-900'
+                  }`}>
+                    {currentUnit.isHalfHalf ? '🌓 MITAD Y MITAD' : '🍕 COMPLETA'}
+                  </span>
+                </>
+              )}
+
               {units.length > 1 && (
-                <span className="bg-stone-900 text-white text-xs sm:text-sm px-2.5 py-0.5 rounded-xl font-black">
-                  {units.length} UNIDADES EN PEDIDO
+                <span className="bg-stone-900 text-white text-xs sm:text-sm px-2.5 py-0.5 rounded-xl font-black uppercase">
+                  {units.length} {isMorning ? 'PLATOS' : 'PIZZAS'} EN PEDIDO
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 mt-1 text-xs sm:text-base font-black text-gray-700 flex-wrap">
-              <span className="text-black text-base sm:text-lg font-black">${currentUnitPrice.toFixed(2)} USD</span>
+
+            <div className="flex items-center gap-2 mt-0.5 text-xs sm:text-sm font-black text-gray-700 flex-wrap">
+              <span className="text-black text-sm sm:text-base font-black">${currentUnitPrice.toFixed(2)} USD</span>
               {currentUnitExtrasTotal > 0 && (
-                <span className="text-emerald-700 text-xs sm:text-sm font-bold">(Base ${burger.price.toFixed(2)} + Adicionales ${currentUnitExtrasTotal.toFixed(2)})</span>
+                <span className="text-emerald-700 text-xs font-bold">
+                  (Base ${currentUnitBasePrice.toFixed(2)} + {isMorning ? 'Contornos' : 'Adicionales'} ${currentUnitExtrasTotal.toFixed(2)})
+                </span>
               )}
               <span className="text-gray-400">•</span>
               <span>🇨🇴 {roundCOP(currentUnitPrice * copRate).toLocaleString()} COP</span>
@@ -667,40 +923,101 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
         </button>
       </header>
 
-      {/* 2. BODY SCROLLABLE (ESPACIOSO Y SIN CORTES) */}
-      <main className={`flex-1 min-h-0 overflow-y-auto ${inline ? 'p-2.5 space-y-2.5 pb-2' : 'p-3.5 sm:p-5 space-y-4 max-w-7xl mx-auto w-full pb-8'}`}>
-        {/* BARRA SUPERIOR COMPACTA: CANTIDAD, PARA LLEVAR Y PICADA / ENTERA */}
-        <section className={`bg-white ${inline ? 'p-2.5 rounded-2xl' : 'p-3 sm:p-4 rounded-2xl'} border border-gray-200 shadow-xs flex flex-wrap items-center justify-between gap-2.5`}>
+      {/* 2. BODY SCROLLABLE */}
+      <main className={`flex-1 min-h-0 overflow-y-auto ${inline ? 'p-2 space-y-2 pb-2' : 'p-3 sm:p-4 space-y-3 max-w-7xl mx-auto w-full pb-8'}`}>
+        {/* BARRA SUPERIOR DE CONFIGURACIÓN RÁPIDA: CANTIDAD, TAMAÑO, FORMATO Y DESTINO */}
+        <section className={`bg-white ${inline ? 'p-2 rounded-2xl' : 'p-3 rounded-2xl'} border border-gray-200 shadow-xs flex flex-wrap items-center justify-between gap-3`}>
           {/* Selector de Cantidad */}
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs sm:text-sm font-black text-gray-900 uppercase">Cantidad Total:</span>
-            <div className="flex items-center border-2 border-yellow-400 rounded-xl bg-white shadow-xs overflow-hidden">
+          <div className="flex items-center gap-2">
+            <span className="text-sm sm:text-base font-black text-gray-900 uppercase">Cantidad:</span>
+            <div className="flex items-center border-2 border-green-500 rounded-xl bg-white shadow-xs overflow-hidden">
               <button
                 type="button"
                 onClick={handleDecreaseQuantity}
-                className="px-3.5 py-1.5 hover:bg-yellow-100 text-black font-black text-lg transition-colors cursor-pointer"
-                title="Disminuir hamburguesas"
+                className="px-3.5 py-1.5 hover:bg-green-100 text-black font-black text-base transition-colors cursor-pointer"
+                title="Disminuir cantidad"
               >
                 <IoRemove />
               </button>
-              <span className="px-4 py-1 text-base sm:text-xl font-black text-black min-w-[2.5rem] text-center">
+              <span className="px-4 py-1.5 text-base sm:text-lg font-black text-black min-w-[2.5rem] text-center">
                 {units.length}
               </span>
               <button
                 type="button"
                 onClick={handleIncreaseQuantity}
-                className="px-3.5 py-1.5 hover:bg-yellow-100 text-black font-black text-lg transition-colors cursor-pointer"
-                title="Agregar otra hamburguesa para personalizar"
+                className="px-3.5 py-1.5 hover:bg-green-100 text-black font-black text-base transition-colors cursor-pointer"
+                title={`Agregar ${isMorning ? 'otro plato' : 'otra pizza'} para personalizar`}
               >
                 <IoAdd />
               </button>
             </div>
           </div>
 
-          {/* Opciones Rápidas: Para Llevar y Picada / Entera de la unidad activa */}
-          <div className="flex items-center gap-2.5 flex-wrap">
-            {/* Destino de la Hamburguesa: Salón / Llevar / Delivery */}
-            <div className="flex items-center border border-gray-300 rounded-xl bg-white p-1 shadow-xs">
+          {/* Selector de Tamaño: GRANDE vs PEQUEÑA (Solo Turno Noche / Pizzas) */}
+          {!isMorning && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm sm:text-base font-black text-gray-900 uppercase">Tamaño:</span>
+              <div className="flex items-center border border-gray-300 rounded-xl bg-white p-1 shadow-xs gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleToggleSize('Grande')}
+                  className={`px-3.5 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    currentUnit.size === 'Grande'
+                      ? 'bg-green-500 text-black shadow-xs'
+                      : 'text-gray-600 hover:text-black'
+                  }`}
+                >
+                  🍕 GRANDE
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleSize('Pequeña')}
+                  className={`px-3.5 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    currentUnit.size === 'Pequeña'
+                      ? 'bg-green-500 text-black shadow-xs'
+                      : 'text-gray-600 hover:text-black'
+                  }`}
+                >
+                  🍕 PEQUEÑA
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Selector de Formato: COMPLETA vs MITAD Y MITAD (Solo Turno Noche / Pizzas) */}
+          {!isMorning && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm sm:text-base font-black text-gray-900 uppercase">Formato:</span>
+              <div className="flex items-center border border-gray-300 rounded-xl bg-white p-1 shadow-xs gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleToggleFormat(false)}
+                  className={`px-3.5 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    !currentUnit.isHalfHalf
+                      ? 'bg-stone-900 text-white shadow-xs'
+                      : 'text-gray-600 hover:text-black'
+                  }`}
+                >
+                  🍕 COMPLETA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleFormat(true)}
+                  className={`px-3.5 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    currentUnit.isHalfHalf
+                      ? 'bg-amber-400 text-black shadow-xs'
+                      : 'text-gray-600 hover:text-black'
+                  }`}
+                >
+                  🌓 MITAD Y MITAD
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Opciones Rápidas: Salón / Llevar / Delivery */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center border border-gray-300 rounded-xl bg-white p-1 shadow-xs gap-1">
               <button
                 type="button"
                 onClick={() =>
@@ -710,9 +1027,9 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                     isDelivery: false,
                   }))
                 }
-                className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
                   !currentUnit.isTakeaway && !currentUnit.isDelivery
-                    ? 'bg-yellow-400 text-black shadow-xs'
+                    ? 'bg-green-500 text-black shadow-xs'
                     : 'text-gray-600 hover:text-black'
                 }`}
               >
@@ -727,7 +1044,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                     isDelivery: false,
                   }))
                 }
-                className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
                   currentUnit.isTakeaway && !currentUnit.isDelivery
                     ? 'bg-amber-400 text-black shadow-xs'
                     : 'text-gray-600 hover:text-black'
@@ -744,7 +1061,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                     isDelivery: true,
                   }))
                 }
-                className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
                   currentUnit.isDelivery
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-gray-600 hover:text-black'
@@ -753,126 +1070,86 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                 🛵 DELIVERY
               </button>
             </div>
-
-            {/* Picada vs Entera */}
-            <div className="flex items-center border border-gray-300 rounded-xl bg-white p-1 shadow-xs">
-              <button
-                type="button"
-                onClick={() =>
-                  updateCurrentUnit((prev) => ({
-                    ...prev,
-                    isCut: false,
-                    cutPreference: 'Entera',
-                  }))
-                }
-                className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer ${
-                  !currentUnit.isCut
-                    ? 'bg-yellow-400 text-black shadow-xs'
-                    : 'text-gray-600 hover:text-black'
-                }`}
-              >
-                🍔 ENTERA
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  updateCurrentUnit((prev) => ({
-                    ...prev,
-                    isCut: true,
-                    cutPreference: 'Picada',
-                  }))
-                }
-                className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center gap-1 ${
-                  currentUnit.isCut
-                    ? 'bg-red-500 text-white shadow-xs'
-                    : 'text-gray-600 hover:text-black'
-                }`}
-              >
-                <span>🔪 PICADA</span>
-              </button>
-            </div>
           </div>
         </section>
 
-        {/* PESTAÑAS MULTI-UNIDAD CUANDO HAY MÁS DE 1 HAMBURGUESA */}
+        {/* PESTAÑAS MULTI-UNIDAD CUANDO HAY MÁS DE 1 UNIDAD */}
         {units.length > 1 && (
-          <section className="bg-yellow-50/80 p-3.5 rounded-2xl border-2 border-yellow-300 shadow-xs space-y-3">
+          <section className="bg-green-50/80 p-3 sm:p-4 rounded-2xl border-2 border-green-300 shadow-xs space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs sm:text-sm font-black text-yellow-950 uppercase tracking-wide flex items-center gap-1.5">
-                  <span>🍔</span>
-                  <span>SELECCIONA LA UNIDAD A PERSONALIZAR ({units.length}):</span>
-                </span>
-              </div>
+              <span className="text-sm sm:text-base font-black text-green-950 uppercase tracking-wide flex items-center gap-1.5">
+                <span>{isMorning ? '🍽️' : '🍕'}</span>
+                <span>SELECCIONA EL {isMorning ? 'PLATO' : 'PIZZA'} A PERSONALIZAR ({units.length}):</span>
+              </span>
 
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={handleCopyActiveToAll}
-                  className="px-3.5 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black text-xs sm:text-sm font-black border border-yellow-500 shadow-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
-                  title="Copiar los ingredientes, adicionales y notas de esta unidad a todas las demás"
+                  className="px-3.5 py-1.5 rounded-xl bg-green-500 hover:bg-green-600 text-black text-xs sm:text-sm font-black border border-green-600 shadow-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 uppercase"
+                  title={`Copiar configuración a tod${isMorning ? 'os los platos' : 'as las pizzas'}`}
                 >
                   <IoCopyOutline className="text-base" />
-                  <span>Copiar #{activeUnitIndex + 1} a todas</span>
+                  <span>COPIAR #{activeUnitIndex + 1} A TODAS</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleResetCurrentUnit}
-                  className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-gray-800 text-xs sm:text-sm font-bold border border-gray-300 shadow-xs flex items-center gap-1 cursor-pointer transition-all"
-                  title="Restablecer esta unidad a su receta original"
+                  className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-gray-800 text-xs sm:text-sm font-black border border-gray-300 shadow-xs flex items-center gap-1 cursor-pointer transition-all uppercase"
+                  title="Restablecer receta base"
                 >
                   <IoRefreshOutline className="text-base" />
-                  <span>Reset #{activeUnitIndex + 1}</span>
+                  <span>RESET #{activeUnitIndex + 1}</span>
                 </button>
               </div>
             </div>
 
             {copyToast && (
-              <div className="text-xs sm:text-sm font-black text-emerald-900 bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl animate-in fade-in">
+              <div className="text-xs sm:text-sm font-black text-emerald-900 bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl animate-in fade-in uppercase">
                 {copyToast}
               </div>
             )}
 
-            {/* Fila de Botones de Pestaña */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
               {units.map((u, idx) => {
                 const isActive = idx === activeUnitIndex;
-                const isModified =
-                  u.removedIngredients.length > 0 ||
-                  u.selectedFreeToppings.length > 0 ||
-                  u.selectedPaidExtras.length > 0 ||
-                  u.isCut ||
-                  u.isTakeaway !== defaultTakeaway ||
-                  !areProteinsDefault(burger.name, u.proteins, burger.defaultProteins) ||
-                  Boolean(getCleanItemNote(u.notes));
-
-                const unitExtrasSum = u.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
+                const uSize = u.size || 'Grande';
+                const uExtrasSum = u.isHalfHalf && u.half1 && u.half2
+                  ? u.half1.selectedPaidExtras.reduce((s, e) => s + e.price, 0) + u.half2.selectedPaidExtras.reduce((s, e) => s + e.price, 0)
+                  : u.selectedPaidExtras.reduce((s, e) => s + e.price, 0);
 
                 return (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => setActiveUnitIndex(idx)}
-                    className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition-all border-2 flex items-center gap-2 shrink-0 cursor-pointer ${
+                    className={`px-4 py-2.5 rounded-xl text-sm font-black transition-all border-2 flex items-center gap-2 shrink-0 cursor-pointer ${
                       isActive
-                        ? 'bg-yellow-400 text-black border-yellow-500 shadow-sm scale-[1.02] ring-2 ring-yellow-400'
-                        : 'bg-white text-gray-800 border-gray-200 hover:border-yellow-300 hover:bg-yellow-50/50'
+                        ? 'bg-green-500 text-black border-green-600 shadow-sm scale-[1.02] ring-2 ring-green-400'
+                        : 'bg-white text-gray-800 border-gray-200 hover:border-green-300 hover:bg-green-50/50'
                     }`}
                   >
-                    <span>🍔 #{idx + 1}</span>
-                    {isModified ? (
-                      <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-amber-200 text-amber-950">
-                        Modificada
-                      </span>
-                    ) : (
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-gray-100 text-gray-700">
-                        Base
-                      </span>
+                    <span>{isMorning ? '🍽️' : '🍕'} #{idx + 1}</span>
+                    {!isMorning && (
+                      <>
+                        <span className="text-xs font-black px-1.5 py-0.5 rounded bg-black/10 uppercase">
+                          {uSize === 'Pequeña' ? 'PEQ' : 'GDE'}
+                        </span>
+                        {u.isHalfHalf ? (
+                          <span className="text-xs font-black px-1.5 py-0.5 rounded bg-amber-200 text-amber-950 uppercase">
+                            MITAD/MITAD
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 uppercase">
+                            COMPLETA
+                          </span>
+                        )}
+                      </>
                     )}
-                    {unitExtrasSum > 0 && (
-                      <span className="text-[11px] font-black text-emerald-900 bg-emerald-100 px-1.5 py-0.5 rounded-md">
-                        +${unitExtrasSum.toFixed(2)}
+                    {uExtrasSum > 0 && (
+                      <span className="text-xs font-black text-emerald-900 bg-emerald-100 px-1.5 py-0.5 rounded">
+                        +${uExtrasSum.toFixed(2)}
                       </span>
                     )}
                   </button>
@@ -882,205 +1159,294 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
           </section>
         )}
 
-        {/* 3. ADICIONALES Y TOPPINGS GRATIS DE LA BASE DE DATOS */}
-        <section className="bg-amber-50/60 p-3.5 sm:p-4 rounded-2xl border border-yellow-300 shadow-xs space-y-2.5">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <h3 className="text-xs sm:text-sm font-black text-yellow-950 uppercase tracking-wide flex items-center gap-1.5">
-              <span>✨</span>
-              <span>
-                TOPPINGS & SALSAS GRATIS ({units.length > 1 ? `HAMBURGUESA #${activeUnitIndex + 1}` : 'DISPONIBLES'}):
+        {/* ============================================================== */}
+        {/* SECCIÓN 3: MITAD Y MITAD (SELECTOR DE SABORES, BASES Y EXTRAS) */}
+        {/* ============================================================== */}
+        {currentUnit.isHalfHalf && currentUnit.half1 && currentUnit.half2 ? (
+          <section className="bg-amber-50/70 p-3 sm:p-4 rounded-2xl border-2 border-amber-300 shadow-xs space-y-3.5">
+            {/* Pestañas de Mitades: 1RA MITAD vs 2DA MITAD */}
+            <div className="flex items-center justify-between flex-wrap gap-2 pb-1.5 border-b border-amber-200">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-black text-amber-950 uppercase tracking-wide">
+                  PERSONALIZANDO:
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateCurrentUnit((prev) => ({ ...prev, activeHalf: 0 }))}
+                    className={`px-4 py-2 rounded-xl text-sm font-black transition-all cursor-pointer border-2 flex items-center gap-2 uppercase ${
+                      activeHalfIndex === 0
+                        ? 'bg-amber-400 text-black border-amber-600 shadow-md scale-105 ring-2 ring-amber-400'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    <span>🌓 1RA MITAD:</span>
+                    <span className="font-black text-black">{currentUnit.half1.flavor.toUpperCase()}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updateCurrentUnit((prev) => ({ ...prev, activeHalf: 1 }))}
+                    className={`px-4 py-2 rounded-xl text-sm font-black transition-all cursor-pointer border-2 flex items-center gap-2 uppercase ${
+                      activeHalfIndex === 1
+                        ? 'bg-amber-400 text-black border-amber-600 shadow-md scale-105 ring-2 ring-amber-400'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    <span>🌓 2DA MITAD:</span>
+                    <span className="font-black text-black">{currentUnit.half2.flavor.toUpperCase()}</span>
+                  </button>
+                </div>
+              </div>
+
+              <span className="text-xs sm:text-sm font-black text-amber-900 bg-amber-200 px-3 py-1 rounded-lg border border-amber-300 uppercase">
+                TOCA UNA PESTAÑA PARA ELEGIR SU SABOR E INGREDIENTES
               </span>
-            </h3>
-            <span className="text-xs font-black text-amber-900 bg-yellow-200/90 px-2.5 py-0.5 rounded-lg border border-yellow-300">
-              {currentUnit.selectedFreeToppings.length} seleccionados
-            </span>
-          </div>
+            </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-            {freeToppingsList.map((top) => {
-              const isSelected = currentUnit.selectedFreeToppings.includes(top.name);
-              return (
-                <button
-                  key={top.id}
-                  type="button"
-                  onClick={() => toggleFreeTopping(top.name)}
-                  className={`p-3 rounded-2xl text-center font-black text-xs sm:text-sm transition-all border-2 flex items-center justify-center gap-1.5 cursor-pointer ${
-                    isSelected
-                      ? 'bg-yellow-400 text-black border-yellow-500 shadow-sm scale-[1.02]'
-                      : 'bg-white text-gray-800 border-gray-200 hover:border-yellow-400 hover:bg-yellow-50/30'
-                  }`}
-                >
-                  <span className="truncate">{top.name}</span>
-                  <span className="font-black text-base">{isSelected ? '✓' : '+'}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* 4. BOTONES DESPLEGABLES DE PROTEÍNAS Y ADICIONALES + SECCIÓN DE PERSONALIZAR ABIERTA */}
-        <section className="space-y-3">
-          <div className={`grid grid-cols-1 ${currentUnit.proteins.length > 0 ? 'sm:grid-cols-2' : ''} gap-2.5`}>
-            {/* BOTÓN 1: PROTEÍNAS (Despliega cambio de carnes solo si aplica) */}
-            {currentUnit.proteins.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowProteinas((prev) => !prev)}
-                className={`p-3.5 rounded-2xl border font-black text-xs sm:text-sm flex items-center justify-between transition-all cursor-pointer shadow-xs ${
-                  showProteinas
-                    ? 'bg-stone-800 text-white border-stone-900 ring-2 ring-yellow-400'
-                    : 'bg-white text-black border-gray-200 hover:border-yellow-400'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="text-2xl">🥩</span>
-                  <div className="text-left">
-                    <div className="font-black leading-tight text-sm sm:text-base">
-                      {units.length > 1 ? `PROTEÍNAS #${activeUnitIndex + 1}` : 'PROTEÍNA / CARNES'}
-                    </div>
-                    <div className="text-xs font-bold text-gray-500 truncate max-w-[150px] sm:max-w-xs mt-0.5">
-                      {currentUnit.proteins.join(' + ')}
-                    </div>
-                  </div>
-                </div>
-                {showProteinas ? <IoChevronUp className="text-xl" /> : <IoChevronDown className="text-xl" />}
-              </button>
-            )}
-
-            {/* BOTÓN 2: ADICIONALES CON COSTO */}
-            <button
-              type="button"
-              onClick={() => setShowAdicionales((prev) => !prev)}
-              className={`p-3.5 rounded-2xl border font-black text-xs sm:text-sm flex items-center justify-between transition-all cursor-pointer shadow-xs ${
-                showAdicionales
-                  ? 'bg-stone-800 text-white border-stone-900 ring-2 ring-yellow-400'
-                  : 'bg-white text-black border-gray-200 hover:border-yellow-400'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-2xl">➕</span>
-                <div className="text-left">
-                  <div className="font-black leading-tight text-sm sm:text-base">
-                    {units.length > 1
-                      ? `ADICIONALES ($) #${activeUnitIndex + 1}`
-                      : 'ADICIONALES CON COSTO ($)'}
-                  </div>
-                  <div className="text-xs font-bold text-gray-500 mt-0.5">
-                    {currentUnit.selectedPaidExtras.length > 0
-                      ? `+${currentUnit.selectedPaidExtras.reduce((s, e) => s + (e.quantity || 1), 0)} porción(es) (+${currentUnitExtrasTotal.toFixed(2)} USD)`
-                      : 'Sin adicionales con costo'}
-                  </div>
-                </div>
-              </div>
-              {showAdicionales ? <IoChevronUp className="text-xl" /> : <IoChevronDown className="text-xl" />}
-            </button>
-          </div>
-
-          {/* DESPLIEGUE 1: PROTEÍNAS (Con textos centrados) */}
-          {showProteinas && currentUnit.proteins.length > 0 && (
-            <div className="bg-amber-50/40 p-3.5 sm:p-4 rounded-2xl border border-yellow-300 space-y-3 shadow-xs animate-in fade-in">
+            {/* SELECCIÓN DE SABOR DE ESTA MITAD */}
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs sm:text-sm font-black text-gray-900 uppercase">
-                  Selecciona la proteína para cada carne de la hamburguesa:
+                <span className="text-sm font-black text-gray-900 uppercase">
+                  1. SABOR DE LA {activeHalfIndex === 0 ? '1RA MITAD' : '2DA MITAD'} ({currentHalf.flavor.toUpperCase()}):
                 </span>
-                <span className="text-xs font-black text-amber-950 bg-yellow-300 px-3 py-1 rounded-xl border border-yellow-400">
-                  {currentUnit.proteins.length === 1 ? '1 Carne' : `${currentUnit.proteins.length} Carnes`}
+                <span className="text-xs sm:text-sm font-bold text-gray-500 uppercase">
+                  {effectivePizzas.length} SABORES DISPONIBLES
                 </span>
               </div>
 
-              <div className="space-y-3">
-                {currentUnit.proteins.map((currentProtein, slotIndex) => {
-                  const defaultProteinForSlot = defaultRecipeProteins[slotIndex];
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-52 overflow-y-auto pr-1">
+                {effectivePizzas.map((p) => {
+                  const isSelected = p.name.toUpperCase() === currentHalf.flavor.toUpperCase();
+                  const pPrice = getPizzaBasePrice(p, currentUnitSize);
 
                   return (
-                    <div key={slotIndex} className="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2.5 shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm font-black text-gray-900">
-                          {currentUnit.proteins.length === 1
-                            ? 'Proteína principal:'
-                            : `Carne / Proteína #${slotIndex + 1}:`}
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectHalfFlavor(activeHalfIndex, p)}
+                      className={`p-2.5 rounded-xl text-left font-black transition-all border-2 cursor-pointer flex flex-col justify-between min-h-[70px] uppercase ${
+                        isSelected
+                          ? 'bg-amber-400 text-black border-amber-600 shadow-md ring-2 ring-amber-400 scale-[1.02]'
+                          : 'bg-white text-gray-800 border-gray-200 hover:border-amber-400 hover:bg-amber-50/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="text-xs sm:text-sm font-black leading-tight line-clamp-2">
+                          {p.name.toUpperCase()}
                         </span>
-                        <div className="flex items-center gap-2">
-                          {defaultProteinForSlot && (
-                            <span className="text-xs font-bold text-gray-600 bg-stone-100 px-2.5 py-0.5 rounded-lg border border-gray-200">
-                              Receta: {defaultProteinForSlot}
-                            </span>
-                          )}
-                          <span className="text-xs sm:text-sm font-black text-black bg-yellow-400 px-3 py-1 rounded-xl border border-yellow-500 shadow-xs">
-                            {currentProtein}
+                        {isSelected && <IoCheckmark className="text-base text-black shrink-0" />}
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-black text-gray-700 mt-1">
+                        <span>${pPrice.toFixed(2)}</span>
+                        {p.badge && (
+                          <span className="text-[10px] px-1 py-0.2 rounded bg-black/10 font-bold uppercase">
+                            {p.badge.toUpperCase()}
                           </span>
-                        </div>
+                        )}
                       </div>
-
-                      {/* Tarjetas de Proteínas Centrables */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-                        {effectiveProteins.map((prot) => {
-                          const isSelected =
-                            currentProtein.toUpperCase() === prot.name.toUpperCase() ||
-                            normalizeProteinName(currentProtein) === normalizeProteinName(prot.name);
-                          const isOriginal = Boolean(
-                            defaultProteinForSlot &&
-                            (defaultProteinForSlot.toUpperCase() === prot.name.toUpperCase() ||
-                             normalizeProteinName(defaultProteinForSlot) === normalizeProteinName(prot.name))
-                          );
-
-                          return (
-                            <button
-                              key={prot.id}
-                              type="button"
-                              onClick={() => {
-                                updateCurrentUnit((prev) => {
-                                  const updated = [...prev.proteins];
-                                  updated[slotIndex] = prot.name;
-                                  return { ...prev, proteins: updated };
-                                });
-                              }}
-                              className={`p-3 rounded-2xl text-center font-black text-xs sm:text-sm flex flex-col items-center justify-between gap-1.5 transition-all border cursor-pointer min-h-[90px] ${
-                                isSelected
-                                  ? 'bg-yellow-400 text-black border-yellow-500 shadow-xs scale-[1.02]'
-                                  : 'bg-stone-50 text-gray-800 border-gray-200 hover:bg-gray-100'
-                              }`}
-                            >
-                              <span className="text-2xl">{prot.icon}</span>
-                              <span className="leading-tight text-center line-clamp-2">{prot.name}</span>
-                              {isOriginal && (
-                                <span
-                                  className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md mt-0.5 ${
-                                    isSelected
-                                      ? 'bg-amber-950/20 text-amber-950 border border-amber-950/30'
-                                      : 'bg-yellow-100 text-yellow-900 border border-yellow-300'
-                                  }`}
-                                  title="Proteína predeterminada de la receta original"
-                                >
-                                  ⭐ Original
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
             </div>
-          )}
 
-          {/* DESPLIEGUE 3: ADICIONALES CON COSTO (Centrados) */}
-          {showAdicionales && (
-            <div className="bg-white p-4 rounded-2xl border border-gray-200 space-y-3 shadow-xs animate-in fade-in">
-              <div className="flex items-center justify-between">
-                <span className="text-xs sm:text-sm font-black text-gray-900 uppercase">
-                  Adicionales con costo ($):
+            {/* INGREDIENTES BASE DE ESTA MITAD ("SIN ...") */}
+            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-gray-200 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <span className="text-sm font-black text-gray-900 uppercase">
+                  2. INGREDIENTES BASE DE ESTA MITAD ({currentHalf.flavor.toUpperCase()}):
                 </span>
-                <span className="text-xs font-bold text-gray-500">Toca para sumar o retirar</span>
+                <span className="text-xs sm:text-sm font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 uppercase">
+                  {currentHalf.removedIngredients.length > 0
+                    ? `🚫 SIN: ${currentHalf.removedIngredients.join(', ').toUpperCase()}`
+                    : 'LLEVA TODOS SUS INGREDIENTES'}
+                </span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                {currentHalf.baseIngredients.map((ing) => {
+                  const isRemoved = currentHalf.removedIngredients.some(
+                    (r) => r.toLowerCase().trim() === ing.toLowerCase().trim()
+                  );
+
+                  return (
+                    <button
+                      key={ing}
+                      type="button"
+                      onClick={() => toggleRemoveBase(ing, activeHalfIndex)}
+                      className={`p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex items-center justify-center gap-1.5 cursor-pointer uppercase ${
+                        isRemoved
+                          ? 'bg-red-50 text-red-700 border-red-300 line-through'
+                          : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-red-300'
+                      }`}
+                    >
+                      <span className="truncate">{isRemoved ? `SIN ${ing.toUpperCase()}` : ing.toUpperCase()}</span>
+                      {isRemoved && <IoCloseCircle className="text-red-600 text-sm shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* BOTÓN COLAPSABLE / CONTENEDOR DE ADICIONALES CON COSTO PARA ESTA MITAD */}
+            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-gray-200 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-base sm:text-lg">➕</span>
+                  <span className="text-sm font-black text-gray-900 uppercase">
+                    3. ADICIONALES CON COSTO ($) - {currentHalf.flavor.toUpperCase()}:
+                  </span>
+                  <span className="text-xs sm:text-sm font-black text-gray-600 uppercase">
+                    {currentHalf.selectedPaidExtras.length > 0
+                      ? `+${currentHalf.selectedPaidExtras.reduce((s, e) => s + (e.quantity || 1), 0)} PORCIÓN(ES) (+${currentHalf.selectedPaidExtras.reduce((s, e) => s + e.price, 0).toFixed(2)} USD)`
+                      : 'TOCA PARA SUMAR (+1X, +2X, +3X)'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowHalfExtrasPanel((prev) => !prev)}
+                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer transition-all shadow-sm active:scale-95 uppercase tracking-wide ${
+                    showHalfExtrasPanel
+                      ? 'bg-stone-800 hover:bg-stone-900 text-white border border-stone-900'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-500 shadow-md ring-2 ring-emerald-300'
+                  }`}
+                >
+                  <span className="text-base">{showHalfExtrasPanel ? '▲' : '➕'}</span>
+                  <span>{showHalfExtrasPanel ? 'OCULTAR ADICIONALES' : 'MOSTRAR ADICIONALES ($)'}</span>
+                  {showHalfExtrasPanel ? <IoChevronUp className="text-base" /> : <IoChevronDown className="text-base" />}
+                </button>
+              </div>
+
+              {showHalfExtrasPanel && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1 animate-in fade-in">
+                  {paidExtrasList.map((extra) => {
+                    const existingExtra = currentHalf.selectedPaidExtras.find(
+                      (e) => e.name.toLowerCase().trim() === extra.name.toLowerCase().trim()
+                    );
+                    const count = existingExtra?.quantity || (existingExtra ? 1 : 0);
+                    const unitPrice = getIngredientExtraPrice(extra, currentUnitSize, true);
+                    const displayPrice = count > 0 ? unitPrice * count : unitPrice;
+
+                    return (
+                      <div key={extra.id} className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => togglePaidExtra(extra, activeHalfIndex)}
+                          className={`w-full p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex flex-col items-center justify-center gap-1 cursor-pointer min-h-[70px] select-none uppercase ${
+                            count === 3
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-md scale-[1.03]'
+                              : count === 2
+                              ? 'bg-orange-500 text-white border-orange-600 shadow-sm scale-[1.02]'
+                              : count === 1
+                              ? 'bg-amber-400 text-black border-amber-500 shadow-xs scale-[1.01]'
+                              : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-amber-400'
+                          }`}
+                          title={`${extra.name.toUpperCase()} (Toca para ciclar 1x, 2x, 3x)`}
+                        >
+                          <span className="truncate leading-tight text-center max-w-full font-black">{extra.name.toUpperCase()}</span>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {count > 0 && (
+                              <span className="text-[10px] sm:text-xs font-black px-1.5 py-0.2 rounded bg-black/20 text-white">
+                                {count}x
+                              </span>
+                            )}
+                            <span className="font-black text-xs sm:text-sm">
+                              +${displayPrice.toFixed(2)}
+                            </span>
+                          </div>
+                        </button>
+
+                        {count > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removePaidExtra(extra.name, activeHalfIndex);
+                            }}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 hover:bg-red-700 text-white font-black text-xs flex items-center justify-center border border-white shadow-md z-10 cursor-pointer active:scale-90"
+                            title={`Quitar ${extra.name.toUpperCase()}`}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        ) : isMorning ? (
+          /* ============================================================== */
+          /* SECCIÓN 3B-MAÑANA: PERSONALIZACIÓN DE PLATO (BASES Y CONTORNOS) */
+          /* ============================================================== */
+          <section className="space-y-3">
+            {/* INGREDIENTES BASE ("SIN ...") - Solo si el plato define ingredientes base */}
+            {burger.baseIngredients && burger.baseIngredients.length > 0 && (
+              <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-200 space-y-2.5 shadow-xs">
+                <div className="flex items-center justify-between flex-wrap gap-1.5">
+                  <span className="text-sm font-black text-gray-900 uppercase flex items-center gap-1.5">
+                    <span>🛠️</span>
+                    <span>PERSONALIZAR INGREDIENTES BASE (TOCA PARA QUITAR "SIN"):</span>
+                  </span>
+                  <span className="text-xs sm:text-sm font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 uppercase">
+                    {currentUnit.removedIngredients.length > 0
+                      ? `🚫 SIN: ${currentUnit.removedIngredients.join(', ').toUpperCase()}`
+                      : 'LLEVA TODOS SUS INGREDIENTES'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                  {burger.baseIngredients.map((ing) => {
+                    const isRemoved = currentUnit.removedIngredients.some(
+                      (r) => r.toLowerCase().trim() === ing.toLowerCase().trim()
+                    );
+
+                    return (
+                      <button
+                        key={ing}
+                        type="button"
+                        onClick={() => toggleRemoveBase(ing)}
+                        className={`p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex items-center justify-center gap-1.5 cursor-pointer uppercase ${
+                          isRemoved
+                            ? 'bg-red-50 text-red-700 border-red-300 line-through'
+                            : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-red-300'
+                        }`}
+                      >
+                        <span className="truncate">{isRemoved ? `SIN ${ing.toUpperCase()}` : ing.toUpperCase()}</span>
+                        {isRemoved && <IoCloseCircle className="text-red-600 text-sm shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* SECCIÓN DE CONTORNOS Y GUARNICIONES (SIEMPRE VISIBLE Y ACCESIBLE) */}
+            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-200 space-y-3 shadow-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-1 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🥗</span>
+                  <span className="text-sm sm:text-base font-black text-gray-900 uppercase">
+                    CONTORNOS Y GUARNICIONES:
+                  </span>
+                </div>
+                <span className="text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 uppercase">
+                  {currentUnit.selectedPaidExtras.length > 0
+                    ? `+${currentUnit.selectedPaidExtras.reduce((s, e) => s + (e.quantity || 1), 0)} CONTORNO(S) (+${currentUnitExtrasTotal.toFixed(2)} USD)`
+                    : 'TOCA PARA SUMAR CONTORNO (+1X, +2X)'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 pt-1">
                 {paidExtrasList.map((extra) => {
-                  const existingExtra = currentUnit.selectedPaidExtras.find((e) => e.name.toLowerCase().trim() === extra.name.toLowerCase().trim());
+                  const existingExtra = currentUnit.selectedPaidExtras.find(
+                    (e) => e.name.toLowerCase().trim() === extra.name.toLowerCase().trim()
+                  );
                   const count = existingExtra?.quantity || (existingExtra ? 1 : 0);
-                  const unitPrice = getExtraPrice(extra);
+                  const unitPrice = Number(extra.priceUSD) || 1.0;
                   const displayPrice = count > 0 ? unitPrice * count : unitPrice;
 
                   return (
@@ -1088,39 +1454,25 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                       <button
                         type="button"
                         onClick={() => togglePaidExtra(extra)}
-                        className={`w-full p-3 rounded-2xl text-center font-black text-xs sm:text-sm transition-all border flex flex-col items-center justify-center gap-1 cursor-pointer min-h-[76px] select-none ${
+                        className={`w-full p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex flex-col items-center justify-center gap-1 cursor-pointer min-h-[72px] select-none uppercase ${
                           count === 3
                             ? 'bg-emerald-600 text-white border-emerald-700 shadow-md scale-[1.03]'
                             : count === 2
-                            ? 'bg-orange-500 text-white border-orange-600 shadow-sm scale-[1.02]'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-sm scale-[1.02]'
                             : count === 1
-                            ? 'bg-yellow-400 text-black border-yellow-500 shadow-xs scale-[1.01]'
-                            : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-yellow-400'
+                            ? 'bg-green-500 text-black border-green-600 shadow-xs scale-[1.01]'
+                            : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-green-400 hover:bg-green-50/50'
                         }`}
-                        title={`${extra.name} (Toca para ciclar 1x, 2x, 3x)`}
+                        title={`${extra.name.toUpperCase()} (Toca para ciclar 1x, 2x, 3x)`}
                       >
-                        <span className="truncate leading-tight text-center max-w-full">{extra.name}</span>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="truncate leading-tight text-center max-w-full font-black">{extra.name.toUpperCase()}</span>
+                        <div className="flex items-center gap-1 mt-0.5">
                           {count > 0 && (
-                            <span
-                              className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
-                                count === 3 || count === 2
-                                  ? 'bg-black/30 text-white'
-                                  : 'bg-black/15 text-black'
-                              }`}
-                            >
+                            <span className="text-[10px] sm:text-xs font-black px-1.5 py-0.2 rounded bg-black/20 text-white">
                               {count}x
                             </span>
                           )}
-                          <span
-                            className={`font-black text-xs sm:text-sm px-2 py-0.5 rounded-lg ${
-                              count === 3 || count === 2
-                                ? 'bg-black/20 text-white'
-                                : count === 1
-                                ? 'bg-black/10 text-stone-950'
-                                : 'bg-black/5 text-stone-900'
-                            }`}
-                          >
+                          <span className="font-black text-xs sm:text-sm">
                             +${displayPrice.toFixed(2)}
                           </span>
                         </div>
@@ -1133,8 +1485,8 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                             e.stopPropagation();
                             removePaidExtra(extra.name);
                           }}
-                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-red-600 hover:bg-red-700 text-white font-black text-xs flex items-center justify-center border-2 border-white shadow-md z-10 cursor-pointer active:scale-90"
-                          title={`Quitar ${extra.name} de una`}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 hover:bg-red-700 text-white font-black text-xs flex items-center justify-center border border-white shadow-md z-10 cursor-pointer active:scale-90"
+                          title={`Quitar ${extra.name.toUpperCase()}`}
                         >
                           ✕
                         </button>
@@ -1144,93 +1496,176 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                 })}
               </div>
             </div>
-          )}
+          </section>
+        ) : (
+          /* ============================================================== */
+          /* SECCIÓN 3B: PIZZA COMPLETA (BASES Y ADICIONALES)               */
+          /* ============================================================== */
+          <section className="space-y-2.5">
+            {/* INGREDIENTES BASE ("SIN ...") */}
+            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-gray-200 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <span className="text-sm font-black text-gray-900 uppercase flex items-center gap-1.5">
+                  <span>🛠️</span>
+                  <span>PERSONALIZAR INGREDIENTES BASE (TOCA PARA QUITAR "SIN"):</span>
+                </span>
+                <span className="text-xs sm:text-sm font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 uppercase">
+                  {currentUnit.removedIngredients.length > 0
+                    ? `🚫 SIN: ${currentUnit.removedIngredients.join(', ').toUpperCase()}`
+                    : 'LLEVA TODOS SUS INGREDIENTES'}
+                </span>
+              </div>
 
-          {/* SECCIÓN PERSONALIZAR INGREDIENTES BASE ("SIN ...") - Con Textos Centrados */}
-          <div className={`bg-white ${inline ? 'p-3 rounded-2xl space-y-2' : 'p-3.5 sm:p-4 rounded-2xl space-y-2.5'} border border-gray-200 shadow-xs`}>
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs sm:text-sm font-black text-gray-900 uppercase flex items-center gap-1.5">
-                <span>🛠️</span>
-                <span>PERSONALIZAR INGREDIENTES ({units.length > 1 ? `HAMBURGUESA #${activeUnitIndex + 1}` : 'TOCA PARA QUITAR "SIN"'}):</span>
-              </span>
-              <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-0.5 rounded-lg border border-red-200">
-                {currentUnit.removedIngredients.length > 0
-                  ? `🚫 SIN: ${formatRemovedIngredients(currentUnit.removedIngredients).join(', ').toUpperCase()}`
-                  : 'Lleva todos sus ingredientes'}
-              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                {(burger.baseIngredients && burger.baseIngredients.length > 0
+                  ? burger.baseIngredients
+                  : ['SALSA DE TOMATE', 'QUESO MOZZARELLA', 'ORÉGANO']
+                ).map((ing) => {
+                  const isRemoved = currentUnit.removedIngredients.some(
+                    (r) => r.toLowerCase().trim() === ing.toLowerCase().trim()
+                  );
+
+                  return (
+                    <button
+                      key={ing}
+                      type="button"
+                      onClick={() => toggleRemoveBase(ing)}
+                      className={`p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex items-center justify-center gap-1.5 cursor-pointer uppercase ${
+                        isRemoved
+                          ? 'bg-red-50 text-red-700 border-red-300 line-through'
+                          : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-red-300'
+                      }`}
+                    >
+                      <span className="truncate">{isRemoved ? `SIN ${ing.toUpperCase()}` : ing.toUpperCase()}</span>
+                      {isRemoved && <IoCloseCircle className="text-red-600 text-sm shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
-              {/* Botón rápido para los 3 vegetales (Lechuga, Tomate, Cebolla) */}
-              <button
-                type="button"
-                onClick={toggleAllVegetables}
-                className={`p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                  isAllVegetablesRemoved
-                    ? 'bg-red-600 text-white border-red-700 shadow-sm'
-                    : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
-                }`}
-                title="Quitar o restaurar los 3 vegetales (Lechuga, Tomate y Cebolla) a la vez"
-              >
-                <span className="truncate">🥗 {isAllVegetablesRemoved ? 'SIN VEGETALES' : 'QUITAR VEGETALES'}</span>
-                {isAllVegetablesRemoved && <IoCloseCircle className="text-white text-base shrink-0 ml-1" />}
-              </button>
+            {/* BOTÓN COLAPSABLE / CONTENEDOR DE ADICIONALES CON COSTO */}
+            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-gray-200 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-base sm:text-lg">➕</span>
+                  <span className="text-sm font-black text-gray-900 uppercase">
+                    ADICIONALES CON COSTO ($):
+                  </span>
+                  <span className="text-xs sm:text-sm font-black text-gray-600 uppercase">
+                    {currentUnit.selectedPaidExtras.length > 0
+                      ? `+${currentUnit.selectedPaidExtras.reduce((s, e) => s + (e.quantity || 1), 0)} PORCIÓN(ES) (+${currentUnitExtrasTotal.toFixed(2)} USD)`
+                      : 'TOCA PARA SUMAR (+1X, +2X, +3X)'}
+                  </span>
+                </div>
 
-              {customizableBaseIngredients.map((ing) => {
-                const isRemoved = currentUnit.removedIngredients.some(
-                  (r) => r.toLowerCase().trim() === ing.toLowerCase().trim()
-                );
-                return (
-                  <button
-                    key={ing}
-                    type="button"
-                    onClick={() => toggleRemoveBase(ing)}
-                    className={`p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                      isRemoved
-                        ? 'bg-red-50 text-red-700 border-red-300 line-through'
-                        : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-red-300'
-                    }`}
-                  >
-                    <span className="truncate">{isRemoved ? `SIN ${ing}` : ing}</span>
-                    {isRemoved && <IoCloseCircle className="text-red-600 text-base shrink-0 ml-1" />}
-                  </button>
-                );
-              })}
+                <button
+                  type="button"
+                  onClick={() => setShowExtrasPanel((prev) => !prev)}
+                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer transition-all shadow-sm active:scale-95 uppercase tracking-wide ${
+                    showExtrasPanel
+                      ? 'bg-stone-800 hover:bg-stone-900 text-white border border-stone-900'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-500 shadow-md ring-2 ring-emerald-300'
+                  }`}
+                >
+                  <span className="text-base">{showExtrasPanel ? '▲' : '➕'}</span>
+                  <span>{showExtrasPanel ? 'OCULTAR ADICIONALES' : 'MOSTRAR ADICIONALES ($)'}</span>
+                  {showExtrasPanel ? <IoChevronUp className="text-base" /> : <IoChevronDown className="text-base" />}
+                </button>
+              </div>
+
+              {showExtrasPanel && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1 animate-in fade-in">
+                  {paidExtrasList.map((extra) => {
+                    const existingExtra = currentUnit.selectedPaidExtras.find(
+                      (e) => e.name.toLowerCase().trim() === extra.name.toLowerCase().trim()
+                    );
+                    const count = existingExtra?.quantity || (existingExtra ? 1 : 0);
+                    const unitPrice = getIngredientExtraPrice(extra, currentUnitSize, false);
+                    const displayPrice = count > 0 ? unitPrice * count : unitPrice;
+
+                    return (
+                      <div key={extra.id} className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => togglePaidExtra(extra)}
+                          className={`w-full p-2.5 rounded-xl text-center font-black text-xs sm:text-sm transition-all border flex flex-col items-center justify-center gap-1 cursor-pointer min-h-[70px] select-none uppercase ${
+                            count === 3
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-md scale-[1.03]'
+                              : count === 2
+                              ? 'bg-orange-500 text-white border-orange-600 shadow-sm scale-[1.02]'
+                              : count === 1
+                              ? 'bg-green-500 text-black border-green-600 shadow-xs scale-[1.01]'
+                              : 'bg-stone-50 text-gray-800 border-gray-200 hover:border-green-400'
+                          }`}
+                          title={`${extra.name.toUpperCase()} (Toca para ciclar 1x, 2x, 3x)`}
+                        >
+                          <span className="truncate leading-tight text-center max-w-full font-black">{extra.name.toUpperCase()}</span>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {count > 0 && (
+                              <span className="text-[10px] sm:text-xs font-black px-1.5 py-0.2 rounded bg-black/20 text-white">
+                                {count}x
+                              </span>
+                            )}
+                            <span className="font-black text-xs sm:text-sm">
+                              +${displayPrice.toFixed(2)}
+                            </span>
+                          </div>
+                        </button>
+
+                        {count > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removePaidExtra(extra.name);
+                            }}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 hover:bg-red-700 text-white font-black text-xs flex items-center justify-center border border-white shadow-md z-10 cursor-pointer active:scale-90"
+                            title={`Quitar ${extra.name.toUpperCase()}`}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
-        {/* 5. NOTAS DE COCINA DE LA UNIDAD ACTIVA */}
-        <section className={`bg-white ${inline ? 'p-3 rounded-2xl space-y-1.5' : 'p-4 rounded-2xl space-y-2'} border border-gray-200 shadow-xs`}>
-          <label className="block text-xs sm:text-sm font-black uppercase text-gray-900 tracking-wider">
+        {/* 4. NOTAS DE COCINA */}
+        <section className={`bg-white ${inline ? 'p-2.5 rounded-2xl space-y-1.5' : 'p-3.5 rounded-2xl space-y-2'} border border-gray-200 shadow-xs`}>
+          <label className="block text-sm font-black uppercase text-gray-900 tracking-wider">
             {units.length > 1
-              ? `Notas de preparación para Cocina (Hamburguesa #${activeUnitIndex + 1}):`
-              : 'Notas de preparación para Cocina:'}
+              ? `NOTAS DE PREPARACIÓN PARA COCINA (${isMorning ? 'PLATO' : 'PIZZA'} #${activeUnitIndex + 1}):`
+              : 'NOTAS DE PREPARACIÓN PARA COCINA:'}
           </label>
           <input
             type="text"
             value={currentUnit.notes}
             onChange={(e) => updateCurrentUnit((prev) => ({ ...prev, notes: e.target.value }))}
-            placeholder="Ej: Carne bien cocida, salsa aparte, bien caliente..."
-            className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-gray-300 rounded-xl text-gray-900 font-bold focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 shadow-2xs"
+            placeholder={isMorning ? "EJ: TÉRMINO MEDIO, BIEN COCIDO, SIN SAL, SALSA APARTE..." : "EJ: MASA BIEN TOSTADA, POCO ORÉGANO, BIEN CALIENTE..."}
+            className="w-full px-4 py-2 text-sm sm:text-base bg-stone-50 border border-gray-300 rounded-xl text-gray-900 font-bold focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-green-400 shadow-2xs uppercase placeholder:normal-case"
           />
         </section>
       </main>
 
-      {/* 6. BOTTOM FOOTER (CORTE COMPACTO Y CLARO) */}
-      <footer className={`bg-white text-gray-900 ${inline ? 'px-4 py-2.5' : 'px-6 py-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]'} border-t-2 border-yellow-400 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-lg`}>
+      {/* 5. BOTTOM FOOTER */}
+      <footer className={`bg-white text-gray-900 ${inline ? 'px-4 py-2.5' : 'px-6 py-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]'} border-t-2 ${isMorning ? 'border-amber-500' : 'border-green-500'} flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-lg`}>
         <div>
           <span className="text-xs font-black uppercase tracking-wider text-gray-500 block">
-            Total a sumar ({units.length} hamburguesa{units.length > 1 ? 's' : ''}):
+            TOTAL A SUMAR ({units.length} {isMorning ? 'PLATO' : 'PIZZA'}{units.length > 1 ? 'S' : ''}):
           </span>
           <div className="flex items-baseline gap-2.5 flex-wrap">
             <span className={`${inline ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl'} font-black text-black`}>
               ${grandTotalPrice.toFixed(2)} <span className="text-xs sm:text-sm font-bold text-gray-500">USD</span>
             </span>
-            <span className="text-xs sm:text-sm font-bold text-gray-700">
+            <span className="text-xs sm:text-sm font-black text-gray-700">
               🇨🇴 {roundCOP(grandTotalPrice * copRate).toLocaleString()} COP
             </span>
-            <span className="text-xs sm:text-sm font-bold text-gray-700">
+            <span className="text-xs sm:text-sm font-black text-gray-700">
               🇻🇪 {(grandTotalPrice * bsRate).toFixed(2)} Bs
             </span>
           </div>
@@ -1240,17 +1675,23 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black text-gray-600 hover:bg-gray-100 hover:text-black transition-colors cursor-pointer"
+            className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black text-gray-600 hover:bg-gray-100 hover:text-black transition-colors cursor-pointer uppercase"
           >
             CANCELAR
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-6 py-3 rounded-2xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs sm:text-sm border-2 border-yellow-500 flex items-center gap-2 shadow-md transition-all active:scale-[0.98] cursor-pointer"
+            className="px-6 py-3 rounded-2xl bg-green-500 hover:bg-green-600 text-black font-black text-sm sm:text-base border-2 border-green-600 flex items-center gap-2 shadow-md transition-all active:scale-[0.98] cursor-pointer uppercase"
           >
             <IoCheckmark className="text-xl" />
-            <span>{initialEditItem ? `GUARDAR CAMBIOS (${units.length})` : `AGREGAR AL PEDIDO (${units.length})`}</span>
+            <span>
+              {initialEditItem
+                ? `GUARDAR CAMBIOS (${units.length})`
+                : isMorning
+                ? `AGREGAR PLATO A COMANDA (${units.length})`
+                : `AGREGAR AL PEDIDO (${units.length})`}
+            </span>
           </button>
         </div>
       </footer>

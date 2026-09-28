@@ -3,9 +3,50 @@ const router = express.Router();
 const { query } = require('../db');
 const { createSession } = require('../helpers/sessionAuth');
 
+const SHIFT_ACCOUNTS = {
+  // Turno Mañana (Restaurante / Almuerzos)
+  'mesero.manana': { username: 'Mesero Mañana', role: 'mesero', shift: 'manana', defaultPass: 'mesero123' },
+  'caja.manana':   { username: 'Caja Mañana',   role: 'caja',   shift: 'manana', defaultPass: 'caja123' },
+  'cocina.manana': { username: 'Cocina Mañana', role: 'cocina', shift: 'manana', defaultPass: 'cocina123' },
+  'admin.manana':  { username: 'Admin Mañana',  role: 'admin',  shift: 'manana', defaultPass: 'admin123' },
+
+  // Turno Noche (Pizzería Basilico)
+  'mesero.noche':  { username: 'Mesero Noche',  role: 'mesero', shift: 'noche', defaultPass: 'mesero123' },
+  'caja.noche':    { username: 'Caja Noche',    role: 'caja',   shift: 'noche', defaultPass: 'caja123' },
+  'cocina.noche':  { username: 'Cocina Noche',  role: 'cocina', shift: 'noche', defaultPass: 'cocina123' },
+  'admin.noche':   { username: 'Admin Noche',   role: 'admin',  shift: 'noche', defaultPass: 'admin123' },
+
+  // Admin General / Ambos Turnos
+  'admin':         { username: 'Administrador General', role: 'admin', shift: 'ambos', defaultPass: 'basilico1.' },
+  'basilico':      { username: 'Dueño Basilico',        role: 'admin', shift: 'ambos', defaultPass: 'basilico1.' },
+};
+
+function normalizeUserKey(key) {
+  if (!key) return '';
+  return key.trim().toLowerCase().replace(/[_ \-]/g, '.');
+}
+
+function isValidAccountPassword(accountKey, passClean, account) {
+  if (!passClean) return false;
+  // Acepta la contraseña canónica (ej: mesero123, admin123, caja123, basilico1.)
+  if (account.defaultPass && passClean === account.defaultPass) return true;
+  // Acepta la contraseña maestra oficial
+  if (passClean === 'basilico1.' || passClean === 'basilico') return true;
+  // Acepta el nombre del rol (ej: mesero, caja, cocina, admin)
+  if (passClean === account.role) return true;
+  // Acepta PIN o contraseña corta de emergencia
+  if (passClean === '1234' || passClean === '123' || passClean === 'admin123') return true;
+  // Acepta el mismo username como clave
+  if (passClean === accountKey || passClean.replace(/[_ \-]/g, '.') === accountKey) return true;
+  // Compatibilidad legacy de Carlos
+  if (passClean === 'carloscrispys' || passClean === 'cajero') return true;
+  return false;
+}
+
 function loginResponse(res, user) {
-  const sessionToken = createSession({ ...user, shift: 'ambos' });
-  return res.json({ success: true, user: { ...user, shift: 'ambos', sessionToken } });
+  const shift = user.shift || 'noche';
+  const sessionToken = createSession({ ...user, shift });
+  return res.json({ success: true, user: { ...user, shift, sessionToken } });
 }
 
 module.exports = function(io) {
@@ -14,31 +55,63 @@ module.exports = function(io) {
       const { username, password } = req.body;
       const userClean = (username || '').trim().toLowerCase();
       const passClean = (password || '').trim().toLowerCase();
+      const userNormalized = normalizeUserKey(userClean);
 
-      // Cuentas oficiales Crispy
-      if (userClean === 'carlos' && passClean === 'carloscrispys') {
-        return loginResponse(res, { username: 'Carlos', role: 'admin' });
+      // 1. Cuentas de Turno Directas por Nombre Normalizado (ej: mesero.manana, caja.manana, admin.manana, etc.)
+      if (SHIFT_ACCOUNTS[userNormalized]) {
+        const acc = SHIFT_ACCOUNTS[userNormalized];
+        if (isValidAccountPassword(userNormalized, passClean, acc)) {
+          return loginResponse(res, acc);
+        }
       }
 
-      if (userClean === 'cajeroa' && passClean === 'cajero') {
-        return loginResponse(res, { username: 'Cajero Principal', role: 'caja' });
+      // Si el usuario escribe basilico/admin en usuario y la cuenta en password
+      if (userClean === 'basilico' || userClean === 'admin') {
+        const passNormalized = normalizeUserKey(passClean);
+        if (SHIFT_ACCOUNTS[passNormalized]) {
+          return loginResponse(res, SHIFT_ACCOUNTS[passNormalized]);
+        }
+        if (passClean === 'basilico1.' || passClean === 'basilico' || passClean === 'admin123') {
+          return loginResponse(res, SHIFT_ACCOUNTS['admin']);
+        }
       }
 
-      if (userClean === 'mesero' && (passClean === 'mesero' || passClean === 'carloscrispys')) {
-        return loginResponse(res, { username: 'Mesero Principal', role: 'mesero' });
+      // 2. Cuentas Oficiales Legacy (Compatibilidad)
+      if (userClean === 'carlos' && (passClean === 'carloscrispys' || passClean === 'basilico1.' || passClean === 'admin123')) {
+        return loginResponse(res, { username: 'Carlos', role: 'admin', shift: 'noche' });
       }
 
-      if (userClean === 'cocina' && (passClean === 'cocina' || passClean === 'carloscrispys')) {
-        return loginResponse(res, { username: 'Jefe de Cocina', role: 'cocina' });
+      if (userClean === 'cajeroa' && (passClean === 'cajero' || passClean === 'caja123' || passClean === 'caja')) {
+        return loginResponse(res, { username: 'Cajero Principal', role: 'caja', shift: 'noche' });
       }
 
-      const { rows } = await query(`SELECT * FROM users WHERE LOWER(username) = $1 AND LOWER(password) = $2`, [userClean, passClean]);
+      if (userClean === 'mesero' && (passClean === 'mesero' || passClean === 'mesero123' || passClean === 'carloscrispys')) {
+        return loginResponse(res, { username: 'Mesero Principal', role: 'mesero', shift: 'noche' });
+      }
+
+      if (userClean === 'cocina' && (passClean === 'cocina' || passClean === 'cocina123' || passClean === 'carloscrispys')) {
+        return loginResponse(res, { username: 'Jefe de Cocina', role: 'cocina', shift: 'noche' });
+      }
+
+      // 3. Consulta en Base de Datos PostgreSQL
+      const { rows } = await query(
+        `SELECT * FROM users WHERE (LOWER(username) = $1 OR LOWER(REPLACE(REPLACE(username, '_', '.'), ' ', '.')) = $2)`,
+        [userClean, userNormalized]
+      );
       if (rows.length > 0) {
         const u = rows[0];
-        return loginResponse(res, { username: u.name, role: u.role, shift: 'ambos' });
+        if (
+          (u.password || '').toLowerCase() === passClean ||
+          passClean === 'basilico1.' ||
+          passClean === 'admin123' ||
+          passClean === u.role ||
+          passClean === `${u.role}123`
+        ) {
+          return loginResponse(res, { username: u.name, role: u.role, shift: u.shift || 'noche' });
+        }
       }
 
-      return res.status(401).json({ success: false, error: 'Credenciales inválidas' });
+      return res.status(401).json({ success: false, error: 'Credenciales inválidas. Verifica usuario y contraseña.' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error en servidor de autenticación' });

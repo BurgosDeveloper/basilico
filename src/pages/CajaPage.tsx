@@ -97,7 +97,7 @@ export const CajaPage: React.FC = () => {
   const [printerSelectKitchenOrder, setPrinterSelectKitchenOrder] = useState<Order | null>(null);
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState<boolean>(false);
   const [isCompactView, setIsCompactView] = useState<boolean>(() => {
-    return localStorage.getItem('crispy_caja_view_mode') !== 'expanded';
+    return localStorage.getItem('basilico_caja_view_mode') !== 'expanded';
   });
   const [expandedOrderIds, setExpandedOrderIds] = useState<string[]>([]);
   const toggleExpandOrder = (orderId: string) => {
@@ -618,7 +618,7 @@ export const CajaPage: React.FC = () => {
                 onClick={() => {
                   const next = !isCompactView;
                   setIsCompactView(next);
-                  localStorage.setItem('crispy_caja_view_mode', next ? 'compact' : 'expanded');
+                  localStorage.setItem('basilico_caja_view_mode', next ? 'compact' : 'expanded');
                 }}
                 className={`px-3 py-2 rounded-xl font-black text-xs flex items-center gap-1.5 border transition-all cursor-pointer shadow-xs ${
                   isCompactView
@@ -862,11 +862,7 @@ export const CajaPage: React.FC = () => {
                               <span className="font-black text-black">• {it.quantity}x</span>
                               <span className="font-bold">{it.productName}</span>
                               {it.isTakeaway && <span className="text-amber-700 font-bold ml-1 text-[10px]">(📦 LLEVAR)</span>}
-                              {(it.isCut || it.cutPreference === 'Picada') ? (
-                                <span className="text-red-700 font-black ml-1 text-[10px]">(🔪 PICADA)</span>
-                              ) : (
-                                <span className="text-gray-600 font-bold ml-1 text-[10px]">(🍔 ENTERA)</span>
-                              )}
+
                               {it.isPaidIndividually && (
                                 <span className="px-1.5 py-0.5 rounded bg-green-100 border border-green-300 text-green-900 text-[9px] font-black uppercase">
                                   ✓ PAGADO
@@ -1205,11 +1201,7 @@ export const CajaPage: React.FC = () => {
                               <span className="font-black text-black">• {it.quantity}x</span>
                               <span className="font-bold">{it.productName}</span>
                               {it.isTakeaway && <span className="text-amber-700 font-bold ml-1 text-[10px]">(📦 LLEVAR)</span>}
-                              {(it.isCut || it.cutPreference === 'Picada') ? (
-                                <span className="text-red-700 font-black ml-1 text-[10px]">(🔪 PICADA)</span>
-                              ) : (
-                                <span className="text-gray-600 font-bold ml-1 text-[10px]">(🍔 ENTERA)</span>
-                              )}
+
                               {it.isPaidIndividually && (
                                 <span className="px-1.5 py-0.5 rounded bg-green-100 border border-green-300 text-green-900 text-[9px] font-black uppercase">
                                   ✓ PAGADO
@@ -2016,7 +2008,7 @@ export const CajaPage: React.FC = () => {
                       })}
                       className="px-4 py-3 rounded-xl bg-white hover:bg-yellow-50 text-gray-900 border border-gray-300 hover:border-yellow-400 font-black text-xs flex items-center justify-center gap-2 shadow-xs"
                     >
-                      <span>🍔 HAMBURGUESAS</span>
+                      <span>🍕 PIZZAS</span>
                     </button>
                     <button
                       onClick={() => setPendingReportChoice({

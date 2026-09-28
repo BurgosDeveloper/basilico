@@ -98,7 +98,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   const availableExtras = useMemo(() => {
     return ingredients
-      .filter((i) => (i.isExtra || i.isExtraForPizza || i.ingredientType === 'adicional' || i.ingredientType === 'gratis' || i.category === 'Adicionales' || i.category === 'Toppings') && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift))
+      .filter((i) => (i.isExtra || i.isExtraForPizza || i.ingredientType === 'adicional' || i.ingredientType === 'gratis' || i.category === 'Adicionales' || i.category === 'Toppings' || i.category?.toUpperCase() === 'CONTORNOS') && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift))
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   }, [ingredients, userSession?.shift]);
 
@@ -128,6 +128,9 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   const areAppendItemsIdentical = (a: OrderItem, b: OrderItem): boolean => {
     if (a.productId !== b.productId) return false;
+    if (a.size !== b.size) return false;
+    if (Boolean(a.isHalfHalf) !== Boolean(b.isHalfHalf)) return false;
+    if (JSON.stringify(a.halfDetails || null) !== JSON.stringify(b.halfDetails || null)) return false;
     if (Boolean(a.isTakeaway) !== Boolean(b.isTakeaway)) return false;
     if (Boolean(a.isDelivery) !== Boolean(b.isDelivery)) return false;
     if (Boolean(a.isCut) !== Boolean(b.isCut)) return false;
@@ -298,33 +301,43 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
     }
   };
 
-  // Confirmar adición o edición de hamburguesa desde la sección INLINE
+  // Confirmar adición o edición de pizza desde la sección INLINE
   const handleConfirmBurgerAdd = (
     configOrList: BurgerOrderConfirmationItem | BurgerOrderConfirmationItem[]
   ) => {
     const list = Array.isArray(configOrList) ? configOrList : [configOrList];
-    const generatedItems: OrderItem[] = list.map((config) => ({
-      id: `add-bg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      productId: config.burger.id,
-      productName: config.burger.name,
-      price: config.finalPrice,
-      quantity: config.quantity,
-      category: config.burger.category || 'Hamburguesas',
-      proteins:
-        config.proteins &&
-        config.proteins.length > 0 &&
-        !areProteinsDefault(config.burger.name, config.proteins, config.burger.defaultProteins)
-          ? config.proteins
-          : undefined,
-      removedIngredients: config.removedIngredients && config.removedIngredients.length > 0 ? config.removedIngredients : undefined,
-      extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
-      isTakeaway: Boolean(config.isTakeaway),
-      isDelivery: Boolean(config.isDelivery),
-      isCut: config.isCut,
-      cutPreference: config.cutPreference,
-      notes: getCleanItemNote(config.notes) || undefined,
-      isNewOrModified: true,
-    }));
+    const generatedItems: OrderItem[] = list.map((config) => {
+      const isHalf = Boolean(config.isHalfHalf);
+      const displayName = isHalf && config.halfDetails
+        ? `${config.halfDetails.half1Name} / ${config.halfDetails.half2Name}`
+        : config.burger.name;
+
+      return {
+        id: `add-bg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: config.burger.id,
+        productName: displayName,
+        price: config.finalPrice,
+        quantity: config.quantity,
+        category: config.burger.category || 'Pizzas',
+        size: config.size || 'Grande',
+        isHalfHalf: isHalf,
+        halfDetails: config.halfDetails,
+        proteins:
+          config.proteins &&
+          config.proteins.length > 0 &&
+          !areProteinsDefault(config.burger.name, config.proteins, config.burger.defaultProteins)
+            ? config.proteins
+            : undefined,
+        removedIngredients: config.removedIngredients && config.removedIngredients.length > 0 ? config.removedIngredients : undefined,
+        extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
+        isTakeaway: Boolean(config.isTakeaway),
+        isDelivery: Boolean(config.isDelivery),
+        isCut: config.isCut,
+        cutPreference: config.cutPreference,
+        notes: getCleanItemNote(config.notes) || undefined,
+        isNewOrModified: true,
+      };
+    });
 
     if (editingAppendItem !== null) {
       setItemsToAdd((prev) => {
@@ -342,7 +355,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         }
         return current;
       });
-      setSuccessToast(`¡${list.length} hamburguesa(s) agregada(s)!`);
+      setSuccessToast(`¡${list.length} pizza(s) agregada(s)!`);
     }
 
     if (list.some((c) => c.isDelivery) && deliveryFeeUSD <= 0) {
@@ -465,7 +478,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   // Detección si hay productos de cocina entre los agregados
   const hasKitchenItemsToAdd = itemsToAdd.some(
-    (item) => item.category !== 'Bebidas' || (item.drinkType && /jugo|merengada|malteada|batido/i.test(item.drinkType))
+    (item) => !(item.category || '').toLowerCase().includes('bebida') || (item.drinkType && /jugo|merengada|malteada|batido/i.test(item.drinkType))
   );
 
   // Enviar al servidor
@@ -572,6 +585,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                   availableExtras={availableExtras}
                   availableProteins={availableProteins}
                   availableFreeToppings={availableFreeToppings}
+                  availablePizzas={products.filter((p) => (p.category || '').toLowerCase().includes('pizza'))}
                   isOpen={true}
                   inline={true}
                   onClose={() => {
@@ -802,7 +816,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                     <div className="space-y-2">
                       {itemsToAdd.map((item, idx) => {
                         const isKitchen =
-                          item.category !== 'Bebidas' ||
+                          !(item.category || '').toLowerCase().includes('bebida') ||
                           (item.drinkType && /jugo|merengada|malteada|batido/i.test(item.drinkType));
 
                         return (
@@ -814,6 +828,16 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-black text-xs sm:text-sm text-black">{item.productName}</span>
+                                  {item.size && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase bg-green-100 text-green-900 border border-green-300">
+                                      🍕 {item.size}
+                                    </span>
+                                  )}
+                                  {item.isHalfHalf && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase bg-amber-100 text-amber-950 border border-amber-300">
+                                      🌓 MITAD/MITAD
+                                    </span>
+                                  )}
                                   {item.category === 'Salsas' ? (
                                     <span className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase bg-amber-100 text-amber-900 border border-amber-300">
                                       🥣 SALSA
@@ -829,11 +853,6 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                       {isKitchen ? '🔥 COCINA' : '🥤 BARRA'}
                                     </span>
                                   )}
-                                  {item.cutPreference === 'Picada' && (
-                                    <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded">
-                                      🔪 Picada
-                                    </span>
-                                  )}
                                   {item.isTakeaway && (
                                     <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 rounded">
                                       📦 Llevar
@@ -841,29 +860,61 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                                   )}
                                 </div>
 
-                                {/* Modificadores */}
-                                <div className="text-xs text-gray-600 space-y-0.5 mt-1 font-semibold">
-                                  {item.proteins && item.proteins.length > 0 && !areProteinsDefault(item.productName, item.proteins) && (
-                                    <div className="text-amber-900 font-bold">🥩 {item.proteins.join(' + ')}</div>
+                                {/* Modificadores de Mitad y Mitad */}
+                                {item.isHalfHalf && item.halfDetails && (
+                                  <div className="mt-1 pl-2 border-l-2 border-emerald-500 bg-emerald-50/70 rounded-r-md p-2 space-y-1.5 text-xs text-gray-800">
+                                    <div>
+                                      <span className="font-black text-emerald-900 uppercase">🌓 1RA MITAD:</span> <span className="font-black uppercase">{item.halfDetails.half1Name}</span>
+                                      {item.halfDetails.half1Removed && item.halfDetails.half1Removed.length > 0 && (
+                                        <span className="font-bold block text-xs text-red-600 pl-2 uppercase">
+                                          🚫 SIN: {item.halfDetails.half1Removed.join(', ').toUpperCase()}
+                                        </span>
+                                      )}
+                                      {item.halfDetails.half1Extras && item.halfDetails.half1Extras.length > 0 && (
+                                        <span className="font-bold block text-xs text-emerald-700 pl-2 uppercase">
+                                          ➕ ADD: {item.halfDetails.half1Extras.map(e => e.name).join(', ').toUpperCase()}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <span className="font-black text-emerald-900 uppercase">🌓 2DA MITAD:</span> <span className="font-black uppercase">{item.halfDetails.half2Name}</span>
+                                      {item.halfDetails.half2Removed && item.halfDetails.half2Removed.length > 0 && (
+                                        <span className="font-bold block text-xs text-red-600 pl-2 uppercase">
+                                          🚫 SIN: {item.halfDetails.half2Removed.join(', ').toUpperCase()}
+                                        </span>
+                                      )}
+                                      {item.halfDetails.half2Extras && item.halfDetails.half2Extras.length > 0 && (
+                                        <span className="font-bold block text-xs text-emerald-700 pl-2 uppercase">
+                                          ➕ ADD: {item.halfDetails.half2Extras.map(e => e.name).join(', ').toUpperCase()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Modificadores de Pizza Completa */}
+                                <div className="text-xs text-gray-700 space-y-1 mt-1 font-semibold uppercase">
+                                  {!item.isHalfHalf && item.proteins && item.proteins.length > 0 && !areProteinsDefault(item.productName, item.proteins) && (
+                                    <div className="text-emerald-900 font-bold">🥩 {item.proteins.join(' + ').toUpperCase()}</div>
                                   )}
-                                  {item.removedIngredients && item.removedIngredients.length > 0 && (
-                                    <div className="text-red-600 font-bold">
-                                      🚫 SIN {formatRemovedIngredients(item.removedIngredients).join(', ')}
+                                  {!item.isHalfHalf && item.removedIngredients && item.removedIngredients.length > 0 && (
+                                    <div className="text-red-600 font-bold text-xs">
+                                      🚫 SIN {formatRemovedIngredients(item.removedIngredients).join(', ').toUpperCase()}
                                     </div>
                                   )}
-                                  {item.extras && item.extras.length > 0 && (
-                                    <div className="text-gray-800 font-bold">
-                                      {item.extras.map((e) => (e.price === 0 ? `✨ ${e.name}` : `+ ADD: ${(e.quantity && e.quantity > 1) ? `${e.quantity}x ` : ''}${e.name} ($${e.price.toFixed(2)})`)).join(' • ')}
+                                  {!item.isHalfHalf && item.extras && item.extras.length > 0 && (
+                                    <div className="text-gray-900 font-bold text-xs">
+                                      {item.extras.map((e) => (e.price === 0 ? `✨ ${e.name.toUpperCase()}` : `+ ADD: ${(e.quantity && e.quantity > 1) ? `${e.quantity}x ` : ''}${e.name.toUpperCase()} (${e.price.toFixed(2)})`)).join(' • ')}
                                     </div>
                                   )}
                                   {item.flavor && (
-                                    <div className="text-amber-800 font-bold">🍹 Sabor: {item.flavor}</div>
+                                    <div className="text-emerald-800 font-bold">🍹 SABOR: {item.flavor.toUpperCase()}</div>
                                   )}
                                   {item.sugarPreference && (
-                                    <div className="text-sky-700 font-bold">🥤 Azúcar: {item.sugarPreference}</div>
+                                    <div className="text-sky-700 font-bold">🥤 AZÚCAR: {item.sugarPreference.toUpperCase()}</div>
                                   )}
                                   {getCleanItemNote(item.notes) && (
-                                    <div className="italic text-gray-500">"{getCleanItemNote(item.notes)}"</div>
+                                    <div className="italic text-gray-500 normal-case">"{getCleanItemNote(item.notes)}"</div>
                                   )}
                                 </div>
 

@@ -56,8 +56,8 @@ fs.writeFileSync(path.join(srcAssetsImgDir, 'logo.png'), logoBuffer);
 console.log('✅ Assets sincronizados en src/assets/');
 
 // 4. Write to export/
-fs.writeFileSync(path.join(exportDir, 'crispy_icon.ico'), icoBuffer);
-fs.writeFileSync(path.join(exportDir, 'crispy_icon.png'), iconBuffer);
+fs.writeFileSync(path.join(exportDir, 'pizza_icon.ico'), icoBuffer);
+fs.writeFileSync(path.join(exportDir, 'pizza_icon.png'), iconBuffer);
 fs.writeFileSync(path.join(exportDir, 'pizza_icon.ico'), icoBuffer);
 fs.writeFileSync(path.join(exportDir, 'pizza_icon.png'), iconBuffer);
 console.log('✅ Assets sincronizados en export/');

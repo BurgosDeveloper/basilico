@@ -52,7 +52,7 @@ if (!fs.existsSync(uploadsDir)) {
 app.use('/uploads', express.static(uploadsDir));
 
 app.get('/api/connection-info', (req, res) => {
-  res.json({ app: 'crispy', ...refreshLanConnectionInfo() });
+  res.json({ app: 'basilico', ...refreshLanConnectionInfo() });
 });
 
 const server = http.createServer(app);
@@ -73,14 +73,22 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   const clientIp = (socket.handshake.address || '').replace('::ffff:', '');
-  console.log(`⚡ Cliente conectado a WebSocket LAN: ${socket.id} (IP: ${clientIp || '127.0.0.1'})`);
+  const user = socket.user;
+  const userShift = user?.shift || 'ambos';
+  console.log(`⚡ Cliente conectado a WebSocket LAN: ${socket.id} (IP: ${clientIp || '127.0.0.1'}, Turno: ${userShift}, Rol: ${user?.role || 'desconocido'})`);
+
+  if (userShift === 'ambos') {
+    socket.join('shift:ambos');
+  } else {
+    socket.join(`shift:${userShift}`);
+  }
 
   Promise.all([
-    fetchAllOrders(),
-    fetchAllProducts(),
-    fetchAllIngredients(),
-    fetchAllTables(),
-    getRatesForShift({ query }, 'ambos'),
+    fetchAllOrders(user),
+    fetchAllProducts(user),
+    fetchAllIngredients(user),
+    fetchAllTables(user),
+    getRatesForShift({ query }, userShift),
   ]).then(([orders, products, ingredients, tables, rates]) => {
     socket.emit('orders:sync', orders);
     socket.emit('products:sync', products);

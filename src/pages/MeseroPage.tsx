@@ -38,6 +38,7 @@ export const MeseroPage: React.FC = () => {
     updateOrderStatus,
     deleteOrder,
     editOrder,
+    deletePaymentEntry,
     exchangeRates,
     userSession,
     reprintKitchenOrder,
@@ -99,7 +100,7 @@ export const MeseroPage: React.FC = () => {
   const [printerSelectKitchenOrder, setPrinterSelectKitchenOrder] = useState<Order | null>(null);
   const [activeOrderForPay, setActiveOrderForPay] = useState<Order | null>(null);
   const [isCompactComandasView, setIsCompactComandasView] = useState<boolean>(() => {
-    return localStorage.getItem('crispy_mesero_view_mode') !== 'expanded';
+    return localStorage.getItem('basilico_mesero_view_mode') !== 'expanded';
   });
   const [expandedOrderIds, setExpandedOrderIds] = useState<string[]>([]);
   const toggleExpandOrder = (orderId: string) => {
@@ -120,7 +121,7 @@ export const MeseroPage: React.FC = () => {
 
   const availableExtras = useMemo(() => {
     return ingredients
-      .filter((i) => (i.isExtra || i.isExtraForPizza || i.ingredientType === 'adicional' || i.ingredientType === 'gratis' || i.category === 'Adicionales' || i.category === 'Toppings') && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift))
+      .filter((i) => (i.isExtra || i.isExtraForPizza || i.ingredientType === 'adicional' || i.ingredientType === 'gratis' || i.category === 'Adicionales' || i.category === 'Toppings' || i.category?.toUpperCase() === 'CONTORNOS') && (!i.shift || i.shift === 'ambos' || i.shift === userSession?.shift))
       .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   }, [ingredients, userSession?.shift]);
 
@@ -163,6 +164,9 @@ export const MeseroPage: React.FC = () => {
 
   const areCartItemsIdentical = (a: OrderItem, b: OrderItem): boolean => {
     if (a.productId !== b.productId) return false;
+    if (a.size !== b.size) return false;
+    if (Boolean(a.isHalfHalf) !== Boolean(b.isHalfHalf)) return false;
+    if (JSON.stringify(a.halfDetails || null) !== JSON.stringify(b.halfDetails || null)) return false;
     if (Boolean(a.isTakeaway) !== Boolean(b.isTakeaway)) return false;
     if (Boolean(a.isDelivery) !== Boolean(b.isDelivery)) return false;
     if (Boolean(a.isCut) !== Boolean(b.isCut)) return false;
@@ -205,7 +209,7 @@ export const MeseroPage: React.FC = () => {
 
     if (isCustomizableProduct(product)) {
       setSelectedBurger(product);
-    } else if (product.drinkType === 'jugo' || (product.flavors && product.flavors.length > 0)) {
+    } else if (product.drinkType === 'jugo' || product.drinkType === 'merengada' || (product.flavors && product.flavors.length > 0)) {
       setSelectedDrink(product);
     } else {
       // Direct add to cart for drinks, sides or potatoes (1 solo clic, suma cantidades si se repite)
@@ -275,33 +279,44 @@ export const MeseroPage: React.FC = () => {
     }
   };
 
-  // Confirm Burger Add (Nuevo o Editado)
+  // Confirm Pizza Add (Nuevo o Editado)
   const handleConfirmBurgerAdd = (
     configOrList: BurgerOrderConfirmationItem | BurgerOrderConfirmationItem[]
   ) => {
     const list = Array.isArray(configOrList) ? configOrList : [configOrList];
-    const generatedItems: OrderItem[] = list.map((config) => ({
-      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      productId: config.burger.id,
-      productName: config.burger.name,
-      price: config.finalPrice,
-      quantity: config.quantity,
-      category: config.burger.category,
-      proteins:
-        config.proteins &&
-        config.proteins.length > 0 &&
-        !areProteinsDefault(config.burger.name, config.proteins, config.burger.defaultProteins)
-          ? config.proteins
-          : undefined,
-      removedIngredients: config.removedIngredients && config.removedIngredients.length > 0 ? config.removedIngredients : undefined,
-      extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
-      isTakeaway: Boolean(config.isTakeaway),
-      isDelivery: Boolean(config.isDelivery),
-      isCut: config.isCut,
-      cutPreference: config.cutPreference,
-      notes: getCleanItemNote(config.notes) || undefined,
-      isNewOrModified: false,
-    }));
+    const generatedItems: OrderItem[] = list.map((config) => {
+      const isHalf = Boolean(config.isHalfHalf);
+      const isMorning = config.burger.shift === 'manana' || userSession?.shift === 'manana';
+      const displayName = isHalf && config.halfDetails
+        ? `${config.halfDetails.half1Name} / ${config.halfDetails.half2Name}`
+        : config.burger.name;
+
+      return {
+        id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: config.burger.id,
+        productName: displayName,
+        price: config.finalPrice,
+        quantity: config.quantity,
+        category: config.burger.category || (isMorning ? 'Especialidades' : 'Pizzas'),
+        size: isMorning ? undefined : (config.size || 'Grande'),
+        isHalfHalf: isHalf,
+        halfDetails: config.halfDetails,
+        proteins:
+          config.proteins &&
+          config.proteins.length > 0 &&
+          !areProteinsDefault(config.burger.name, config.proteins, config.burger.defaultProteins)
+            ? config.proteins
+            : undefined,
+        removedIngredients: config.removedIngredients && config.removedIngredients.length > 0 ? config.removedIngredients : undefined,
+        extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
+        isTakeaway: Boolean(config.isTakeaway),
+        isDelivery: Boolean(config.isDelivery),
+        isCut: isMorning ? false : config.isCut,
+        cutPreference: isMorning ? undefined : config.cutPreference,
+        notes: getCleanItemNote(config.notes) || undefined,
+        isNewOrModified: false,
+      };
+    });
 
     if (editingCartItem) {
       setCartItems((prev) => {
@@ -562,7 +577,7 @@ export const MeseroPage: React.FC = () => {
                 onClick={() => {
                   const next = !isCompactComandasView;
                   setIsCompactComandasView(next);
-                  localStorage.setItem('crispy_mesero_view_mode', next ? 'compact' : 'expanded');
+                  localStorage.setItem('basilico_mesero_view_mode', next ? 'compact' : 'expanded');
                 }}
                 className={`px-2.5 py-1 rounded-lg font-black text-[11px] flex items-center gap-1 border transition-all cursor-pointer shadow-xs ${
                   isCompactComandasView
@@ -689,7 +704,7 @@ export const MeseroPage: React.FC = () => {
                           {/* Items summary */}
                           <div className="my-1.5 py-1.5 px-2 rounded-xl bg-gray-50 border border-gray-100 text-center">
                             <div className="text-xs sm:text-sm font-black text-yellow-900">
-                              🍔 {itemsCount} {itemsCount === 1 ? 'ítem' : 'ítems'}
+                              🍕 {itemsCount} {itemsCount === 1 ? 'ítem' : 'ítems'}
                             </div>
                             <p className="text-xs text-gray-700 font-medium text-center truncate mt-0.5" title={itemsSummary}>
                               {itemsSummary}
@@ -883,7 +898,7 @@ export const MeseroPage: React.FC = () => {
                   {activeOrderTarget.title}
                 </h3>
                 <span className="text-[11px] text-gray-500 font-bold uppercase">
-                  Selección de Hamburguesas, Bebidas y Acompañantes
+                  Selección de Pizzas, Bebidas y Acompañantes
                 </span>
               </div>
             </div>
@@ -924,6 +939,7 @@ export const MeseroPage: React.FC = () => {
                     availableExtras={availableExtras}
                     availableProteins={availableProteins}
                     availableFreeToppings={availableFreeToppings}
+                    availablePizzas={products.filter((p) => (p.category || '').toLowerCase().includes('pizza'))}
                     isOpen={true}
                     inline={true}
                     onClose={() => {
@@ -1142,66 +1158,101 @@ export const MeseroPage: React.FC = () => {
                                   🛵 Delivery
                                 </button>
 
-                                {item.category === 'Salsas' ? (
-                                  <span className="text-[10px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-md inline-block">
-                                    🥣 Salsa
-                                  </span>
-                                ) : (item.isCut || item.cutPreference === 'Picada') ? (
-                                  <span className="text-[10px] font-black text-red-800 bg-red-100 px-1.5 py-0.5 rounded-md inline-block">
-                                    🔪 Picada
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded-md inline-block">
-                                    🍔 Entera
+                                {item.size && (
+                                  <span className="text-xs font-black text-stone-900 bg-green-100 border border-green-300 px-2 py-0.5 rounded-md inline-block uppercase">
+                                    🍕 {item.size.toUpperCase()}
                                   </span>
                                 )}
-                              </div>
-                            </div>
+                                {item.isHalfHalf && (
+                                  <span className="text-xs font-black text-amber-950 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md inline-block uppercase">
+                                    🌓 MITAD/MITAD
+                                  </span>
+                                )}
 
-                            <span className="text-sm sm:text-base font-black text-black shrink-0">
-                              ${(item.price * item.quantity).toFixed(2)}
-                            </span>
-                          </div>
-
-                          {/* Proteins (Tarea 3) */}
-                          {item.proteins && item.proteins.length > 0 && !areProteinsDefault(item.productName, item.proteins) && (
-                            <div className="text-xs text-amber-950 font-black bg-yellow-100 px-2 py-0.5 rounded-lg border border-yellow-300 inline-block">
-                              🥩 {item.proteins.join(' + ')}
-                            </div>
-                          )}
-
-                          {/* Removed ingredients (SIN) */}
-                          {item.removedIngredients && item.removedIngredients.length > 0 && (
-                            <div className="text-xs text-red-600 font-bold">
-                              🚫 SIN: {formatRemovedIngredients(item.removedIngredients).join(', ')}
-                            </div>
-                          )}
-
-                          {/* Extra ingredients (ADD) */}
-                          {item.extras && item.extras.length > 0 && (
-                            <div className="text-xs text-gray-800 font-bold space-y-0.5">
-                              {item.extras.map((ex, exIdx) => (
-                                <div key={exIdx} className="flex justify-between">
-                                  <span>➕ ADD: {(ex.quantity && ex.quantity > 1) ? `${ex.quantity}x ` : ''}{ex.name}</span>
-                                  {ex.price > 0 && <span className="font-black text-emerald-700">+${ex.price.toFixed(2)}</span>}
+                                  {item.category === 'Salsas' && (
+                                    <span className="text-xs font-black text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md inline-block uppercase">
+                                      🥣 SALSA
+                                    </span>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
-                          )}
+                              </div>
 
-                          {/* Sugar preference */}
-                          {item.sugarPreference && (
-                            <div className="text-xs text-blue-700 font-bold">
-                              🥤 Azúcar: {item.sugarPreference}
+                              <span className="text-base sm:text-lg font-black text-black shrink-0">
+                                ${(item.price * item.quantity).toFixed(2)}
+                              </span>
                             </div>
-                          )}
 
-                          {/* Drink Flavor */}
-                          {item.flavor && (
-                            <div className="text-xs text-amber-800 font-bold">
-                              🍹 Sabor: {item.flavor}
-                            </div>
-                          )}
+                            {/* Detalles de Mitad y Mitad */}
+                            {item.isHalfHalf && item.halfDetails && (
+                              <div className="mt-1 pl-2.5 border-l-2 border-amber-500 bg-amber-50/80 rounded-r-md p-2 space-y-1.5 text-xs sm:text-sm text-gray-800 uppercase">
+                                <div>
+                                  <span className="font-black text-amber-950">🌓 1RA MITAD:</span> <span className="font-black text-black">{item.halfDetails.half1Name?.toUpperCase()}</span>
+                                  {item.halfDetails.half1Removed && item.halfDetails.half1Removed.length > 0 && (
+                                    <span className="font-black block text-xs text-red-600 pl-2">
+                                      🚫 SIN: {item.halfDetails.half1Removed.map(r => r.toUpperCase()).join(', ')}
+                                    </span>
+                                  )}
+                                  {item.halfDetails.half1Extras && item.halfDetails.half1Extras.length > 0 && (
+                                    <span className="font-black block text-xs text-emerald-800 pl-2">
+                                      ➕ ADD: {item.halfDetails.half1Extras.map(e => `${(e.quantity && e.quantity > 1) ? `${e.quantity}X ` : ''}${e.name.toUpperCase()}`).join(', ')}
+                                    </span>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="font-black text-amber-950">🌓 2DA MITAD:</span> <span className="font-black text-black">{item.halfDetails.half2Name?.toUpperCase()}</span>
+                                  {item.halfDetails.half2Removed && item.halfDetails.half2Removed.length > 0 && (
+                                    <span className="font-black block text-xs text-red-600 pl-2">
+                                      🚫 SIN: {item.halfDetails.half2Removed.map(r => r.toUpperCase()).join(', ')}
+                                    </span>
+                                  )}
+                                  {item.halfDetails.half2Extras && item.halfDetails.half2Extras.length > 0 && (
+                                    <span className="font-black block text-xs text-emerald-800 pl-2">
+                                      ➕ ADD: {item.halfDetails.half2Extras.map(e => `${(e.quantity && e.quantity > 1) ? `${e.quantity}X ` : ''}${e.name.toUpperCase()}`).join(', ')}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Proteins (Tarea 3) */}
+                            {!item.isHalfHalf && item.proteins && item.proteins.length > 0 && !areProteinsDefault(item.productName, item.proteins) && (
+                              <div className="text-xs font-black text-amber-950 bg-yellow-100 px-2.5 py-0.5 rounded-lg border border-yellow-300 inline-block uppercase">
+                                🥩 {item.proteins.map(p => p.toUpperCase()).join(' + ')}
+                              </div>
+                            )}
+
+                            {/* Removed ingredients (SIN) */}
+                            {!item.isHalfHalf && item.removedIngredients && item.removedIngredients.length > 0 && (
+                              <div className="text-xs sm:text-sm text-red-600 font-black uppercase">
+                                🚫 SIN: {formatRemovedIngredients(item.removedIngredients).map(r => r.toUpperCase()).join(', ')}
+                              </div>
+                            )}
+
+                            {/* Extra ingredients (ADD) */}
+                            {!item.isHalfHalf && item.extras && item.extras.length > 0 && (
+                              <div className="text-xs sm:text-sm text-gray-900 font-bold space-y-0.5 uppercase">
+                                {item.extras.map((ex, exIdx) => (
+                                  <div key={exIdx} className="flex justify-between">
+                                    <span>➕ ADD: {(ex.quantity && ex.quantity > 1) ? `${ex.quantity}X ` : ''}{ex.name.toUpperCase()}</span>
+                                    {ex.price > 0 && <span className="font-black text-emerald-700">+${ex.price.toFixed(2)}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Sugar preference */}
+                            {item.sugarPreference && (
+                              <div className="text-xs sm:text-sm text-blue-800 font-black uppercase">
+                                🥤 AZÚCAR: {item.sugarPreference.toUpperCase()}
+                              </div>
+                            )}
+
+                            {/* Drink Flavor */}
+                            {item.flavor && (
+                              <div className="text-xs sm:text-sm text-amber-900 font-black uppercase">
+                                🍹 SABOR: {item.flavor.toUpperCase()}
+                              </div>
+                            )}
 
                           {/* Item Note */}
                           {getCleanItemNote(item.notes) && (
@@ -1352,6 +1403,7 @@ export const MeseroPage: React.FC = () => {
           availableExtras={availableExtras}
           availableProteins={availableProteins}
           availableFreeToppings={availableFreeToppings}
+          availablePizzas={products.filter((p) => (p.category || '').toLowerCase().includes('pizza'))}
           isOpen={!!selectedBurger}
           onClose={() => {
             setSelectedBurger(null);
@@ -1450,6 +1502,11 @@ export const MeseroPage: React.FC = () => {
               type: payload.type === 'llevar' ? 'pickup' : payload.type,
             });
             setOrderEditModalOrder(null);
+          }}
+          onDeletePaymentEntry={async (orderId, paymentId) => {
+            const updatedOrder = await deletePaymentEntry(orderId, paymentId);
+            setOrderEditModalOrder(updatedOrder);
+            return updatedOrder;
           }}
           onDeleteOrder={deleteOrder}
         />

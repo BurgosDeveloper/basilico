@@ -29,8 +29,8 @@
   }
 
   input:focus, select:focus, textarea:focus {
-    border-color: #FACC15 !important;
-    box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35) !important;
+    border-color: #4ADE80 !important;
+    box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.35) !important;
     outline: none !important;
   }
 
@@ -43,27 +43,27 @@
   }
 }
 
-/* Crispy POS Design System: Flat, Modern, White - Yellow - Black */
+/* Basilico POS Design System: Flat, Modern, White - Green - Black */
 :root {
-  --crispy-yellow: #FACC15;
-  --crispy-yellow-dark: #EAB308;
-  --crispy-yellow-light: #FEF08A;
-  --crispy-black: #111827;
-  --crispy-black-soft: #1F2937;
-  --crispy-white: #FFFFFF;
-  --crispy-surface: #F8FAFC;
-  --crispy-border: #E2E8F0;
+  --basilico-green: #4ADE80;
+  --basilico-green-dark: #22C55E;
+  --basilico-green-light: #BBF7D0;
+  --basilico-black: #111827;
+  --basilico-black-soft: #1F2937;
+  --basilico-white: #FFFFFF;
+  --basilico-surface: #F8FAFC;
+  --basilico-border: #E2E8F0;
 }
 
 /* Flat UI Cards & Containers */
-.crispy-card {
+.basilico-card {
   background-color: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 0.75rem;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
 }
 
-.crispy-card-hover {
+.basilico-card-hover {
   background-color: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 0.75rem;
@@ -71,28 +71,28 @@
   transition: all 0.15s ease-in-out;
 }
 
-.crispy-card-hover:hover {
-  border-color: #FACC15;
+.basilico-card-hover:hover {
+  border-color: #4ADE80;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
 }
 
 /* Flat Action Buttons */
-.crispy-btn-primary {
-  background-color: #FACC15;
+.basilico-btn-primary {
+  background-color: #4ADE80;
   color: #111827;
   font-weight: 800;
-  border: 1px solid #EAB308;
+  border: 1px solid #22C55E;
   border-radius: 0.625rem;
   padding: 0.5rem 1rem;
   transition: all 0.15s ease-in-out;
 }
 
-.crispy-btn-primary:hover {
-  background-color: #EAB308;
+.basilico-btn-primary:hover {
+  background-color: #22C55E;
   color: #000000;
 }
 
-.crispy-btn-dark {
+.basilico-btn-dark {
   background-color: #111827;
   color: #FFFFFF;
   font-weight: 700;
@@ -102,11 +102,11 @@
   transition: all 0.15s ease-in-out;
 }
 
-.crispy-btn-dark:hover {
+.basilico-btn-dark:hover {
   background-color: #000000;
 }
 
-.crispy-btn-outline {
+.basilico-btn-outline {
   background-color: #FFFFFF;
   color: #111827;
   font-weight: 700;
@@ -116,7 +116,7 @@
   transition: all 0.15s ease-in-out;
 }
 
-.crispy-btn-outline:hover {
+.basilico-btn-outline:hover {
   background-color: #F1F5F9;
   border-color: #94A3B8;
 }
@@ -154,17 +154,17 @@
 
 /* Retrocompatibilidad visual plana */
 .clay-btn {
-  background-color: #FACC15 !important;
+  background-color: #4ADE80 !important;
   color: #111827 !important;
   font-weight: 800 !important;
-  border: 1px solid #EAB308 !important;
+  border: 1px solid #22C55E !important;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
   background-image: none !important;
   border-radius: 0.625rem !important;
 }
 
 .clay-btn:hover {
-  background-color: #EAB308 !important;
+  background-color: #22C55E !important;
   color: #000000 !important;
 }
 

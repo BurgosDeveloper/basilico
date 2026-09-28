@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Crispy Burger",
-    "slug": "crispy-burger",
+    "name": "basilico",
+    "slug": "basilico",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,7 +12,7 @@
       "backgroundColor": "#ffffff"
     },
     "android": {
-      "package": "com.crispy.burger",
+      "package": "com.basilico",
       "usesCleartextTraffic": true,
       "versionCode": 1,
       "adaptiveIcon": {

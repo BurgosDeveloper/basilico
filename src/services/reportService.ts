@@ -1,4 +1,4 @@
-// Report Service - Generador de Reportes Auditables en PDF e Impresión Profesional para Crispy Burger POS
+// Report Service - Generador de Reportes Auditables en PDF e Impresión Profesional para Basilico POS
 
 import { Order, CajaChicaTransaction, ExchangeRates } from '../data/mockData';
 import { ReporteIntervaloData } from './excelExportService';
@@ -19,7 +19,7 @@ export class ReportService {
       <html lang="es">
       <head>
         <meta charset="UTF-8">
-        <title>${title} - Crispy Burger POS</title>
+        <title>${title} - Basilico POS</title>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap');
           @page {
@@ -61,8 +61,8 @@ export class ReportService {
             vertical-align: top;
           }
           .total-box {
-            background-color: #fffbeb;
-            border: 1.5px solid #facc15;
+            background-color: #F0FDF4;
+            border: 1.5px solid #4ADE80;
             border-radius: 6px;
             padding: 8px;
             margin-top: 8px;
@@ -99,7 +99,7 @@ export class ReportService {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${title} - Crispy Burger POS</title>
+        <title>${title} - Basilico POS</title>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
           @page {
@@ -313,7 +313,7 @@ export class ReportService {
         <div class="report-container">
           <div class="header">
             <div>
-              <div class="logo-title">🍔 CRISPY BURGER</div>
+              <div class="logo-title">🍕 BASILICO</div>
               <div class="logo-sub">Sistema de Gestión & Auditoría de Ventas</div>
             </div>
             <div class="doc-meta">
@@ -464,7 +464,7 @@ export class ReportService {
     return raw || (it.productName || it.name || 'Producto').trim();
   }
 
-  // 1. Reporte de Hamburguesas e Ítems Vendidos
+  // 1. Reporte de Pizzas e Ítems Vendidos
   generateProductsSoldReport(orders: Order[], rates: ExchangeRates) {
     const paidOrders = orders.filter((o) => o.paymentStatus === 'pagado' || o.paymentStatus === 'credito');
     const tally: Record<string, { qty: number; revenueUSD: number; category: string }> = {};
@@ -474,8 +474,8 @@ export class ReportService {
       o.items.forEach((it) => {
         const catLower = (it.category || '').toLowerCase();
         const cleanName = this.getReportBaseProductName(it);
-        const isBurger = catLower.includes('burger') || catLower.includes('hamburguesa') || cleanName.toLowerCase().includes('burger') || cleanName.toLowerCase().includes('crispy');
-        const displayName = cleanName;
+        const isBurger = catLower.includes('pizza') || catLower.includes('burger') || catLower.includes('hamburguesa') || cleanName.toLowerCase().includes('burger') || cleanName.toLowerCase().includes('crispy');
+        const displayName = it.size && (catLower.includes('pizza') || isBurger) ? `${cleanName} (${it.size})` : cleanName;
         const itQty = it.quantity || 1;
 
         // Extraer adicionales pagos
@@ -517,7 +517,7 @@ export class ReportService {
           tally[displayName] = {
             qty: 0,
             revenueUSD: 0,
-            category: isBurger ? 'Hamburguesas' : (it.category || 'Bebidas/Otros'),
+            category: isBurger ? 'Pizzas' : (it.category || 'Bebidas/Otros'),
           };
         }
         tally[displayName].qty += itQty;
@@ -559,7 +559,7 @@ export class ReportService {
       .join('');
 
     const content = `
-      <div class="section-title">DESGLOSE DE HAMBURGUESAS E ÍTEMS VENDIDOS</div>
+      <div class="section-title">DESGLOSE DE PIZZAS E ÍTEMS VENDIDOS</div>
       <table>
         <thead>
           <tr>
@@ -587,7 +587,7 @@ export class ReportService {
       </div>
     `;
 
-    this.openPrintWindow('Reporte_Ventas_Hamburguesas', content);
+    this.openPrintWindow('Reporte_Ventas_Pizzas', content);
   }
 
   // Alias para retrocompatibilidad
@@ -810,15 +810,15 @@ export class ReportService {
     this.openPrintWindow('Reporte_Vueltos_y_Egresos', content);
   }
 
-  // 4. Reporte de Hamburguesas e Ítems Vendidos por Intervalo
+  // 4. Reporte de Pizzas e Ítems Vendidos por Intervalo
   generateProductsSoldIntervalReport(data: ReporteIntervaloData) {
     const tally: Record<string, { category: string; name: string; quantity: number; totalUSD: number }> = {};
     data.items.forEach((item) => {
       const catLower = (item.category || '').toLowerCase();
       const cleanName = this.getReportBaseProductName(item);
-      const isBurger = catLower.includes('burger') || catLower.includes('hamburguesa') || cleanName.toLowerCase().includes('burger') || cleanName.toLowerCase().includes('crispy');
-      const category = isBurger ? 'Hamburguesas' : (item.category || 'Sin categoría');
-      const displayName = cleanName;
+      const isBurger = catLower.includes('pizza') || catLower.includes('burger') || catLower.includes('hamburguesa') || cleanName.toLowerCase().includes('burger') || cleanName.toLowerCase().includes('crispy');
+      const category = isBurger ? 'Pizzas' : (item.category || 'Sin categoría');
+      const displayName = item.size && (catLower.includes('pizza') || isBurger) ? `${cleanName} (${item.size})` : cleanName;
       const key = `${category}|${displayName}`;
       if (!tally[key]) tally[key] = { category, name: displayName, quantity: 0, totalUSD: 0 };
       tally[key].quantity += item.quantity;
@@ -828,8 +828,8 @@ export class ReportService {
       .map(([, item]) => `<tr><td>${this.escapeHtml(item.category)}</td><td><strong>${this.escapeHtml(item.name)}</strong></td><td style="text-align:right;">${item.quantity}</td><td style="text-align:right;">$${item.totalUSD.toFixed(2)}</td></tr>`).join('');
     const totalUnits = data.items.reduce((total, item) => total + item.quantity, 0);
     const totalRevenueUSD = Object.values(tally).reduce((sum, it) => sum + it.totalUSD, 0);
-    this.openPrintWindow('Hamburguesas_Vendidas_Intervalo', `
-      <div class="section-title">HAMBURGUESAS E ÍTEMS VENDIDOS POR TIPO Y UNIDADES</div>
+    this.openPrintWindow('Pizzas_Vendidas_Intervalo', `
+      <div class="section-title">PIZZAS E ÍTEMS VENDIDOS POR TIPO Y UNIDADES</div>
       <p style="font-size:12px; color:#4b5563;">${this.intervalTitle(data)}</p>
       <table><thead><tr><th style="width:30%;">Categoría</th><th style="width:40%;">Ítem</th><th style="width:15%; text-align:right;">Unidades</th><th style="width:15%; text-align:right;">Total USD</th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="text-align:center;">Sin ítems facturados en el intervalo.</td></tr>'}</tbody></table>
       <div class="total-box"><div><div class="total-label">UNIDADES FACTURADAS</div><strong>${totalUnits}</strong></div><div><div class="total-label">TOTAL FACTURADO PRODUCTOS</div><strong style="color:#047857; font-size:14px;">$${totalRevenueUSD.toFixed(2)} USD</strong></div></div>
@@ -992,9 +992,9 @@ export class ReportService {
           <div style="font-size:9.5px; font-weight:800; color:#9a3412; text-transform:uppercase;">Comandas Canceladas</div>
           <div style="font-size:20px; font-weight:900; color:#ea580c;">${cancelledOrdersCount}</div>
         </div>
-        <div style="background:#fefce8; border:1.5px solid #fef08a; border-radius:8px; padding:8px 6px; text-align:center;">
-          <div style="font-size:9.5px; font-weight:800; color:#854d0e; text-transform:uppercase;">Pagos Anulados</div>
-          <div style="font-size:20px; font-weight:900; color:#ca8a04;">${annulledPaymentsCount}</div>
+        <div style="background:#F0FDF4; border:1.5px solid #BBF7D0; border-radius:8px; padding:8px 6px; text-align:center;">
+          <div style="font-size:9.5px; font-weight:800; color:#166534; text-transform:uppercase;">Pagos Anulados</div>
+          <div style="font-size:20px; font-weight:900; color:#16A34A;">${annulledPaymentsCount}</div>
         </div>
         <div style="background:#f0f9ff; border:1.5px solid #bae6fd; border-radius:8px; padding:8px 6px; text-align:center;">
           <div style="font-size:9.5px; font-weight:800; color:#075985; text-transform:uppercase;">Comandas Modificadas</div>
@@ -1309,7 +1309,7 @@ export class ReportService {
     }).join('');
 
     // Construcción estructurada en 4 Secciones: COMIDAS, BEBIDAS, ADICIONALES, OTROS
-    // 1. COMIDAS (Hamburguesas, Platos, Raciones, etc.)
+    // 1. COMIDAS (Pizzas, Platos, Raciones, etc.)
     const comidasItems: Array<{ name: string; quantity: number; subtotalUSD: number }> = Array.from(foodMap.values())
       .filter((p) => p.quantity > 0)
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -1533,7 +1533,7 @@ export class ReportService {
 
       <!-- 6.1 COMIDAS -->
       <div style="font-size:11px; font-weight:900; margin:14px 0 4px; padding:4px 10px; background:#fef3c7; color:#92400e; border-left:4px solid #f59e0b; border-radius:0 4px 4px 0;">
-        6.1 COMIDAS (Hamburguesas, Raciones y Acompañantes)
+        6.1 COMIDAS (Pizzas, Raciones y Acompañantes)
       </div>
       <table>
         <thead>
@@ -1689,14 +1689,14 @@ export class ReportService {
 
     const content = `
       <div class="header" style="text-align: center; border-bottom: 2px solid #111827; padding-bottom: 4px;">
-        <div class="logo-title" style="font-size: 16px; font-weight: 900; color: #111827;">CRISPY BURGER</div>
-        <div style="font-size: 11px; font-weight: 900; color: #b45309; margin-top: 1px;">PRE-CUENTA / CONSUMO</div>
+        <div class="logo-title" style="font-size: 16px; font-weight: 900; color: #111827;">BASILICO</div>
+        <div style="font-size: 11px; font-weight: 900; color: #15803D; margin-top: 1px;">PRE-CUENTA / CONSUMO</div>
       </div>
 
       <div class="meta-card" style="font-size: 11px; margin: 6px 0; padding: 6px; background: #f9fafb; border: 1.5px solid #d1d5db; border-radius: 6px;">
         <div style="display: flex; justify-content: space-between; font-weight: 900; color: #111827; font-size: 12px;">
           <span>COMANDA: #${cleanOrderNumber}</span>
-          <span style="background: #fef08a; padding: 1px 6px; border-radius: 4px; border: 1px solid #facc15; font-size: 10px;">
+          <span style="background: #DCFCE7; padding: 1px 6px; border-radius: 4px; border: 1px solid #4ADE80; font-size: 10px;">
             ${order.type === 'mesa' ? `MESA #${order.tableNumber}` : order.type === 'delivery' ? 'DELIVERY' : 'PICKUP'}
           </span>
         </div>
@@ -1719,12 +1719,12 @@ export class ReportService {
       </table>
 
       <!-- CAJA TOTALIZADORA CON LAS 3 MONEDAS SIMULTÁNEAS -->
-      <div class="total-box" style="margin-top: 12px; padding: 10px; background: #fffbeb; border: 2px solid #facc15; border-radius: 8px;">
-        <div style="font-size: 11px; font-weight: 900; color: #78350f; text-transform: uppercase;">TOTAL A PAGAR:</div>
+      <div class="total-box" style="margin-top: 12px; padding: 10px; background: #F0FDF4; border: 2px solid #4ADE80; border-radius: 8px;">
+        <div style="font-size: 11px; font-weight: 900; color: #14532D; text-transform: uppercase;">TOTAL A PAGAR:</div>
         <div style="font-size: 24px; font-weight: 900; color: #111827; text-align: right; line-height: 1.1;">
           €${totalUSD.toFixed(2)} <span style="font-size: 12px; font-weight: 800;">EUR</span>
         </div>
-        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 900; margin-top: 8px; padding-top: 6px; border-top: 1.5px dashed #facc15;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 900; margin-top: 8px; padding-top: 6px; border-top: 1.5px dashed #4ADE80;">
           <span style="color: #0369a1;">🇨🇴 COP: $${totalCOP.toLocaleString()}</span>
           <span style="color: #111827;">🇻🇪 Bs: ${totalBs}</span>
         </div>
@@ -1732,7 +1732,7 @@ export class ReportService {
 
       <div class="footer" style="text-align: center; margin-top: 12px; border-top: 1px dashed #9ca3af; padding-top: 8px; font-size: 10px; font-weight: 900;">
         ¡GRACIAS POR SU PREFERENCIA!<br>
-        <span style="font-size: 8.5px; font-weight: 700; color: #4b5563;">CRISPY BURGER POS</span>
+        <span style="font-size: 8.5px; font-weight: 700; color: #4b5563;">BASILICO POS</span>
       </div>
     `;
 

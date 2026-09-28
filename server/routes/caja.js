@@ -4,22 +4,35 @@ const { query } = require('../db');
 const { fetchAllOrders, fetchAllTables } = require('../helpers/fetchAll');
 const { requireRole } = require('../helpers/sessionAuth');
 const { printCierreShiftTicket } = require('../helpers/thermalPrinter');
+const { syncOrdersAndTables } = require('../helpers/shiftSync');
 
 module.exports = function(io) {
   router.get('/', requireRole('caja', 'admin'), async (req, res) => {
     try {
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : null;
+      const shiftWhereAp = activeShift ? 'WHERE shift = $1' : '';
+      const shiftParamsAp = activeShift ? [activeShift] : [];
       const { rows: aperturaRows } = await query(
-        `SELECT * FROM caja_chica_apertura ORDER BY timestamp DESC LIMIT 1`
+        `SELECT * FROM caja_chica_apertura ${shiftWhereAp} ORDER BY timestamp DESC LIMIT 1`,
+        shiftParamsAp
       );
+
+      const shiftWhereTx = activeShift ? 'AND tx.shift = $1' : '';
+      const shiftParamsTx = activeShift ? [activeShift] : [];
       const { rows: txRows } = await query(
         `SELECT tx.*, o.order_number
          FROM caja_chica_transactions tx
          LEFT JOIN orders o ON o.id = tx.order_id
-         WHERE tx.cierre_id IS NULL
-         ORDER BY tx.timestamp DESC`
+         WHERE tx.cierre_id IS NULL ${shiftWhereTx}
+         ORDER BY tx.timestamp DESC`,
+        shiftParamsTx
       );
+
+      const shiftWhereCierre = activeShift ? 'WHERE shift = $1' : '';
+      const shiftParamsCierre = activeShift ? [activeShift] : [];
       const { rows: cierreRows } = await query(
-        `SELECT * FROM caja_chica_cierres ORDER BY closed_at DESC LIMIT 5`
+        `SELECT * FROM caja_chica_cierres ${shiftWhereCierre} ORDER BY closed_at DESC LIMIT 5`,
+        shiftParamsCierre
       );
 
       return res.json({
@@ -27,7 +40,7 @@ module.exports = function(io) {
           usdCash: parseFloat(aperturaRows[0].usd_cash),
           copCash: parseFloat(aperturaRows[0].cop_cash),
           openedAt: aperturaRows[0].timestamp,
-          shift: 'ambos',
+          shift: aperturaRows[0].shift || activeShift || 'ambos',
         } : { usdCash: 0, copCash: 0 },
         transacciones: txRows.map((t) => ({
           id: t.id,
@@ -41,7 +54,7 @@ module.exports = function(io) {
           orderId: t.order_id || undefined,
           orderReference: t.order_id ? `Comanda ${t.order_number || t.order_id}` : 'Movimiento manual',
           timestamp: t.timestamp,
-          shift: 'ambos',
+          shift: t.shift || activeShift || 'ambos',
         })),
         ultimoCierre: cierreRows[0] ? {
           id: cierreRows[0].id,
@@ -57,7 +70,7 @@ module.exports = function(io) {
           closedAt: cierreRows[0].closed_at,
           closedBy: cierreRows[0].closed_by || 'Caja',
           notes: cierreRows[0].notes || '',
-          shift: 'ambos',
+          shift: cierreRows[0].shift || activeShift || 'ambos',
         } : null,
       });
     } catch (err) {
@@ -69,15 +82,17 @@ module.exports = function(io) {
   router.post('/apertura', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { usdCash, copCash } = req.body;
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
       const apId = `ap-${Date.now()}`;
 
+      await query(`DELETE FROM caja_chica_apertura WHERE shift = $1`, [activeShift]);
       await query(
-        `INSERT INTO caja_chica_apertura (id, usd_cash, cop_cash, shift) VALUES ($1, $2, $3, 'ambos')`,
-        [apId, usdCash || 0, copCash || 0]
+        `INSERT INTO caja_chica_apertura (id, usd_cash, cop_cash, shift) VALUES ($1, $2, $3, $4)`,
+        [apId, usdCash || 0, copCash || 0, activeShift]
       );
 
       io.emit('caja:updated');
-      res.status(201).json({ success: true, usdCash, copCash });
+      res.status(201).json({ success: true, usdCash, copCash, shift: activeShift });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al aperturar caja' });
@@ -87,6 +102,7 @@ module.exports = function(io) {
   router.post('/transaction', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { type, amountUSD, amountCOP, amountBs, paymentMethod, description } = req.body;
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
       const normalizedUSD = Number(amountUSD) || 0;
       const normalizedCOP = Number(amountCOP) || 0;
       const normalizedBs = Number(amountBs) || 0;
@@ -103,8 +119,8 @@ module.exports = function(io) {
 
       await query(
         `INSERT INTO caja_chica_transactions (id, type, amount_usd, amount_cop, amount_bs, payment_method, description, shift)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ambos')`,
-        [txId, type, normalizedUSD, normalizedCOP, normalizedBs, paymentMethod.trim(), description || 'Movimiento manual']
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [txId, type, normalizedUSD, normalizedCOP, normalizedBs, paymentMethod.trim(), description || 'Movimiento manual', activeShift]
       );
 
       // Registro forense inmutable en order_edits
@@ -145,18 +161,20 @@ module.exports = function(io) {
   router.post('/cierre', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { actualUSD, actualCOP, notes } = req.body;
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
 
       const { rows: aperturaRows } = await query(
-        `SELECT * FROM caja_chica_apertura ORDER BY timestamp DESC LIMIT 1`
+        `SELECT * FROM caja_chica_apertura WHERE shift = $1 ORDER BY timestamp DESC LIMIT 1`,
+        [activeShift]
       );
       const openedUSD = aperturaRows[0] ? parseFloat(aperturaRows[0].usd_cash) || 0 : 0;
       const openedCOP = aperturaRows[0] ? parseFloat(aperturaRows[0].cop_cash) || 0 : 0;
       const openedAt = aperturaRows[0] ? aperturaRows[0].timestamp : null;
 
-      let txQuery = `SELECT * FROM caja_chica_transactions WHERE cierre_id IS NULL`;
-      let queryParams = [];
+      let txQuery = `SELECT * FROM caja_chica_transactions WHERE cierre_id IS NULL AND shift = $1`;
+      let queryParams = [activeShift];
       if (openedAt) {
-        txQuery += ` AND timestamp >= $1`;
+        txQuery += ` AND timestamp >= $2`;
         queryParams.push(openedAt);
       }
       const { rows: txRows } = await query(txQuery, queryParams);
@@ -200,23 +218,26 @@ module.exports = function(io) {
                 COUNT(op.id) as count
          FROM order_payments op
          INNER JOIN orders o ON o.id = op.order_id
-         WHERE o.archived_at IS NULL
+         WHERE o.archived_at IS NULL AND o.shift = $1
          GROUP BY op.payment_method
-         ORDER BY total_usd DESC`
+         ORDER BY total_usd DESC`,
+        [activeShift]
       );
 
       // 2. Obtener resumen de créditos y órdenes procesadas del turno activo
       const { rows: creditSummaryRows } = await query(
         `SELECT COUNT(id) as count, COALESCE(SUM(total_usd), 0) as total_usd
          FROM orders
-         WHERE payment_status = 'credito' AND archived_at IS NULL`
+         WHERE payment_status = 'credito' AND archived_at IS NULL AND shift = $1`,
+        [activeShift]
       );
 
       const { rows: shiftOrdersRows } = await query(
         `SELECT id, order_number, type, customer_name, total_usd, delivery_fee_usd, payment_status, status, table_number, created_at
          FROM orders
-         WHERE archived_at IS NULL
-         ORDER BY created_at ASC`
+         WHERE archived_at IS NULL AND shift = $1
+         ORDER BY created_at ASC`,
+        [activeShift]
       );
 
       const totalSalesUSD = shiftOrdersRows
@@ -228,7 +249,7 @@ module.exports = function(io) {
       // 3. Guardar registro en histórico de cierres
       await query(
         `INSERT INTO caja_chica_cierres (id, opened_usd, opened_cop, total_sales_usd, expected_usd, expected_cop, actual_usd, actual_cop, difference_usd, difference_cop, closed_by, notes, shift)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ambos')`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           cierreId,
           openedUSD,
@@ -241,7 +262,8 @@ module.exports = function(io) {
           diffUSD,
           diffCOP,
           req.user.username || 'Caja',
-          notes || 'Cierre de caja realizado'
+          notes || 'Cierre de caja realizado',
+          activeShift
         ]
       );
 
@@ -323,14 +345,15 @@ module.exports = function(io) {
           createdAt: ord.created_at,
         }));
 
-        const { rows: rateRows } = await query(`SELECT cop_rate, bs_rate FROM shift_exchange_rates WHERE shift = 'ambos'`);
+        const { rows: rateRows } = await query(`SELECT cop_rate, bs_rate FROM shift_exchange_rates WHERE shift = $1`, [activeShift]);
+        const fallbackRate = rateRows[0] || (await query(`SELECT cop_rate, bs_rate FROM shift_exchange_rates WHERE shift = 'ambos'`)).rows[0];
         const currentRates = {
-          COP: Number(rateRows[0]?.cop_rate) || 3950,
-          Bs: Number(rateRows[0]?.bs_rate) || 36.5,
+          COP: Number(fallbackRate?.cop_rate) || 3950,
+          Bs: Number(fallbackRate?.bs_rate) || 36.5,
         };
 
         await printCierreShiftTicket({
-          shift: 'ambos',
+          shift: activeShift,
           closedBy: req.user.username || 'Caja',
           notes: notes || 'Cierre de caja',
           openedUSD,
@@ -367,36 +390,35 @@ module.exports = function(io) {
             openedAt: openedAt,
           },
         });
-        console.log(`🖨️ [IMPRESIÓN AUTOMÁTICA DE CIERRE] Ticket de cierre emitido exitosamente.`);
+        console.log(`🖨️ [IMPRESIÓN AUTOMÁTICA DE CIERRE] Ticket de cierre (${activeShift.toUpperCase()}) emitido exitosamente.`);
       } catch (printErr) {
         console.warn(`⚠️ Aviso: no se pudo imprimir ticket de cierre térmico:`, printErr.message);
       }
 
-      // 5. Archivado de turno: Archivar TODAS las comandas del turno (pagadas, a crédito, canceladas; data 100% persistente en BD)
+      // 5. Archivado de turno: Archivar TODAS las comandas del turno activo
       const allShiftOrderIds = shiftOrdersRows.map((o) => o.id);
 
       if (allShiftOrderIds.length > 0) {
-        await query('UPDATE orders SET archived_at = CURRENT_TIMESTAMP WHERE id = ANY($1::text[]) AND archived_at IS NULL', [allShiftOrderIds]);
-        console.log(`📦 [ARCHIVADO DE TURNO] Se archivaron ${allShiftOrderIds.length} comandas del turno (incluyendo pagos y créditos; data 100% preservada en BD).`);
+        await query('UPDATE orders SET archived_at = CURRENT_TIMESTAMP WHERE id = ANY($1::text[]) AND shift = $2 AND archived_at IS NULL', [allShiftOrderIds, activeShift]);
+        console.log(`📦 [ARCHIVADO DE TURNO ${activeShift.toUpperCase()}] Se archivaron ${allShiftOrderIds.length} comandas del turno.`);
       }
 
-      // 7. Marcar movimientos de caja chica con el cierreId (preservados en BD) y reiniciar apertura
-      await query('UPDATE caja_chica_transactions SET cierre_id = $1 WHERE cierre_id IS NULL', [cierreId]);
-      await query('DELETE FROM caja_chica_apertura');
+      // 7. Marcar movimientos de caja chica con el cierreId (preservados en BD) y reiniciar apertura del turno
+      await query('UPDATE caja_chica_transactions SET cierre_id = $1 WHERE cierre_id IS NULL AND shift = $2', [cierreId, activeShift]);
+      await query('DELETE FROM caja_chica_apertura WHERE shift = $1', [activeShift]);
 
-      // 8. Liberar todas las mesas al cierre del turno (las comandas a crédito preservadas no bloquean mesas)
-      await query("UPDATE tables_config SET status = 'libre'");
+      // 8. Liberar mesas que ya no tengan órdenes activas en ningún turno
+      await query(`UPDATE tables_config SET status = 'libre' WHERE number NOT IN (
+        SELECT table_number FROM orders WHERE type = 'mesa' AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL
+      )`);
 
       // 9. Sincronización en tiempo real vía WebSocket
-      const remainingOrders = await fetchAllOrders();
-      const allTables = await fetchAllTables();
-      io.emit('orders:sync', remainingOrders);
-      io.emit('tables:sync', allTables);
+      await syncOrdersAndTables(io, activeShift);
       io.emit('caja:updated');
 
       res.json({
         success: true,
-        message: 'Cierre de caja y archivado de datos completados exitosamente. Toda la información histórica queda preservada en la base de datos.',
+        message: `Cierre de caja del turno ${activeShift.toUpperCase()} completado exitosamente. Toda la información histórica queda preservada en la base de datos.`,
         summary: {
           openedUSD,
           openedCOP,
@@ -413,6 +435,7 @@ module.exports = function(io) {
           totalSalesUSD,
           purgedOrdersCount: allShiftOrderIds.length,
           archivedCreditsCount: shiftOrdersRows.filter((o) => o.payment_status === 'credito').length,
+          shift: activeShift,
         },
       });
     } catch (err) {
@@ -423,7 +446,8 @@ module.exports = function(io) {
 
   router.get('/reporte-diario', requireRole('caja', 'admin'), async (req, res) => {
     try {
-      const orders = await fetchAllOrders();
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : null;
+      const orders = await fetchAllOrders(req.user);
       const paidOrders = orders.filter((o) => o.paymentStatus === 'pagado');
 
       const totalUSD = paidOrders.reduce((sum, o) => sum + o.totalUSD, 0);
@@ -435,7 +459,9 @@ module.exports = function(io) {
         Binance: paidOrders.filter((o) => o.paymentMethod === 'Binance').reduce((sum, o) => sum + o.totalUSD, 0),
       };
 
-      const { rows: historyCierres } = await query(`SELECT * FROM caja_chica_cierres ORDER BY closed_at DESC`);
+      const shiftWhere = activeShift ? 'WHERE shift = $1' : '';
+      const shiftParams = activeShift ? [activeShift] : [];
+      const { rows: historyCierres } = await query(`SELECT * FROM caja_chica_cierres ${shiftWhere} ORDER BY closed_at DESC`, shiftParams);
 
       res.json({
         totalSalesUSD: totalUSD,
@@ -454,10 +480,10 @@ module.exports = function(io) {
     try {
       const { message } = req.body;
       const lower = (message || '').toLowerCase();
-      const orders = await fetchAllOrders();
+      const orders = await fetchAllOrders(req.user);
       const paidOrders = orders.filter((o) => o.paymentStatus === 'pagado');
 
-      let reply = 'Consulta procesada en Crispy.';
+      let reply = 'Consulta procesada en Basilico.';
 
       if (lower.includes('hamburguesa') || lower.includes('burger') || lower.includes('vendida') || lower.includes('top')) {
         const tally = {};
@@ -468,9 +494,9 @@ module.exports = function(io) {
         });
         const entries = Object.entries(tally).sort((a, b) => b[1] - a[1]);
         if (entries.length === 0) {
-          reply = '🍔 No hay registros de hamburguesas vendidas cobradas el día de hoy.';
+          reply = '🍕 No hay registros de pizzas vendidas cobradas el día de hoy.';
         } else {
-          reply = `🍔 Hamburguesas & Ítems Cobrados Hoy:\n` + entries.map(([name, qty]) => `• ${name}: ${qty} unidades`).join('\n');
+          reply = `🍕 Pizzas & Ítems Cobrados Hoy:\n` + entries.map(([name, qty]) => `• ${name}: ${qty} unidades`).join('\n');
         }
       } else if (lower.includes('bebida') || lower.includes('refresco') || lower.includes('tomar')) {
         let drinkQty = 0;

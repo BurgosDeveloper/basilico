@@ -14,6 +14,7 @@ const { assertShiftAccess } = require('../helpers/shiftScope');
 const { getRatesForShift } = require('../helpers/exchangeRates');
 const { roundCOP } = require('../helpers/currencyRounding');
 const { requireRole } = require('../helpers/sessionAuth');
+const { syncOrdersAndTables, emitToShift } = require('../helpers/shiftSync');
 
 function assertPaymentOrderAccess(user, order) {
   if (!order) {
@@ -197,7 +198,8 @@ module.exports = function(io) {
 
       const allOrders = await fetchAllOrders(req.user);
       const updatedOrder = allOrders.find((currentOrder) => currentOrder.id === id);
-      io.emit('orders:sync', allOrders);
+      emitToShift(io, order.shift, 'order:status_updated', updatedOrder);
+      await syncOrdersAndTables(io, order.shift);
       if (cashLedgerResult.posted || cashLedgerResult.removed) io.emit('caja:updated');
       return res.json(updatedOrder);
     } catch (error) {
@@ -206,7 +208,8 @@ module.exports = function(io) {
         client.release();
       }
       console.error('Error al registrar movimiento de cobro:', error);
-      return res.status(500).json({ error: 'No se pudo registrar el movimiento de cobro.' });
+      const statusCode = error.statusCode || error.status || 500;
+      return res.status(statusCode).json({ error: error.message || 'No se pudo registrar el movimiento de cobro.' });
     }
   });
 
@@ -270,10 +273,9 @@ module.exports = function(io) {
       client = null;
 
       const allOrders = await fetchAllOrders(req.user);
-      const allTables = await fetchAllTables(req.user);
       const updatedOrder = allOrders.find((currentOrder) => currentOrder.id === id);
-      io.emit('orders:sync', allOrders);
-      io.emit('tables:sync', allTables);
+      emitToShift(io, order.shift, 'order:paid', updatedOrder);
+      await syncOrdersAndTables(io, order.shift);
       if (cashLedgerResult.posted || cashLedgerResult.removed) io.emit('caja:updated');
       return res.json(updatedOrder);
     } catch (error) {
@@ -282,7 +284,8 @@ module.exports = function(io) {
         client.release();
       }
       console.error('Error al finalizar comanda:', error);
-      return res.status(500).json({ error: 'No se pudo finalizar la comanda.' });
+      const statusCode = error.statusCode || error.status || 500;
+      return res.status(statusCode).json({ error: error.message || 'No se pudo finalizar la comanda.' });
     }
   });
 
@@ -358,10 +361,9 @@ module.exports = function(io) {
       client = null;
 
       const allOrders = await fetchAllOrders(req.user);
-      const allTables = await fetchAllTables(req.user);
       const updatedOrder = allOrders.find((currentOrder) => currentOrder.id === id);
-      io.emit('orders:sync', allOrders);
-      io.emit('tables:sync', allTables);
+      emitToShift(io, order.shift, 'order:status_updated', updatedOrder);
+      await syncOrdersAndTables(io, order.shift);
       io.emit('caja:updated');
       return res.json(updatedOrder);
     } catch (error) {
@@ -370,34 +372,49 @@ module.exports = function(io) {
         client.release();
       }
       console.error('Error al cerrar comanda a crédito:', error);
-      return res.status(500).json({ error: 'No se pudo cerrar la comanda a crédito.' });
+      const statusCode = error.statusCode || error.status || 500;
+      return res.status(statusCode).json({ error: error.message || 'No se pudo cerrar la comanda a crédito.' });
     }
   });
 
   router.delete('/:id/payments/:paymentId', requireRole('caja', 'admin'), async (req, res) => {
+    let order;
+    let client;
     try {
       const { id, paymentId } = req.params;
-      const client = await getClient();
+      client = await getClient();
       try {
         await client.query('BEGIN');
         const { rows: orderRows } = await client.query(
           `SELECT id, order_number, total_usd, shift FROM orders WHERE id = $1 FOR UPDATE`,
           [id]
         );
-        const order = orderRows[0];
+        order = orderRows[0];
+        if (!order) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(404).json({ error: 'Comanda no encontrada.' });
+        }
         assertPaymentOrderAccess(req.user, order);
         const { rows: paymentRows } = await client.query(
-          `SELECT item_ids, amount_paid_usd, payment_method, payer_name FROM order_payments WHERE id = $1 AND order_id = $2 FOR UPDATE`,
+          `SELECT item_ids, amount_paid_usd, change_given_usd, change_given_cop, change_given_bs, payment_method, payer_name FROM order_payments WHERE id = $1 AND order_id = $2 FOR UPDATE`,
           [paymentId, id]
         );
         if (!paymentRows[0]) {
           await client.query('ROLLBACK');
           client.release();
+          client = null;
           return res.status(404).json({ error: 'Registro de pago no encontrado.' });
         }
 
         const pm = paymentRows[0];
+        const isChange = (Number(pm.change_given_usd) > 0 || Number(pm.change_given_cop) > 0 || Number(pm.change_given_bs) > 0) && Number(pm.amount_paid_usd) === 0;
         const editId = `edit-pm-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        const auditMsg = isChange
+          ? `Vuelto / cambio entregado a ${pm.payer_name || 'Cliente general'} fue ANULADO / ELIMINADO de la comanda #${order.order_number || id}.`
+          : `Pago de $${Number(pm.amount_paid_usd || 0).toFixed(2)} USD (${pm.payment_method || 'Efectivo'}) de ${pm.payer_name || 'Cliente general'} fue ANULADO / ELIMINADO de la comanda #${order.order_number || id}.`;
+
         await client.query(
           `INSERT INTO order_edits (id, order_id, order_number, edited_by, edit_type, edit_details) VALUES ($1, $2, $3, $4, 'anulacion_pago', $5)`,
           [
@@ -405,7 +422,7 @@ module.exports = function(io) {
             id,
             order.order_number || '',
             req.user.username || 'caja',
-            `Pago de $${Number(pm.amount_paid_usd || 0).toFixed(2)} USD (${pm.payment_method || 'Efectivo'}) de ${pm.payer_name || 'Cliente general'} fue ANULADO / ELIMINADO de la comanda #${order.order_number || id}.`
+            auditMsg
           ]
         );
 
@@ -442,24 +459,32 @@ module.exports = function(io) {
         await postCompletedOrderCashMovements(client, id);
         await client.query('COMMIT');
         client.release();
+        client = null;
       } catch (e) {
-        await client.query('ROLLBACK');
-        if (client) client.release();
+        if (client) {
+          try { await client.query('ROLLBACK'); } catch (_) {}
+          client.release();
+          client = null;
+        }
         throw e;
       }
 
       const allOrders = await fetchAllOrders(req.user);
       const updatedOrder = allOrders.find((o) => o.id === id);
-      io.emit('orders:sync', allOrders);
+      emitToShift(io, order.shift, 'order:status_updated', updatedOrder);
+      await syncOrdersAndTables(io, order.shift);
       io.emit('caja:updated');
       res.json(updatedOrder);
     } catch (err) {
       console.error('Error al eliminar movimiento de pago:', err);
-      res.status(500).json({ error: 'Error al eliminar pago' });
+      const statusCode = err.statusCode || err.status || 500;
+      res.status(statusCode).json({ error: err.message || 'Error al eliminar pago' });
     }
   });
 
   router.post('/:id/pay', requireRole('caja', 'admin'), async (req, res) => {
+    let order;
+    let client;
     try {
       const { id } = req.params;
       const {
@@ -469,7 +494,7 @@ module.exports = function(io) {
         itemIds, isDraft
       } = req.body;
       
-      const client = await getClient();
+      client = await getClient();
       try {
         await client.query('BEGIN');
 
@@ -480,10 +505,11 @@ module.exports = function(io) {
         if (!existingRows[0]) {
           await client.query('ROLLBACK');
           client.release();
+          client = null;
           return res.status(404).json({ error: 'Comanda no encontrada' });
         }
 
-        const order = existingRows[0];
+        order = existingRows[0];
         assertPaymentOrderAccess(req.user, order);
         const currentPaid = parseFloat(order.paid_amount_usd || 0);
         const orderTotal = parseFloat(order.total_usd || 0);
@@ -570,14 +596,15 @@ module.exports = function(io) {
       const allOrders = await fetchAllOrders(req.user);
       const updatedOrder = allOrders.find((o) => o.id === id);
 
-      io.emit('order:paid', updatedOrder);
-      io.emit('orders:sync', allOrders);
+      emitToShift(io, order.shift, 'order:paid', updatedOrder);
+      await syncOrdersAndTables(io, order.shift);
       io.emit('caja:updated');
 
       res.json(updatedOrder);
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: 'Error al registrar cobro de comanda' });
+      const statusCode = err.statusCode || err.status || 500;
+      res.status(statusCode).json({ error: err.message || 'Error al registrar cobro de comanda' });
     }
   });
 

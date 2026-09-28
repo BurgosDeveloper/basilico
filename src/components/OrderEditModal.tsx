@@ -44,8 +44,43 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const availableExtras = useMemo(() => ingredients.filter(i => i.isExtraForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [ingredients]);
-  const allPizzaProducts = useMemo(() => products.filter(p => p.category === 'Pizzas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })), [products]);
+  const availableExtras = useMemo(
+    () => ingredients.filter(i => i.isExtraForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
+    [ingredients]
+  );
+  const allPizzaProducts = useMemo(
+    () => products.filter(p => {
+      const cat = (p.category || '').toLowerCase();
+      return cat === 'pizzas' || cat === 'pizza';
+    }).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
+    [products]
+  );
+
+  const groupedProducts = useMemo(() => {
+    const list = products.filter(p => {
+      if (!order.shift || order.shift === 'ambos') return true;
+      if (!p.shift || p.shift === 'ambos') return true;
+      return p.shift === order.shift;
+    });
+
+    const groups: { [cat: string]: Product[] } = {};
+    for (const p of list) {
+      const cat = (p.category || 'Otros').toUpperCase();
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(p);
+    }
+    for (const cat in groups) {
+      groups[cat].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+    }
+    return groups;
+  }, [products, order.shift]);
+
+  const itemsChanged = useMemo(() => {
+    if (!order) return false;
+    const orig = JSON.stringify(order.items || []);
+    const curr = JSON.stringify(items);
+    return orig !== curr;
+  }, [order, items]);
 
   useEffect(() => {
     if (order) {
@@ -66,23 +101,24 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
   const hasPaymentHistory = (paymentHistory?.length || 0) > 0;
 
   const calculateItemPrice = (item: OrderItem) => {
-    const prod = products.find(p => p.id === item.productId);
+    const prod = products.find(p => p.id === item.productId || p.name.trim().toLowerCase() === (item.productName || '').trim().toLowerCase());
     if (!prod) return item.price || 0;
 
-    if (prod.category === 'Pizzas') {
+    const cat = (prod.category || item.category || '').toLowerCase();
+    if (cat === 'pizzas' || cat === 'pizza') {
       let basePrice = prod.price;
       let smallPrice = prod.priceSmall ?? (prod.price > 4 ? prod.price - 4 : prod.price * 0.7);
 
       if (item.isHalfHalf && item.halfDetails) {
-        const p1 = products.find(p => p.name === item.halfDetails!.half1Name);
-        const p2 = products.find(p => p.name === item.halfDetails!.half2Name);
+        const p1 = products.find(p => p.name.trim().toLowerCase() === (item.halfDetails!.half1Name || '').trim().toLowerCase());
+        const p2 = products.find(p => p.name.trim().toLowerCase() === (item.halfDetails!.half2Name || '').trim().toLowerCase());
         const price1 = p1 ? p1.price : 0;
         const price2 = p2 ? p2.price : 0;
-        basePrice = Math.max(price1, price2);
+        basePrice = Math.max(price1, price2) || prod.price;
         
         const small1 = p1 ? (p1.priceSmall ?? (p1.price > 4 ? p1.price - 4 : p1.price * 0.7)) : 0;
         const small2 = p2 ? (p2.priceSmall ?? (p2.price > 4 ? p2.price - 4 : p2.price * 0.7)) : 0;
-        smallPrice = Math.max(small1, small2);
+        smallPrice = Math.max(small1, small2) || (basePrice > 4 ? basePrice - 4 : basePrice * 0.7);
       }
 
       const effectiveBasePrice = item.size === 'Pequeña' ? smallPrice : basePrice;
@@ -116,8 +152,7 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
     const updated = [...items];
     const newQty = (updated[index].quantity || 1) + delta;
     if (newQty <= 0) {
-      updated.splice(index, 1);
-      setItems(updated);
+      handleRemoveItem(index);
     } else {
       updateItem(index, item => ({ ...item, quantity: newQty }));
     }
@@ -141,8 +176,9 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
     if (!prod) return;
 
     setError('');
-    const isJugo = prod.category === 'Bebidas' && prod.drinkType === 'jugo';
-    const isPizza = prod.category === 'Pizzas';
+    const cat = (prod.category || '').toLowerCase();
+    const isJugo = cat.includes('bebida') && prod.drinkType === 'jugo';
+    const isPizza = cat === 'pizzas' || cat === 'pizza';
 
     const newItem: OrderItem = {
       id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -157,29 +193,36 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
       isHalfHalf: false,
       isTakeaway: false,
       sugarPreference: isJugo ? 'Con azúcar' : undefined,
+      category: prod.category,
+      drinkType: prod.drinkType,
+      flavor: prod.flavors ? (Array.isArray(prod.flavors) ? prod.flavors[0] : String(prod.flavors)) : undefined,
     };
     
     if (isPizza) {
       newItem.price = calculateItemPrice(newItem);
     }
 
-    setItems([...items, newItem]);
+    setItems(prev => [...prev, newItem]);
     setExpandedItemId(newItem.id);
     setSelectedProductToAdd('');
   };
 
   const handleSave = async () => {
-    if (hasPaymentHistory) {
-      setError('Anula primero todos los pagos y vueltos antes de modificar los productos.');
+    if (items.length === 0) {
+      setError('La comanda debe contener al menos un producto. Si deseas cancelarla, usa "Anular Comanda".');
+      return;
+    }
+    if (hasPaymentHistory && itemsChanged) {
+      setError('Esta comanda tiene pagos o vueltos registrados. Anula primero los pagos en el historial para modificar productos o cantidades.');
       return;
     }
     try {
       setIsSubmitting(true);
       const totalUSD = calculateTotal(items);
       await onSaveEdit(order.id, {
-        items,
+        items: itemsChanged ? items : (order.items || items),
         kitchenNotes,
-        totalUSD,
+        totalUSD: itemsChanged ? totalUSD : (order.totalUSD || totalUSD),
         customerName,
         tableNumber: tableNumber ? Number(tableNumber) : undefined,
         type: type === 'llevar' ? 'pickup' : type,
@@ -286,8 +329,8 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
               {items.map((item, idx) => {
                 const isExpanded = expandedItemId === item.id;
                 const prod = products.find(p => p.id === item.productId);
-                const isPizza = prod?.category === 'Pizzas';
-                const isJugo = prod?.category === 'Bebidas' && prod?.drinkType === 'jugo';
+                const isPizza = (prod?.category || '').toLowerCase() === 'pizzas';
+                const isJugo = (prod?.category || '').toLowerCase().includes('bebida') && prod?.drinkType === 'jugo';
 
                 return (
                   <div key={item.id || idx} className="rounded-2xl bg-[#1e293b] border border-slate-700 shadow-sm overflow-hidden transition-all">
@@ -651,13 +694,17 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
               <select
                 value={selectedProductToAdd}
                 onChange={(e) => setSelectedProductToAdd(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl border border-slate-600 bg-[#1e293b] font-medium text-xs text-white outline-none"
+                className="flex-1 px-3 py-2 rounded-xl border border-slate-600 bg-[#1e293b] font-medium text-xs text-white outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="">-- Añadir nuevo producto del menú --</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} (${(p.priceSmall || p.price || 0).toFixed(2)})
-                  </option>
+                {Object.entries(groupedProducts).map(([catName, prods]) => (
+                  <optgroup key={catName} label={`━━ ${catName} ━━`}>
+                    {prods.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} (${(p.priceSmall || p.price || 0).toFixed(2)})
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <button
@@ -771,7 +818,7 @@ export const OrderEditModal: React.FC<OrderEditModalProps> = ({
           </div>
           <button
             onClick={handleSave}
-            disabled={isSubmitting || hasPaymentHistory}
+            disabled={isSubmitting || (hasPaymentHistory && itemsChanged)}
             className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-black text-xs shadow-md transition-colors flex items-center gap-2"
           >
             <IoCheckmarkCircleOutline className="text-lg" />

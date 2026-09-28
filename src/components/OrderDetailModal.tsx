@@ -133,7 +133,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-3xl overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Header Plano Crispy */}
+        {/* Header Plano Basilico */}
         <div className="bg-white border-b border-gray-200 text-black p-4 sm:p-5 flex items-center justify-between shadow-xs shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-12 h-12 rounded-2xl bg-yellow-100 border border-yellow-300 flex items-center justify-center font-black shrink-0 text-black">

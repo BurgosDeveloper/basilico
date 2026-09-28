@@ -1,5 +1,5 @@
 /**
- * Redondeo Comercial Contable para Crispy Burger POS Backend (Tarea 13)
+ * Redondeo Comercial Contable para Basilico POS Backend (Tarea 13)
  */
 
 function roundCOP(amountCOP) {

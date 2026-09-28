@@ -38,16 +38,26 @@ export function isPotatoProduct(product: Product | null | undefined): boolean {
  */
 export function isCustomizableProduct(product: Product | null | undefined): boolean {
   if (!product) return false;
-  // Bebidas nunca son personalizables en burger builder
+  // Bebidas nunca son personalizables en burger/dish builder
   if (isDrinkProduct(product)) return false;
-  // Papas NO son personalizables por regla explícita del negocio
-  if (isPotatoProduct(product)) return false;
+  // Papas NO son personalizables en turno noche (en el turno noche se agregan directo como ración)
+  if (isPotatoProduct(product) && product.shift !== 'manana') return false;
+
+  // Si es plato del turno mañana (Entradas, Pastas, Especialidades), SIEMPRE es personalizable para contornos y bases
+  if (product.shift === 'manana') return true;
 
   const cat = (product.category || '').toLowerCase().trim();
   const name = (product.name || '').toLowerCase().trim();
 
-  // Si es hamburguesa o plato
-  if (cat.includes('hamburguesa') || cat.includes('plato')) {
+  // Si es pizza, hamburguesa o plato
+  if (
+    cat.includes('pizza') ||
+    cat.includes('hamburguesa') ||
+    cat.includes('plato') ||
+    cat.includes('especialidades') ||
+    cat.includes('pastas') ||
+    cat.includes('entradas')
+  ) {
     return true;
   }
 
@@ -56,7 +66,7 @@ export function isCustomizableProduct(product: Product | null | undefined): bool
     return true;
   }
 
-  return /burger|hamburguesa|smash|tasty|mixtura/i.test(name);
+  return /pizza|burger|hamburguesa|smash|tasty|mixtura/i.test(name);
 }
 
 /**

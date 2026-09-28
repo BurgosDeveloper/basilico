@@ -4,7 +4,7 @@ const { roundCOP, roundBs, roundUSD } = require('../server/helpers/currencyRound
 
 async function runAudit() {
   console.log('============================================================');
-  console.log(' 🍔 AUDITORÍA INTEGRAL DE TAREAS 5, 9, 12 Y 13');
+  console.log(' 🍕 AUDITORÍA INTEGRAL DE TAREAS 5, 9, 12 Y 13');
   console.log('============================================================');
 
   // 1. Validar Tarea 13: Redondeo Comercial Contable
@@ -30,7 +30,7 @@ async function runAudit() {
   // 2. Validar Tarea 12: Impresión Selectiva de Cocina
   console.log('\n[2] VALIDANDO TAREA 12: Impresión selectiva de cocina');
   const kitchenItemsTest = [
-    { item: { name: 'Crispy Clásica', category: 'Hamburguesas' }, expected: true, label: 'Hamburguesa' },
+    { item: { name: 'Basilico Clásica', category: 'Hamburguesas' }, expected: true, label: 'Hamburguesa' },
     { item: { name: 'Papas Rústicas', category: 'Acompañantes' }, expected: true, label: 'Papas' },
     { item: { name: 'Jugo Natural de Fresa', category: 'Bebidas', drinkType: 'jugo' }, expected: true, label: 'Jugo Natural' },
     { item: { name: 'Coca Cola 350ml', category: 'Bebidas', drinkType: 'refresco' }, expected: false, label: 'Coca Cola de Lata' },

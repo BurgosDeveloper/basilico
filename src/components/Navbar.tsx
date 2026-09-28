@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import {
-  IoFastFood,
+  IoPizza,
   IoSwapHorizontal,
   IoRestaurant,
   IoCard,
@@ -27,17 +27,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const getActiveUserBadge = () => {
     if (userSession?.role === 'admin') {
-      return { label: 'ADMINISTRADOR', icon: <IoShieldCheckmarkOutline className="text-yellow-600 text-sm" /> };
+      return { label: 'ADMINISTRADOR', icon: <IoShieldCheckmarkOutline className="text-green-600 text-sm" /> };
     }
     switch (location.pathname) {
       case '/mesonero':
-        return { label: 'MESERO', icon: <IoRestaurant className="text-yellow-600 text-sm" /> };
+        return { label: 'MESERO', icon: <IoRestaurant className="text-green-600 text-sm" /> };
       case '/caja':
-        return { label: 'CAJA POS', icon: <IoCard className="text-yellow-600 text-sm" /> };
+        return { label: 'CAJA POS', icon: <IoCard className="text-green-600 text-sm" /> };
       case '/cocina':
         return { label: 'COCINA KDS', icon: <IoFlame className="text-amber-500 text-sm" /> };
       default:
-        return { label: 'CRISPY BURGER', icon: <IoFastFood className="text-yellow-600 text-sm" /> };
+        return { label: 'BASILICO', icon: <IoPizza className="text-green-600 text-sm" /> };
     }
   };
 
@@ -61,24 +61,44 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <Link to="/" className="flex items-center gap-2 group">
             <div className="w-9 h-9 rounded-xl bg-yellow-400 border border-yellow-500 p-0.5 flex items-center justify-center shadow-sm group-hover:scale-105 transition-all overflow-hidden">
-              <img src="/logo_default.png" alt="Crispy Burger" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = '/icon.png'; }} />
+              <img src="/logo_default.png" alt="Basilico" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = '/icon.png'; }} />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-black text-base tracking-tight text-black group-hover:text-yellow-600 transition-colors">
-                  CRISPY
+                <span className="font-black text-base tracking-tight text-black group-hover:text-green-600 transition-colors">
+                  BASILICO
                 </span>
-                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-yellow-400 text-black border border-yellow-500 uppercase">
-                  BURGER
+                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-green-400 text-black border border-green-500 uppercase">
+                  POS
                 </span>
               </div>
             </div>
           </Link>
         </div>
 
-        {/* Center: Current Active Role Badge */}
+        {/* Center: Current Active Role Badge & Shift Badge */}
         {userSession && (
           <div className="flex items-center gap-2">
+            {/* SHIFT BADGE: TURNO MAÑANA vs TURNO NOCHE */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border shadow-2xs ${
+              userSession.shift === 'manana'
+                ? 'bg-amber-100/90 text-amber-950 border-amber-300'
+                : userSession.shift === 'noche'
+                ? 'bg-indigo-100/90 text-indigo-950 border-indigo-300'
+                : 'bg-stone-100 text-stone-900 border-stone-300'
+            }`}>
+              <span className="text-sm">
+                {userSession.shift === 'manana' ? '☀️' : userSession.shift === 'noche' ? '🌙' : '⚖️'}
+              </span>
+              <span className="text-xs font-black tracking-wide uppercase">
+                {userSession.shift === 'manana'
+                  ? 'TURNO MAÑANA'
+                  : userSession.shift === 'noche'
+                  ? 'TURNO NOCHE'
+                  : 'GLOBAL'}
+              </span>
+            </div>
+
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200">
               {activeBadge.icon}
               <span className="text-xs font-black tracking-wide text-gray-900 uppercase">
@@ -101,7 +121,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-50 hover:bg-yellow-50 border border-gray-200 hover:border-yellow-400 text-xs font-bold text-gray-800 transition-all"
               title="Cambiar tasas de cambio COP / Bs."
             >
-              <IoSwapHorizontal className="text-yellow-600 text-sm" />
+              <IoSwapHorizontal className="text-green-600 text-sm" />
               <div className="hidden sm:flex items-center gap-1.5 text-xs">
                 <span>COP: <strong className="text-black">${exchangeRates.COP.toLocaleString()}</strong></span>
                 <span className="text-gray-300">|</span>

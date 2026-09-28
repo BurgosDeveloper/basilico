@@ -1,5 +1,5 @@
 /**
- * Redondeo Comercial Contable para Crispy Burger POS
+ * Redondeo Comercial Contable para Basilico POS
  *
  * Reglas de Moneda:
  * - COP (Pesos Colombianos): En operaciones comerciales en efectivo se maneja la denominación de 500 y 1.000 COP.

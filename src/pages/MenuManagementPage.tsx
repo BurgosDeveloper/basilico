@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product, Ingredient, Table, RecipeIngredient, DualPrintersConfig } from '../data/mockData';
 import { AdminPinModal } from '../components/AdminPinModal';
+import { isDrinkProduct } from '../utils/productClassifier';
 
 import {
   IoAdd,
@@ -94,7 +95,7 @@ export const MenuManagementPage: React.FC = () => {
   const handleStartEditPizza = (product: Product) => {
     setEditingProductId(product.id);
     setPizzaName(product.name);
-    setDishCategory(product.category || 'Hamburguesas');
+    setDishCategory(product.category || 'Pizzas');
     setPizzaPrice(product.price.toString());
     setPizzaDesc(product.description || '');
     setSelectedBaseIngredients(product.baseIngredients || []);
@@ -115,10 +116,10 @@ export const MenuManagementPage: React.FC = () => {
 
     const productData = {
       name: pizzaName,
-      category: dishCategory || 'Hamburguesas',
+      category: dishCategory || 'Pizzas',
       price: pPrice,
-      description: pizzaDesc || 'Deliciosa hamburguesa artesanal Crispy Burger.',
-      image: '/crispy_burger_logo.png',
+      description: pizzaDesc || 'Deliciosa pizza artesanal Basilico.',
+      image: '/logo_default.png',
       baseIngredients: selectedBaseIngredients,
       proteinCount: burgerProteinCount,
       defaultProteins: finalDefaultProteins,
@@ -134,7 +135,7 @@ export const MenuManagementPage: React.FC = () => {
 
     setEditingProductId(null);
     setPizzaName('');
-    setDishCategory('Hamburguesas');
+    setDishCategory('Pizzas');
     setPizzaPrice('');
     setPizzaDesc('');
     setSelectedBaseIngredients([]);
@@ -185,7 +186,7 @@ export const MenuManagementPage: React.FC = () => {
       drinkType: drinkType,
       price: parseFloat(drinkPrice) || 0,
       description: drinkDesc || 'Bebida bien fría.',
-      image: '/crispy_burger_logo.png',
+      image: '/logo_default.png',
       flavors: finalFlavors,
       recipe: [] as RecipeIngredient[],
       shift: userSession?.shift || 'ambos'
@@ -306,15 +307,17 @@ export const MenuManagementPage: React.FC = () => {
   };
 
   const shiftProducts = products.filter(p => !p.shift || p.shift === 'ambos' || p.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  const pizzas = shiftProducts.filter((p) => p.category !== 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-  const bebidas = shiftProducts.filter((p) => p.category === 'Bebidas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const isDrink = (p: Product) => (p.category || '').toLowerCase().includes('bebida') || !!p.drinkType || isDrinkProduct(p);
+  const pizzas = shiftProducts.filter((p) => !isDrink(p)).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const bebidas = shiftProducts.filter((p) => isDrink(p)).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const shiftIngredients = ingredients.filter(i => !i.shift || i.shift === 'ambos' || i.shift === userSession?.shift).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const baseIngredientsAvailable = shiftIngredients.filter((i) => i.ingredientType === 'base' || i.isBaseForPizza).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   const proteinsAvailable = ingredients.filter((i) => i.ingredientType === 'proteina' || i.category === 'Proteínas').sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
   const filteredIngredients = shiftIngredients.filter((ing) => {
     if (ingredientFilter === 'todos') return true;
-    const type = ing.ingredientType || (ing.category === 'Salsas' ? 'salsa' : ing.category === 'Gratis' ? 'gratis' : ing.category === 'Proteínas' ? 'proteina' : ing.isBaseForPizza ? 'base' : 'adicional');
+    const catLower = (ing.category || '').toLowerCase();
+    const type = ing.ingredientType || (catLower.includes('salsa') ? 'salsa' : catLower.includes('gratis') ? 'gratis' : catLower.includes('proteina') ? 'proteina' : ing.isBaseForPizza ? 'base' : 'adicional');
     return type === ingredientFilter;
   });
 
@@ -324,7 +327,7 @@ export const MenuManagementPage: React.FC = () => {
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-5 rounded-3xl bg-white border border-yellow-400/50 shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-yellow-400 border border-yellow-500 flex items-center justify-center text-2xl shadow-sm">
-            🍔
+            🍕
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -344,7 +347,7 @@ export const MenuManagementPage: React.FC = () => {
               activeTab === 'pizzas' ? 'bg-yellow-400 text-black border border-yellow-500 shadow-xs' : 'text-gray-700 hover:text-black hover:bg-stone-200'
             }`}
           >
-            <span>🍔 HAMBURGUESAS ({pizzas.length})</span>
+            <span>🍕 PIZZAS ({pizzas.length})</span>
           </button>
 
           <button
@@ -397,20 +400,20 @@ export const MenuManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* TAB 1: HAMBURGUESAS */}
+      {/* TAB 1: PIZZAS */}
       {activeTab === 'pizzas' && (
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-black text-black flex items-center gap-2">
-              <span className="text-xl">🍔</span>
-              <span>CATÁLOGO DE HAMBURGUESAS & COMBOS</span>
+              <span className="text-xl">🍕</span>
+              <span>CATÁLOGO DE PIZZAS & COMBOS</span>
             </h2>
 
             <button
               onClick={() => {
                 setEditingProductId(null);
                 setPizzaName('');
-                setDishCategory('Hamburguesas');
+                setDishCategory('Pizzas');
                 setPizzaPrice('');
                 setPizzaDesc('');
                 setSelectedBaseIngredients([]);
@@ -421,7 +424,7 @@ export const MenuManagementPage: React.FC = () => {
               className="px-4 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs transition-all flex items-center gap-1.5 border border-yellow-500 shadow-xs"
             >
               <IoAdd className="text-lg" />
-              <span>NUEVA HAMBURGUESA</span>
+              <span>NUEVA PIZZA</span>
             </button>
           </div>
 
@@ -1374,14 +1377,14 @@ export const MenuManagementPage: React.FC = () => {
         />
       )}
 
-      {/* MODAL CREAR / EDITAR HAMBURGUESA */}
+      {/* MODAL CREAR / EDITAR PIZZA */}
       {isAddPizzaOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
           <div className="relative w-full max-w-lg p-6 bg-white border border-yellow-400/50 rounded-3xl shadow-2xl space-y-4 text-black max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center pb-3 border-b border-gray-100">
               <h3 className="text-base font-black flex items-center gap-2">
-                <span>🍔</span>
-                <span>{editingProductId ? 'EDITAR HAMBURGUESA' : 'NUEVA HAMBURGUESA EN EL MENÚ'}</span>
+                <span>🍕</span>
+                <span>{editingProductId ? 'EDITAR PIZZA' : 'NUEVA PIZZA EN EL MENÚ'}</span>
               </h3>
               <button
                 onClick={() => { setIsAddPizzaOpen(false); setEditingProductId(null); }}
@@ -1399,7 +1402,7 @@ export const MenuManagementPage: React.FC = () => {
                   required
                   value={pizzaName}
                   onChange={(e) => setPizzaName(e.target.value)}
-                  placeholder="Ej: Crispy Clásica, Doble Smash, Chicken Crispy..."
+                  placeholder="Ej: Margherita, Pepperoni, Quattro Formaggi..."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 border border-gray-300 text-xs text-black outline-none focus:border-yellow-400 font-bold"
                 />
               </div>
@@ -1488,7 +1491,7 @@ export const MenuManagementPage: React.FC = () => {
               {/* Selección de Ingredientes Base */}
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Ingredientes Base (que vienen con la hamburguesa y se pueden quitar):
+                  Ingredientes Base (que vienen con la pizza y se pueden quitar):
                 </label>
                 <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto custom-scrollbar p-2.5 bg-stone-50 rounded-xl border border-gray-200">
                   {baseIngredientsAvailable.map((ing) => {
@@ -1715,7 +1718,7 @@ export const MenuManagementPage: React.FC = () => {
                   required
                   value={ingName}
                   onChange={(e) => setIngName(e.target.value)}
-                  placeholder="Ej: Tocineta, Carne Smash, Cebolla Crispy, Lechuga..."
+                  placeholder="Ej: Mozzarella, Pepperoni, Albahaca, Champiñones..."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 border border-gray-300 text-xs text-black outline-none focus:border-yellow-400 font-bold"
                 />
               </div>
@@ -1726,10 +1729,10 @@ export const MenuManagementPage: React.FC = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
                     { type: 'salsa', label: '🥣 Salsa', desc: 'Sección Salsas (cocina, no contable)' },
-                    { type: 'proteina', label: '🥩 Proteína', desc: 'Carne, pollo mechado/crispy' },
+                    { type: 'proteina', label: '🥩 Proteína / Carnes', desc: 'Jamón, Pepperoni, Tocineta, Pollo' },
                     { type: 'gratis', label: '🆓 Gratuito', desc: 'Topping sin costo extra' },
                     { type: 'adicional', label: '➕ Adicional', desc: 'Extra con costo cobrable' },
-                    { type: 'base', label: '🥬 Base', desc: 'Viene por defecto en hamburguesa' },
+                    { type: 'base', label: '🥬 Base', desc: 'Viene por defecto en pizza' },
                   ].map((item) => (
                     <button
                       key={item.type}

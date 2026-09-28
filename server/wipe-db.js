@@ -6,7 +6,7 @@ async function wipeDb() {
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
-      console.log('🧹 Eliminando registros (órdenes, transacciones, etc) en PG (crispy)...');
+      console.log('🧹 Eliminando registros (órdenes, transacciones, etc) en PG (basilico)...');
       
       await client.query('TRUNCATE TABLE caja_chica_transactions RESTART IDENTITY CASCADE');
       await client.query('TRUNCATE TABLE caja_chica_apertura RESTART IDENTITY CASCADE');

@@ -40,7 +40,7 @@ export function getProteinIcon(name: string = ''): string {
   if (n.includes('plancha') || n.includes('pechuga') || n.includes('grill')) return '🍳';
   if (n.includes('chuleta') || n.includes('pork') || n.includes('cerdo')) return '🥓';
   if (n.includes('mechada') || n.includes('street')) return '🍲';
-  if (n.includes('smash')) return '🍔';
+  if (n.includes('smash')) return '🍕';
   if (n.includes('novillo') || n.includes('carne') || n.includes('res') || n.includes('bife') || n.includes('angus')) return '🥩';
   return '🥩';
 }

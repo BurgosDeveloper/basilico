@@ -14,11 +14,11 @@
     "name": "Impresora Caja / Mostrador",
     "enabled": true,
     "connectionType": "usb",
-    "paperWidth": "80mm",
+    "paperWidth": "58mm",
     "host": "",
     "port": 9100,
-    "usbDeviceName": "POS-80",
-    "timeoutMs": 8000,
+    "usbDeviceName": "POS-58",
+    "timeoutMs": 5000,
     "copies": 1
   }
 }

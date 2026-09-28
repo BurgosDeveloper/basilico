@@ -277,17 +277,9 @@ export const CocinaPage: React.FC = () => {
                                   <IoBagOutline /> 📦 PARA LLEVAR
                                 </span>
                               )}
-                              {isSalsaItem(it) ? (
+                              {isSalsaItem(it) && (
                                 <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black">
                                   🥣 SALSA
-                                </span>
-                              ) : (it.isCut || it.cutPreference === 'Picada') ? (
-                                <span className="px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-300 text-[9px] font-black">
-                                  🔪 PICADA
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 border border-slate-300 text-[9px] font-black">
-                                  🍔 ENTERA
                                 </span>
                               )}
                             </div>

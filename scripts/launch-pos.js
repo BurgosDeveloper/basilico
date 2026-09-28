@@ -67,7 +67,7 @@ function getConnectionInfo() {
         try {
           const connectionInfo = JSON.parse(body);
           if (!connectionInfo.backendUrl) throw new Error('No se detectó una IP LAN válida.');
-          if (connectionInfo.app !== 'crispy') throw new Error('El backend respondiendo no pertenece a Crispy Burger.');
+          if (connectionInfo.app !== 'basilico') throw new Error('El backend respondiendo no pertenece a Basilico.');
           resolve(connectionInfo);
         } catch (error) {
           reject(error);
@@ -121,7 +121,7 @@ async function openPos(backendUrl) {
   }
 
   if (await tryOpenBrowser('cmd.exe', ['/c', 'start', '', backendUrl])) return;
-  throw new Error('No se encontró un navegador para abrir Crispy Burger.');
+  throw new Error('No se encontró un navegador para abrir Basilico.');
 }
 
 async function waitForBackend() {
@@ -133,7 +133,7 @@ async function waitForBackend() {
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
-  throw new Error('Crispy Burger no pudo iniciar el backend LAN. Revisa PostgreSQL y la conexión de red.');
+  throw new Error('Basilico no pudo iniciar el backend LAN. Revisa PostgreSQL y la conexión de red.');
 }
 
 async function launch() {
@@ -158,10 +158,10 @@ async function launch() {
 }
 
 launch().catch((error) => {
-  console.error('Error al iniciar Crispy Burger:', error.message);
+  console.error('Error al iniciar Basilico:', error.message);
   try {
     const safeMsg = String(error.message || 'Error desconocido').replace(/'/g, '').replace(/"/g, '');
-    execSync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('${safeMsg}', 'Crispy Burger POS - Error de Inicio', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"`, { stdio: 'ignore' });
+    execSync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('${safeMsg}', 'Basilico POS - Error de Inicio', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"`, { stdio: 'ignore' });
   } catch (e) {}
   process.exitCode = 1;
 });

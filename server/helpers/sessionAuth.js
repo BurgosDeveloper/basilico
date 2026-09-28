@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 
 // Clave secreta para la firma y verificación matemática de tokens JWT
-const JWT_SECRET = process.env.CRISPY_JWT_SECRET || process.env.JWT_SECRET || 'crispy-pos-jwt-secret-key-2026-auth-token';
+const JWT_SECRET = process.env.CRISPY_JWT_SECRET || process.env.JWT_SECRET || 'basilico-pos-jwt-secret-key-2026-auth-token';
 
 function base64UrlEncode(str) {
   return Buffer.from(str)

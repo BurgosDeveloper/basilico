@@ -58,6 +58,7 @@ export interface OrderItemExtra {
   price: number;
   quantity?: number;
   unitPrice?: number;
+  category?: string;
 }
 
 export interface HalfDetails {
@@ -221,12 +222,24 @@ export interface DualPrintersConfig {
   caja: PrinterUnitConfig;
 }
 
+export interface PizzaHalfDetail {
+  flavor: string;
+  baseIngredients: string[];
+  removedIngredients: string[];
+  selectedPaidExtras: { name: string; price: number; quantity?: number; unitPrice?: number; category?: string }[];
+}
+
 export interface BurgerUnitConfig {
   unitIndex: number;
+  size?: 'Grande' | 'Pequeña';
+  isHalfHalf?: boolean;
+  half1?: PizzaHalfDetail;
+  half2?: PizzaHalfDetail;
+  activeHalf?: 0 | 1;
   proteins: string[];
   removedIngredients: string[];
   selectedFreeToppings: string[];
-  selectedPaidExtras: { name: string; price: number; quantity?: number; unitPrice?: number }[];
+  selectedPaidExtras: { name: string; price: number; quantity?: number; unitPrice?: number; category?: string }[];
   isTakeaway: boolean;
   isDelivery?: boolean;
   isCut: boolean;

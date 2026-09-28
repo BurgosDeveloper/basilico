@@ -402,7 +402,7 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   const itemsRows: string[][] = [];
 
   // 1. COMIDAS
-  itemsRows.push(['--- 1. COMIDAS (Hamburguesas, Raciones) ---', '', '']);
+  itemsRows.push(['--- 1. COMIDAS (Pizzas, Raciones) ---', '', '']);
   if (comidasItems.length === 0) {
     itemsRows.push(['Sin comidas facturadas', '0', '0.00']);
   } else {
@@ -540,6 +540,6 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   // Generar y descargar
   const fromFormatted = new Date(data.dateRange.from).toISOString().slice(0, 10);
   const toFormatted = new Date(data.dateRange.to).toISOString().slice(0, 10);
-  const fileName = `Crispy_Reporte_${fromFormatted}_a_${toFormatted}.xlsx`;
+  const fileName = `Basilico_Reporte_${fromFormatted}_a_${toFormatted}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }

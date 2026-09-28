@@ -7,12 +7,23 @@ const { roundCOP } = require('./currencyRounding');
 // Font expansion in ESC/POS uses discrete sizes. Extra character spacing gives
 // the 80 mm ticket approximately 40% more horizontal presence without relying
 // on vendor-specific font modes.
-const LINE_WIDTH = 28;
-// Configuración ESC/POS con fuente 40% más grande y espaciado optimizado:
+const LINE_WIDTH_80 = 28;
+const LINE_WIDTH_58 = 32;
+const LINE_WIDTH = LINE_WIDTH_80;
+
+// Configuración ESC/POS con fuente 40% más grande y espaciado optimizado (80 mm):
 // - \x1B \x08: ESC SP 8 -> Aumenta el espaciado horizontal entre caracteres en 8 puntos (~40-50% más ancho y legible)
 // - \x1B3\x2C: ESC 3 44 -> Altura de línea ampliada a 44 puntos (~40% más alto)
 // - \x1BM\x00: ESC M 0 -> Fuente A estándar (12x24 puntos, máxima definición)
-const PRINT_FORMAT_SETUP = '\x1B \x08\x1B3\x2C\x1BM\x00';
+const PRINT_FORMAT_SETUP_80 = '\x1B \x08\x1B3\x2C\x1BM\x00';
+
+// Configuración ESC/POS compacta y estándar para papel de 58 mm (POS-58):
+// - \x1B \x00: ESC SP 0 -> Espaciado normal de caracteres (32 columnas nítidas sin desbordar el rollo)
+// - \x1B2: ESC 2 -> Interlineado estándar de 1/6 pulgada (más compacto y económico)
+// - \x1BM\x00: ESC M 0 -> Fuente A estándar (12x24 puntos)
+const PRINT_FORMAT_SETUP_58 = '\x1B \x00\x1B2\x1BM\x00';
+
+const PRINT_FORMAT_SETUP = PRINT_FORMAT_SETUP_80;
 const PRINT_FORMAT_RESET = '\x1B \x00\x1B2';
 
 const KITCHEN_LINE_WIDTH = 21;
@@ -409,8 +420,15 @@ function itemDetails(item, order = {}) {
     }
   }
 
-  // 2. Picada: Solo si está marcada como picada (sin ENTERA)
-  const isCut = !!(item.isCut || item.is_cut || item.cutPreference === 'Picada' || item.cut_preference === 'Picada');
+  const isMorning = (order.shift === 'manana') || (item.shift === 'manana');
+
+  // 1b. Tamaño de Pizza (solo turno noche / pizzas)
+  if (item.size && !isMorning && item.size !== 'Estándar') {
+    details.push(String(item.size).trim());
+  }
+
+  // 2. Picada: Solo si está marcada como picada (sin ENTERA) y no es plato de mañana
+  const isCut = !isMorning && !!(item.isCut || item.is_cut || item.cutPreference === 'Picada' || item.cut_preference === 'Picada');
   if (isCut) {
     details.push('🔪 PICADA');
   }
@@ -429,62 +447,125 @@ function itemDetails(item, order = {}) {
     details.push(`SABOR: ${String(flavor).toUpperCase()}`);
   }
 
-  // 4. Ingredientes removidos (SIN)
-  const removed = item.removedIngredients || item.removed_ingredients;
-  if (Array.isArray(removed) && removed.length > 0) {
-    const hasLechuga = removed.some((r) => /lechuga/i.test(r));
-    const hasTomate = removed.some((r) => /tomate/i.test(r));
-    const hasCebolla = removed.some((r) => /cebolla/i.test(r));
-    let displayRemoved;
-    if (hasLechuga && hasTomate && hasCebolla) {
-      const others = removed.filter((r) => !/lechuga|tomate|cebolla/i.test(r));
-      displayRemoved = ['VEGETALES', ...others.map((o) => o.toUpperCase())];
-    } else {
-      displayRemoved = removed.map((r) => r.toUpperCase());
-    }
-    details.push(`SIN: ${displayRemoved.sort().join(', ')}`);
-  }
-
-  // 5. Toppings gratis abreviados y adicionales pagos con ADD:
-  const freeToppings = [];
-  const paidExtras = [];
-
-  let rawExtras = [];
-  if (Array.isArray(item.extras)) rawExtras = item.extras;
-  else if (item.extrasJson && Array.isArray(item.extrasJson)) rawExtras = item.extrasJson;
-  else if (item.extras_json) {
+  // 4. Procesar Mitad y Mitad vs Ítem Normal
+  let halfDetails = item.halfDetails || item.half_details;
+  if (typeof halfDetails === 'string') {
     try {
-      rawExtras = typeof item.extras_json === 'string' ? JSON.parse(item.extras_json) : item.extras_json;
+      halfDetails = JSON.parse(halfDetails);
     } catch (e) {}
   }
 
-  for (const ext of rawExtras) {
-    const extName = typeof ext === 'string' ? ext : (ext.name || '');
-    const extPrice = typeof ext === 'object' ? Number(ext.price) || 0 : 0;
-    const extQty = typeof ext === 'object' ? (Number(ext.quantity) || 1) : 1;
-    if (extPrice === 0 && extName) {
-      const abbrev = abbreviateFreeTopping(extName);
-      const tag = abbrev || extName.replace(/\s*\(GRATIS\)\s*/gi, '').trim().toUpperCase();
-      if (!freeToppings.includes(tag)) freeToppings.push(tag);
-    } else if (extName) {
-      const cleanName = extName.replace(/^\d+x\s*/i, '').trim();
-      const label = extQty > 1 ? `${extQty}x ${cleanName}` : cleanName;
-      paidExtras.push(label);
-    }
-  }
+  const isHalf = !isMorning && !!(item.isHalfHalf || item.is_half_half) && !!halfDetails;
 
-  if (freeToppings.length > 0) {
-    details.push(freeToppings.sort().join(', '));
-  }
-  paidExtras.sort();
-  for (const paid of paidExtras) {
-    details.push(`ADD: ${paid}`);
+  if (isHalf) {
+    // 1ra Mitad SIN
+    const h1Rem = halfDetails.half1Removed || [];
+    if (Array.isArray(h1Rem) && h1Rem.length > 0) {
+      details.push(`1RA MITAD SIN: ${h1Rem.map((r) => String(r).toUpperCase()).join(', ')}`);
+    }
+    // 1ra Mitad ADD
+    const h1Extras = halfDetails.half1Extras || [];
+    if (Array.isArray(h1Extras) && h1Extras.length > 0) {
+      for (const ext of h1Extras) {
+        const extName = typeof ext === 'string' ? ext : (ext.name || '');
+        const extQty = typeof ext === 'object' ? (Number(ext.quantity) || 1) : 1;
+        const cleanName = extName.replace(/^\d+x\s*/i, '').trim();
+        const label = extQty > 1 ? `${extQty}x ${cleanName}` : cleanName;
+        details.push(`1RA MITAD ADD: ${label}`);
+      }
+    }
+
+    // 2da Mitad SIN
+    const h2Rem = halfDetails.half2Removed || [];
+    if (Array.isArray(h2Rem) && h2Rem.length > 0) {
+      details.push(`2DA MITAD SIN: ${h2Rem.map((r) => String(r).toUpperCase()).join(', ')}`);
+    }
+    // 2da Mitad ADD
+    const h2Extras = halfDetails.half2Extras || [];
+    if (Array.isArray(h2Extras) && h2Extras.length > 0) {
+      for (const ext of h2Extras) {
+        const extName = typeof ext === 'string' ? ext : (ext.name || '');
+        const extQty = typeof ext === 'object' ? (Number(ext.quantity) || 1) : 1;
+        const cleanName = extName.replace(/^\d+x\s*/i, '').trim();
+        const label = extQty > 1 ? `${extQty}x ${cleanName}` : cleanName;
+        details.push(`2DA MITAD ADD: ${label}`);
+      }
+    }
+  } else {
+    // 4. Ingredientes removidos (SIN) para producto estándar / pizza completa / plato
+    const removed = item.removedIngredients || item.removed_ingredients;
+    if (Array.isArray(removed) && removed.length > 0) {
+      const hasLechuga = removed.some((r) => /lechuga/i.test(r));
+      const hasTomate = removed.some((r) => /tomate/i.test(r));
+      const hasCebolla = removed.some((r) => /cebolla/i.test(r));
+      let displayRemoved;
+      if (hasLechuga && hasTomate && hasCebolla) {
+        const others = removed.filter((r) => !/lechuga|tomate|cebolla/i.test(r));
+        displayRemoved = ['VEGETALES', ...others.map((o) => o.toUpperCase())];
+      } else {
+        displayRemoved = removed.map((r) => r.toUpperCase());
+      }
+      details.push(`SIN: ${displayRemoved.sort().join(', ')}`);
+    }
+
+    // 5. Contornos, Toppings gratis y adicionales pagos
+    const contornos = [];
+    const freeToppings = [];
+    const paidExtras = [];
+
+    let rawExtras = [];
+    if (Array.isArray(item.extras)) rawExtras = item.extras;
+    else if (item.extrasJson && Array.isArray(item.extrasJson)) rawExtras = item.extrasJson;
+    else if (item.extras_json) {
+      try {
+        rawExtras = typeof item.extras_json === 'string' ? JSON.parse(item.extras_json) : item.extras_json;
+      } catch (e) {}
+    }
+
+    for (const ext of rawExtras) {
+      const extName = typeof ext === 'string' ? ext : (ext.name || '');
+      const extPrice = typeof ext === 'object' ? Number(ext.price) || 0 : 0;
+      const extQty = typeof ext === 'object' ? (Number(ext.quantity) || 1) : 1;
+      const extCat = typeof ext === 'object' ? String(ext.category || '').toUpperCase() : '';
+      const cleanNameUpper = extName.replace(/^\d+x\s*/i, '').trim().toUpperCase();
+      const MORNING_CONTORNOS = [
+        'ARROZ', 'PAPAS FRITAS', 'PURE DE PAPAS', 'TAJADAS', 'TOSTONES',
+        'ENSALADA DEL DIA', 'PAN AL AJILLO', 'VEGETALES SALTEADOS',
+        'VEGETALES GRATINADOS', 'LENTEJAS', 'PASTA DEL DIA', 'AREPAS FRITAS',
+        'CONTORNO', 'GUARNICION', 'ENSALADA', 'PURE', 'PAPAS', 'TAJADA', 'TOSTON'
+      ];
+      const isContorno = extCat.includes('CONTORNO') || (isMorning && (extCat.includes('CONTORNO') || MORNING_CONTORNOS.some((cnt) => cleanNameUpper.includes(cnt))));
+
+      if (isContorno) {
+        const label = extQty > 1 ? `${extQty}x ${cleanNameUpper}` : cleanNameUpper;
+        contornos.push(label);
+      } else if (extPrice === 0 && extName) {
+        const abbrev = abbreviateFreeTopping(extName);
+        const tag = abbrev || extName.replace(/\s*\(GRATIS\)\s*/gi, '').trim().toUpperCase();
+        if (!freeToppings.includes(tag)) freeToppings.push(tag);
+      } else if (extName) {
+        const cleanName = extName.replace(/^\d+x\s*/i, '').trim();
+        const label = extQty > 1 ? `${extQty}x ${cleanName}` : cleanName;
+        paidExtras.push(label);
+      }
+    }
+
+    for (const c of contornos) {
+      details.push(`CONTORNO: ${c}`);
+    }
+    if (freeToppings.length > 0) {
+      details.push(freeToppings.sort().join(', '));
+    }
+    paidExtras.sort();
+    for (const paid of paidExtras) {
+      details.push(`ADD: ${paid}`);
+    }
   }
 
   // 6. Bebidas / Azúcar
   const sugar = item.sugarPreference || item.sugar_preference;
   if (sugar) {
-    details.push(`Azucar: ${sugar}`);
+    details.push(`AZUCAR: ${String(sugar).toUpperCase()}`);
   }
 
   // 7. Notas del ítem: ÚNICAMENTE si el usuario escribió una nota real (sin tags artificiales [#1] ni textos vacíos)
@@ -593,7 +674,7 @@ function addReportHeader(lines, title, data, width = LINE_WIDTH, formatSetup = P
     formatSetup,
     '\x1Ba\x01',
     '\x1BE\x01',
-    centered('CRISPY BURGER', width),
+    centered('BASILICO', width),
     centered(title, width),
     '\x1BE\x00',
     `EMITIDO: ${reportTimestamp(new Date().toISOString())}`,
@@ -620,15 +701,16 @@ function getReportBaseProductName(item = {}) {
   return name || (item.productName || item.name || 'Item').trim();
 }
 
-function buildReportTicket(reportType, data) {
+function buildReportTicket(reportType, data, paperWidth = null) {
+  const is58mm = (paperWidth || loadPrinterConfig('caja').paperWidth) === '58mm';
   if (reportType === 'contable') {
-    return buildCrispysCierreTicket(data);
+    return buildBasilicoCierreTicket(data, is58mm ? '58mm' : '80mm');
   }
 
   const titles = {
     contable: 'REPORTE CONTABLE',
-    pizzas: 'HAMBURGUESAS VENDIDAS',
-    hamburguesas: 'HAMBURGUESAS VENDIDAS',
+    pizzas: 'PIZZAS VENDIDAS',
+    hamburguesas: 'PIZZAS VENDIDAS',
     ingresos: 'INGRESOS Y COBROS',
     egresos: 'VUELTOS Y EGRESOS',
     cocina: 'REPORTE DE COCINA',
@@ -638,8 +720,8 @@ function buildReportTicket(reportType, data) {
   if (!title) throw new Error('Tipo de reporte térmico no válido.');
 
   const isContable = reportType === 'contable';
-  const reportWidth = isContable ? KITCHEN_LINE_WIDTH : LINE_WIDTH;
-  const formatSetup = isContable ? KITCHEN_FORMAT_SETUP : PRINT_FORMAT_SETUP;
+  const reportWidth = is58mm ? LINE_WIDTH_58 : (isContable ? KITCHEN_LINE_WIDTH : LINE_WIDTH_80);
+  const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : (isContable ? KITCHEN_FORMAT_SETUP : PRINT_FORMAT_SETUP_80);
 
   const lines = [];
   addReportHeader(lines, title, data, reportWidth, formatSetup);
@@ -650,8 +732,9 @@ function buildReportTicket(reportType, data) {
     // 1. Productos y Adicionales
     for (const item of data.items || []) {
       const catLower = (item.category || '').toLowerCase();
-      const isBurger = catLower.includes('burger') || catLower.includes('hamburguesa') || (item.productName || '').toLowerCase().includes('burger') || (item.productName || '').toLowerCase().includes('crispy');
-      const fullName = getReportBaseProductName(item);
+      const isPizza = catLower.includes('pizza') || catLower.includes('burger') || catLower.includes('hamburguesa') || (item.productName || '').toLowerCase().includes('pizza');
+      const baseName = getReportBaseProductName(item);
+      const fullName = (item.size && isPizza) ? `${baseName} (${item.size})` : baseName;
       const itQty = Number(item.quantity) || 1;
 
       // Extraer adicionales pagos
@@ -681,7 +764,7 @@ function buildReportTicket(reportType, data) {
 
       const rawPrice = Number(item.price) || 0;
       const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
-      const category = isBurger ? 'Hamburguesas' : (item.category || 'Sin categoria');
+      const category = isPizza ? 'Pizzas' : (item.category || 'Sin categoria');
       const key = `${category}|${fullName}`;
       const current = grouped.get(key) || { category, name: fullName, quantity: 0, totalUSD: 0 };
       current.quantity += itQty;
@@ -707,7 +790,7 @@ function buildReportTicket(reportType, data) {
     const totalUSD = items.reduce((total, item) => total + item.totalUSD, 0);
     addSection(lines, 'DETALLE DE ITEMS FACTURADOS');
     if (items.length === 0) {
-      lines.push('SIN HAMBURGUESAS, BEBIDAS O ADICIONALES');
+      lines.push('SIN PIZZAS, BEBIDAS O ADICIONALES');
     } else {
       let category = '';
       for (const item of items) {
@@ -1193,7 +1276,7 @@ function buildReportTicket(reportType, data) {
     lines.push('\x1BE\x00');
   }
 
-  lines.push('', divider('=', reportWidth), centered('FIN DEL REPORTE', reportWidth), centered('CRISPY BURGER', reportWidth), PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
+  lines.push('', divider('=', reportWidth), centered('FIN DEL REPORTE', reportWidth), centered('BASILICO', reportWidth), PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
   return Buffer.from(lines.join('\n'), 'ascii');
 }
 
@@ -1214,9 +1297,21 @@ function kitchenWrap(value, indent = '') {
 function consolidateKitchenItems(items, order) {
   const consolidated = [];
   for (const item of items) {
-    const cleanName = (item.productName || item.product_name || item.name || 'Producto')
+    let cleanName = (item.productName || item.product_name || item.name || 'Producto')
       .replace(/\s*\((Grande|Pequeña|Mediana|Familiar|Estándar)\)/gi, '')
       .trim();
+
+    let halfDetails = item.halfDetails || item.half_details;
+    if (typeof halfDetails === 'string') {
+      try {
+        halfDetails = JSON.parse(halfDetails);
+      } catch (e) {}
+    }
+
+    if ((item.isHalfHalf || item.is_half_half) && halfDetails?.half1Name && halfDetails?.half2Name) {
+      cleanName = `${halfDetails.half1Name.toUpperCase()} / ${halfDetails.half2Name.toUpperCase()}`;
+    }
+
     const details = itemDetails(item, order);
     const isSalsa = isSalsaItem(item);
     const key = `${cleanName.toLowerCase()}|||${details.join('|||')}`;
@@ -1594,7 +1689,7 @@ function buildTestTicket(printerName, config) {
     PRINT_FORMAT_SETUP,
     '\x1Ba\x01',
     '\x1BE\x01',
-    centered('CRISPY BURGER', width),
+    centered('BASILICO', width),
     centered('--- PRUEBA DE CONEXION ---', width),
     '\x1BE\x00',
     '\x1Ba\x00',
@@ -1734,7 +1829,11 @@ async function printKitchenAdditionTicket(order, addedItems, targetPrinter = 'co
   return sendKitchenTicketWithFallback(payloadNormal, payloadFallback, targetPrinter, order, io);
 }
 
-function buildReceiptTicket(order, rates = {}) {
+function buildReceiptTicket(order, rates = {}, paperWidth = null) {
+  const is58mm = (paperWidth || loadPrinterConfig('caja').paperWidth) === '58mm';
+  const width = is58mm ? LINE_WIDTH_58 : LINE_WIDTH_80;
+  const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : PRINT_FORMAT_SETUP_80;
+
   // Priorizar las tasas enviadas explícitamente desde el sistema / UI, luego las guardadas en la comanda, luego las del turno
   const copRate = Number(rates.COP || order.copRateAtPayment || order.copRate || 3950);
   const bsRate = Number(rates.Bs || order.bsRateAtPayment || order.bsRate || 36.5);
@@ -1754,23 +1853,23 @@ function buildReceiptTicket(order, rates = {}) {
   const lines = [
     '\x1B@',
     '\x1Bt\x10',
-    PRINT_FORMAT_SETUP,
+    formatSetup,
     '\x1Ba\x01',
     '\x1BE\x01',
-    'CRISPY BURGER',
-    'PRE-CUENTA / CONSUMO',
+    centered('BASILICO', width),
+    centered('PRE-CUENTA / CONSUMO', width),
     '\x1BE\x00',
     '\x1Ba\x00',
-    divider('-'),
+    divider('-', width),
     `COMANDA: #${cleanOrderNumber} | ${srvType}`,
     `FECHA: ${dateStr}`,
   ];
 
   if (order.customerName) {
-    lines.push(`CLIENTE: ${printableText(order.customerName).substring(0, 32)}`);
+    lines.push(`CLIENTE: ${printableText(order.customerName).substring(0, width)}`);
   }
 
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // Imprimir todos los ítems de la comanda de forma directa y compacta (excluyendo salsas, que no van en pre-cuenta)
   const receiptItems = (order.items || []).filter((it) => !isSalsaItem(it));
@@ -1794,13 +1893,13 @@ function buildReceiptTicket(order, rates = {}) {
     }
 
     const priceCol = `€${lineTotalUSD.toFixed(2)}`;
-    const maxLeft = Math.max(1, LINE_WIDTH - priceCol.length - 1);
+    const maxLeft = Math.max(1, width - priceCol.length - 1);
     const combinedLine = `${qty}x ${cleanName}${packagingTag}`;
     if (packagingTag && combinedLine.length > maxLeft) {
-      lines.push(formatTwoColumns(`${qty}x ${cleanName}`, priceCol));
+      lines.push(formatTwoColumns(`${qty}x ${cleanName}`, priceCol, width));
       lines.push(`  * ${packagingTag.trim().replace(/^\(|\)$/g, '')}`);
     } else {
-      lines.push(formatTwoColumns(combinedLine, priceCol));
+      lines.push(formatTwoColumns(combinedLine, priceCol, width));
     }
 
     // Si tiene sabor y no está en el nombre, listarlo indentado debajo
@@ -1833,19 +1932,29 @@ function buildReceiptTicket(order, rates = {}) {
 
   const deliveryFee = Number(order.deliveryFeeUSD || order.delivery_fee_usd || 0);
   if (deliveryFee > 0) {
-    lines.push(formatTwoColumns('1x SERVICIO DELIVERY', `€${deliveryFee.toFixed(2)}`));
+    lines.push(formatTwoColumns('1x SERVICIO DELIVERY', `€${deliveryFee.toFixed(2)}`, width));
   }
 
-  lines.push(divider('-'));
-  // Montos gigantes tamaño comanda de cocina (Doble Alto + Doble Ancho + Negrita)
-  lines.push('\x1B \x00\x1B3\x26\x1BM\x00\x1D!\x11\x1BE\x01');
-  lines.push(formatTwoColumns('TOTAL EUR:', `€${totalUSD.toFixed(2)}`, KITCHEN_LINE_WIDTH));
-  lines.push(formatTwoColumns('TOTAL COP:', `${roundCOP(totalUSD * copRate).toLocaleString('en-US')}`, KITCHEN_LINE_WIDTH));
-  lines.push(formatTwoColumns('TOTAL Bs:', `${(totalUSD * bsRate).toFixed(2)}`, KITCHEN_LINE_WIDTH));
-  lines.push('\x1D!\x00\x1BE\x00', PRINT_FORMAT_RESET, PRINT_FORMAT_SETUP);
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
+  if (is58mm) {
+    // Para 58mm (POS-58): formato compacto con Doble Altura (\x1D!\x01) y Negrita (\x1BE\x01)
+    // Conserva el ancho nativo de 32 columnas para máxima legibilidad sin desbordar el papel
+    lines.push('\x1B \x00\x1B2\x1BM\x00\x1D!\x01\x1BE\x01');
+    lines.push(formatTwoColumns('TOTAL EUR:', `€${totalUSD.toFixed(2)}`, width));
+    lines.push(formatTwoColumns('TOTAL COP:', `${roundCOP(totalUSD * copRate).toLocaleString('en-US')}`, width));
+    lines.push(formatTwoColumns('TOTAL Bs:', `${(totalUSD * bsRate).toFixed(2)}`, width));
+    lines.push('\x1D!\x00\x1BE\x00', PRINT_FORMAT_RESET, formatSetup);
+  } else {
+    // Montos gigantes tamaño comanda de cocina para 80 mm (Doble Alto + Doble Ancho + Negrita)
+    lines.push('\x1B \x00\x1B3\x26\x1BM\x00\x1D!\x11\x1BE\x01');
+    lines.push(formatTwoColumns('TOTAL EUR:', `€${totalUSD.toFixed(2)}`, KITCHEN_LINE_WIDTH));
+    lines.push(formatTwoColumns('TOTAL COP:', `${roundCOP(totalUSD * copRate).toLocaleString('en-US')}`, KITCHEN_LINE_WIDTH));
+    lines.push(formatTwoColumns('TOTAL Bs:', `${(totalUSD * bsRate).toFixed(2)}`, KITCHEN_LINE_WIDTH));
+    lines.push('\x1D!\x00\x1BE\x00', PRINT_FORMAT_RESET, PRINT_FORMAT_SETUP_80);
+  }
+  lines.push(divider('-', width));
   lines.push('\x1Ba\x01');
-  lines.push('¡GRACIAS POR SU PREFERENCIA!');
+  lines.push(centered('¡GRACIAS POR SU PREFERENCIA!', width));
   lines.push('\x1Ba\x00');
   lines.push(PRINT_FORMAT_RESET, '\n\x1DV\x00');
 
@@ -1854,20 +1963,26 @@ function buildReceiptTicket(order, rates = {}) {
 }
 
 async function printReceiptTicket(order, rates = {}, targetPrinter = 'caja') {
-  const payload = buildReceiptTicket(order, rates);
+  const config = loadPrinterConfig(targetPrinter);
+  const paperWidth = config.paperWidth === '58mm' ? '58mm' : '80mm';
+  const payload = buildReceiptTicket(order, rates, paperWidth);
   return sendRawTicketToTarget(payload, targetPrinter, 'caja');
 }
 
-function buildCrispysCierreTicket(data) {
+function buildBasilicoCierreTicket(data, paperWidth = null) {
+  const is58mm = (paperWidth || loadPrinterConfig('caja').paperWidth) === '58mm';
+  const width = is58mm ? LINE_WIDTH_58 : LINE_WIDTH_80;
+  const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : PRINT_FORMAT_SETUP_80;
+
   const lines = [
     '\x1B@',
-    PRINT_FORMAT_SETUP,
+    formatSetup,
     '\x1Ba\x01',
     '\x1BE\x01',
-    centered('CRISPYS CIERRE'),
+    centered('BASILICO CIERRE', width),
     '\x1BE\x00',
     '\x1Ba\x00',
-    divider('='),
+    divider('=', width),
   ];
 
   // 1. Cabecera con fecha y cajero
@@ -1882,7 +1997,7 @@ function buildCrispysCierreTicket(data) {
 
   lines.push(`FECHA DE CAJA: ${fechaStr}`);
   lines.push(`CAJERO A CARGO: _________`);
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // Calcular los totales de cada método de pago con la MISMA lógica exacta de Sección 3 del reporte digital (reportService.ts)
   const copRateGlobal = Number(data.exchangeRates?.COP) || 3950;
@@ -2058,29 +2173,29 @@ function buildCrispysCierreTicket(data) {
     if (expectedCOP === null) expectedCOP = openedCOP + netCashCOP + manualIngCOP - manualEgCOP;
   }
 
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'CIERRE', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('MONEDA', 'MONTO'));
-  lines.push(formatTwoColumns('USD', `${expectedUSD.toFixed(2)}$`));
-  lines.push(formatTwoColumns('COP', `${Math.round(expectedCOP).toLocaleString('en-US')}COP`));
-  lines.push(divider('-'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('CIERRE', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('MONEDA', 'MONTO', width));
+  lines.push(formatTwoColumns('USD', `${expectedUSD.toFixed(2)}$`, width));
+  lines.push(formatTwoColumns('COP', `${Math.round(expectedCOP).toLocaleString('en-US')}COP`, width));
+  lines.push(divider('-', width));
 
   // 3. FONDO: Apertura de caja
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'FONDO', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('MONEDA', 'MONTO'));
-  lines.push(formatTwoColumns('USD', `${openedUSD.toFixed(2)}$`));
-  lines.push(formatTwoColumns('COP', `${Math.round(openedCOP).toLocaleString('en-US')}COP`));
-  lines.push(divider('-'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('FONDO', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('MONEDA', 'MONTO', width));
+  lines.push(formatTwoColumns('USD', `${openedUSD.toFixed(2)}$`, width));
+  lines.push(formatTwoColumns('COP', `${Math.round(openedCOP).toLocaleString('en-US')}COP`, width));
+  lines.push(divider('-', width));
 
   // 4. VENTA: Desglose por tipo de pago (100% idéntico a Sección 3 del reporte digital)
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'VENTA', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('MONEDA', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('VENTA', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('MONEDA', 'MONTO', width));
 
   const activeMethods = Array.from(methodTotals.entries()).filter(
     ([, totals]) => totals.count > 0 || totals.netNative !== 0
   );
 
   if (activeMethods.length === 0) {
-    lines.push(formatTwoColumns('SIN VENTAS', '0.00$'));
+    lines.push(formatTwoColumns('SIN VENTAS', '0.00$', width));
   } else {
     for (const [method, totals] of activeMethods) {
       let label = method.toUpperCase();
@@ -2120,30 +2235,30 @@ function buildCrispysCierreTicket(data) {
         else if (totals.currency === 'Bs') montoStr = `${totals.netNative.toFixed(2)}BS`;
         else montoStr = `${totals.netNative.toFixed(2)}$`;
       }
-      lines.push(formatTwoColumns(label, montoStr));
+      lines.push(formatTwoColumns(label, montoStr, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 5. BOLIVARES: PTO VENTA y PGO MOVIL
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'BOLIVARES', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('TIPO', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('BOLIVARES', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('TIPO', 'MONTO', width));
 
   const debitoBs = methodTotals.get('Tarjeta de Débito')?.netNative || 0;
   const creditoBs = methodTotals.get('Tarjeta de Crédito')?.netNative || 0;
   const ptoVentaBs = debitoBs + creditoBs;
   const pagoMovilBs = methodTotals.get('Pago Móvil')?.netNative || 0;
 
-  lines.push(formatTwoColumns('PTO VENTA', `${ptoVentaBs.toFixed(2)}BS`));
-  lines.push(formatTwoColumns('PGO MOVIL', `${pagoMovilBs.toFixed(2)}BS`));
-  lines.push(divider('-'));
+  lines.push(formatTwoColumns('PTO VENTA', `${ptoVentaBs.toFixed(2)}BS`, width));
+  lines.push(formatTwoColumns('PGO MOVIL', `${pagoMovilBs.toFixed(2)}BS`, width));
+  lines.push(divider('-', width));
 
   // 6. BANCOLOMBIA: Desglose individual por comanda
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'BANCOLOMBIA', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('COMANDA', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('BANCOLOMBIA', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('COMANDA', 'MONTO', width));
   const bancolombiaPayments = (data.payments || []).filter((pm) => (pm.paymentMethod || '').toLowerCase().includes('bancolombia'));
   if (bancolombiaPayments.length === 0) {
-    lines.push(formatTwoColumns('SIN PAGOS', '0.00COP'));
+    lines.push(formatTwoColumns('SIN PAGOS', '0.00COP', width));
   } else {
     for (const pm of bancolombiaPayments) {
       const ordNum = String(pm.orderNumber || '?').replace(/^#+/, '');
@@ -2151,34 +2266,34 @@ function buildCrispysCierreTicket(data) {
       const changeCOP = Number(pm.changeGivenCOP) || 0;
       const cRate = Number(pm.copRate) || copRateGlobal;
       const copAmount = tenderCOP > 0 ? (tenderCOP - changeCOP) : (Number(pm.amountPaidUSD || 0) * cRate);
-      lines.push(formatTwoColumns(`#${ordNum}`, `${Math.round(copAmount).toLocaleString('en-US')}COP`));
+      lines.push(formatTwoColumns(`#${ordNum}`, `${Math.round(copAmount).toLocaleString('en-US')}COP`, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 7. ZELLE: Desglose individual por comanda
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'ZELLE', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('COMANDA', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('ZELLE', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('COMANDA', 'MONTO', width));
   const zellePayments = (data.payments || []).filter((pm) => (pm.paymentMethod || '').toLowerCase().includes('zelle'));
   if (zellePayments.length === 0) {
-    lines.push(formatTwoColumns('SIN PAGOS', '0.00$'));
+    lines.push(formatTwoColumns('SIN PAGOS', '0.00$', width));
   } else {
     for (const pm of zellePayments) {
       const ordNum = String(pm.orderNumber || '?').replace(/^#+/, '');
       const tenderUSD = Number(pm.cashTenderedUSD) || 0;
       const changeUSD = Number(pm.changeGivenUSD) || 0;
       const usdAmount = tenderUSD > 0 ? (tenderUSD - changeUSD) : Number(pm.amountPaidUSD || 0);
-      lines.push(formatTwoColumns(`#${ordNum}`, `${usdAmount.toFixed(2)}$`));
+      lines.push(formatTwoColumns(`#${ordNum}`, `${usdAmount.toFixed(2)}$`, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 8. BINANCE: Desglose individual por comanda
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'BINANCE', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('COMANDA', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('BINANCE', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('COMANDA', 'MONTO', width));
   const binancePayments = (data.payments || []).filter((pm) => (pm.paymentMethod || '').toLowerCase().includes('binance'));
   if (binancePayments.length === 0) {
-    lines.push(formatTwoColumns('SIN PAGOS', '0.00$'));
+    lines.push(formatTwoColumns('SIN PAGOS', '0.00$', width));
   } else {
     for (const pm of binancePayments) {
       const ordNum = String(pm.orderNumber || '?').replace(/^#+/, '');
@@ -2188,35 +2303,36 @@ function buildCrispysCierreTicket(data) {
         const changeCOP = Number(pm.changeGivenCOP) || 0;
         const cRate = Number(pm.copRate) || copRateGlobal;
         const copAmount = tenderCOP > 0 ? (tenderCOP - changeCOP) : (Number(pm.amountPaidUSD || 0) * cRate);
-        lines.push(formatTwoColumns(`#${ordNum}`, `${Math.round(copAmount).toLocaleString('en-US')}COP`));
+        lines.push(formatTwoColumns(`#${ordNum}`, `${Math.round(copAmount).toLocaleString('en-US')}COP`, width));
       } else {
         const tenderUSD = Number(pm.cashTenderedUSD) || 0;
         const changeUSD = Number(pm.changeGivenUSD) || 0;
         const usdAmount = tenderUSD > 0 ? (tenderUSD - changeUSD) : Number(pm.amountPaidUSD || 0);
-        lines.push(formatTwoColumns(`#${ordNum}`, `${usdAmount.toFixed(2)}$`));
+        lines.push(formatTwoColumns(`#${ordNum}`, `${usdAmount.toFixed(2)}$`, width));
       }
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 9. CREDITOS: Deudores
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'CREDITOS', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatTwoColumns('DEUDOR', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('CREDITOS', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatTwoColumns('DEUDOR', 'MONTO', width));
   const creditOrders = (data.orders || []).filter((o) => o.paymentStatus === 'credito');
   if (creditOrders.length === 0) {
     if (Number(data.creditsUSD) > 0) {
-      lines.push(formatTwoColumns('CREDITOS TURNO', `${Number(data.creditsUSD).toFixed(2)}$`));
+      lines.push(formatTwoColumns('CREDITOS TURNO', `${Number(data.creditsUSD).toFixed(2)}$`, width));
     } else {
-      lines.push(formatTwoColumns('SIN CREDITOS', '0.00$'));
+      lines.push(formatTwoColumns('SIN CREDITOS', '0.00$', width));
     }
   } else {
     for (const ord of creditOrders) {
-      const deudor = printableText(ord.customerName || `Comanda #${ord.orderNumber}`).toUpperCase().substring(0, 16);
+      const maxDeudorLen = Math.max(10, width - 10);
+      const deudor = printableText(ord.customerName || `Comanda #${ord.orderNumber}`).toUpperCase().substring(0, maxDeudorLen);
       const monto = Number(ord.totalUSD || 0);
-      lines.push(formatTwoColumns(deudor, `${monto.toFixed(2)}$`));
+      lines.push(formatTwoColumns(deudor, `${monto.toFixed(2)}$`, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 10. CLASIFICACIÓN DE ITEMS FACTURADOS:
   // Categorías: COMIDAS, BEBIDAS, DELIVERYS, OTRO
@@ -2310,86 +2426,94 @@ function buildCrispysCierreTicket(data) {
   }
 
   // 10.1 COMIDAS
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'COMIDAS', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('COMIDAS', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO', width));
   if (comidasGroup.size === 0) {
-    lines.push(formatThreeColumns('SIN COMIDAS', '0', '$0.00'));
+    lines.push(formatThreeColumns('SIN COMIDAS', '0', '$0.00', width));
   } else {
     for (const it of comidasGroup.values()) {
-      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`));
+      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 10.2 BEBIDAS
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'BEBIDAS', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('BEBIDAS', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO', width));
   if (bebidasGroup.size === 0) {
-    lines.push(formatThreeColumns('SIN BEBIDAS', '0', '$0.00'));
+    lines.push(formatThreeColumns('SIN BEBIDAS', '0', '$0.00', width));
   } else {
     for (const it of bebidasGroup.values()) {
-      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`));
+      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 10.3 DELIVERYS
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'DELIVERYS', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('DELIVERYS', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO', width));
   if (deliverysGroup.size === 0) {
-    lines.push(formatThreeColumns('SIN DELIVERYS', '0', '$0.00'));
+    lines.push(formatThreeColumns('SIN DELIVERYS', '0', '$0.00', width));
   } else {
     for (const it of deliverysGroup.values()) {
-      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`));
+      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`, width));
     }
   }
-  lines.push(divider('-'));
+  lines.push(divider('-', width));
 
   // 10.4 OTRO
-  lines.push('\x1Ba\x01', '\x1BE\x01', 'OTRO', '\x1BE\x00', '\x1Ba\x00');
-  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO'));
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered('OTRO', width), '\x1BE\x00', '\x1Ba\x00');
+  lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO', width));
   if (otroGroup.size === 0) {
-    lines.push(formatThreeColumns('SIN OTROS', '0', '$0.00'));
+    lines.push(formatThreeColumns('SIN OTROS', '0', '$0.00', width));
   } else {
     for (const it of otroGroup.values()) {
-      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`));
+      lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`, width));
     }
   }
-  lines.push(divider('='));
+  lines.push(divider('=', width));
 
   // TOTAL GENERAL ITEMS
   lines.push('\x1BE\x01');
-  lines.push(formatTwoColumns('TOTAL GENERAL:', `$${totalItemsUSD.toFixed(2)} USD`));
+  lines.push(formatTwoColumns('TOTAL GENERAL:', `$${totalItemsUSD.toFixed(2)} USD`, width));
   lines.push('\x1BE\x00');
-  lines.push(divider('='));
+  lines.push(divider('=', width));
 
   // Pie de ticket
   lines.push('\x1Ba\x01');
-  lines.push('TURNO CERRADO EXITOSAMENTE');
-  lines.push('CRISPY BURGER');
+  lines.push(centered('TURNO CERRADO EXITOSAMENTE', width));
+  lines.push(centered('BASILICO', width));
   lines.push('\x1Ba\x00');
   lines.push(PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
 
   return Buffer.from(lines.join('\n'), 'ascii');
 }
 
-function buildCierreShiftTicket(data) {
-  return buildCrispysCierreTicket(data);
+function buildCierreShiftTicket(data, paperWidth = null) {
+  return buildBasilicoCierreTicket(data, paperWidth);
 }
 
 async function printReportTicket(reportType, data, targetPrinter = 'caja') {
-  const payload = buildReportTicket(reportType, data);
+  const config = loadPrinterConfig(targetPrinter);
+  const paperWidth = config.paperWidth === '58mm' ? '58mm' : '80mm';
+  const payload = buildReportTicket(reportType, data, paperWidth);
   return sendRawTicketToTarget(payload, targetPrinter, 'caja');
 }
 
 async function printCierreShiftTicket(cierreData, targetPrinter = 'caja') {
-  const payload = buildCierreShiftTicket(cierreData);
+  const config = loadPrinterConfig(targetPrinter);
+  const paperWidth = config.paperWidth === '58mm' ? '58mm' : '80mm';
+  const payload = buildCierreShiftTicket(cierreData, paperWidth);
   return sendRawTicketToTarget(payload, targetPrinter, 'caja');
 }
 
 module.exports = {
   LINE_WIDTH,
+  LINE_WIDTH_80,
+  LINE_WIDTH_58,
   PRINT_FORMAT_SETUP,
+  PRINT_FORMAT_SETUP_80,
+  PRINT_FORMAT_SETUP_58,
   KITCHEN_LINE_WIDTH,
   KITCHEN_FORMAT_SETUP,
   isKitchenItem,
@@ -2398,7 +2522,7 @@ module.exports = {
   buildKitchenAdditionTicket,
   buildReceiptTicket,
   buildReportTicket,
-  buildCrispysCierreTicket,
+  buildBasilicoCierreTicket,
   buildCierreShiftTicket,
   loadDualPrinterConfig,
   saveDualPrinterConfig,

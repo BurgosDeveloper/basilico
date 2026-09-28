@@ -77,7 +77,7 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
 
   const availableExtras = useMemo(() => {
     return activeIngredients.filter(
-      (i) => i.isExtra || i.isExtraForPizza || i.ingredientType === 'adicional' || i.ingredientType === 'gratis' || i.category === 'Adicionales' || i.category === 'Toppings'
+      (i) => i.isExtra || i.isExtraForPizza || i.ingredientType === 'adicional' || i.ingredientType === 'gratis' || i.category === 'Adicionales' || i.category === 'Toppings' || i.category?.toUpperCase() === 'CONTORNOS'
     );
   }, [activeIngredients]);
 
@@ -102,6 +102,9 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
   // Helper para comparar ítems idénticos en carrito
   const areCartItemsIdentical = (a: OrderItem, b: OrderItem): boolean => {
     if (a.productId !== b.productId) return false;
+    if (a.size !== b.size) return false;
+    if (Boolean(a.isHalfHalf) !== Boolean(b.isHalfHalf)) return false;
+    if (JSON.stringify(a.halfDetails || null) !== JSON.stringify(b.halfDetails || null)) return false;
     if (Boolean(a.isTakeaway) !== Boolean(b.isTakeaway)) return false;
     if (Boolean(a.isDelivery) !== Boolean(b.isDelivery)) return false;
     if (Boolean(a.isCut) !== Boolean(b.isCut)) return false;
@@ -212,33 +215,43 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
     }
   };
 
-  // Confirmar Hamburguesa personalizada (nueva o editada)
+  // Confirmar Pizza personalizada (nueva o editada)
   const handleConfirmBurgerAdd = (
     configOrList: BurgerOrderConfirmationItem | BurgerOrderConfirmationItem[]
   ) => {
     const list = Array.isArray(configOrList) ? configOrList : [configOrList];
-    const generatedItems: OrderItem[] = list.map((config) => ({
-      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      productId: config.burger.id,
-      productName: config.burger.name,
-      price: config.finalPrice,
-      quantity: config.quantity,
-      category: config.burger.category || 'Hamburguesas',
-      proteins:
-        config.proteins &&
-        config.proteins.length > 0 &&
-        !areProteinsDefault(config.burger.name, config.proteins, config.burger.defaultProteins)
-          ? config.proteins
-          : undefined,
-      removedIngredients: config.removedIngredients && config.removedIngredients.length > 0 ? config.removedIngredients : undefined,
-      extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
-      isTakeaway: Boolean(config.isTakeaway),
-      isDelivery: Boolean(config.isDelivery),
-      isCut: config.isCut,
-      cutPreference: config.cutPreference,
-      notes: getCleanItemNote(config.notes) || undefined,
-      isNewOrModified: false,
-    }));
+    const generatedItems: OrderItem[] = list.map((config) => {
+      const isHalf = Boolean(config.isHalfHalf);
+      const displayName = isHalf && config.halfDetails
+        ? `${config.halfDetails.half1Name} / ${config.halfDetails.half2Name}`
+        : config.burger.name;
+
+      return {
+        id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: config.burger.id,
+        productName: displayName,
+        price: config.finalPrice,
+        quantity: config.quantity,
+        category: config.burger.category || 'Pizzas',
+        size: config.size || 'Grande',
+        isHalfHalf: isHalf,
+        halfDetails: config.halfDetails,
+        proteins:
+          config.proteins &&
+          config.proteins.length > 0 &&
+          !areProteinsDefault(config.burger.name, config.proteins, config.burger.defaultProteins)
+            ? config.proteins
+            : undefined,
+        removedIngredients: config.removedIngredients && config.removedIngredients.length > 0 ? config.removedIngredients : undefined,
+        extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
+        isTakeaway: Boolean(config.isTakeaway),
+        isDelivery: Boolean(config.isDelivery),
+        isCut: config.isCut,
+        cutPreference: config.cutPreference,
+        notes: getCleanItemNote(config.notes) || undefined,
+        isNewOrModified: false,
+      };
+    });
 
     if (editingCartItem) {
       setCartItems((prev) => {
@@ -487,6 +500,7 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
                 availableExtras={availableExtras}
                 availableProteins={availableProteins}
                 availableFreeToppings={availableFreeToppings}
+                availablePizzas={products.filter((p) => (p.category || '').toLowerCase().includes('pizza'))}
                 isOpen={true}
                 inline={true}
                 onClose={() => {
@@ -702,47 +716,82 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
                             🛵 Delivery
                           </button>
 
-                          {item.category === 'Salsas' ? (
-                            <span className="text-[10px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-md inline-block">
-                              🥣 Salsa
+                          {item.size && (
+                            <span className="text-xs font-black text-stone-900 bg-green-100 border border-green-300 px-2 py-0.5 rounded-md inline-block uppercase">
+                              🍕 {item.size.toUpperCase()}
                             </span>
-                          ) : (item.isCut || item.cutPreference === 'Picada') ? (
-                            <span className="text-[10px] font-black text-red-800 bg-red-100 px-1.5 py-0.5 rounded-md inline-block">
-                              🔪 Picada
+                          )}
+                          {item.isHalfHalf && (
+                            <span className="text-xs font-black text-amber-950 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md inline-block uppercase">
+                              🌓 MITAD/MITAD
                             </span>
-                          ) : (
-                            <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded-md inline-block">
-                              🍔 Entera
+                          )}
+
+                          {item.category === 'Salsas' && (
+                            <span className="text-xs font-black text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md inline-block uppercase">
+                              🥣 SALSA
                             </span>
                           )}
                         </div>
                       </div>
 
-                      <span className="text-sm sm:text-base font-black text-black shrink-0">
+                      <span className="text-base sm:text-lg font-black text-black shrink-0">
                         ${(item.price * item.quantity).toFixed(2)}
                       </span>
                     </div>
 
+                    {/* Detalles de Mitad y Mitad */}
+                    {item.isHalfHalf && item.halfDetails && (
+                      <div className="mt-1 pl-2.5 border-l-2 border-amber-500 bg-amber-50/80 rounded-r-md p-2 space-y-1.5 text-xs sm:text-sm text-gray-800 uppercase">
+                        <div>
+                          <span className="font-black text-amber-950">🌓 1RA MITAD:</span> <span className="font-black text-black">{item.halfDetails.half1Name?.toUpperCase()}</span>
+                          {item.halfDetails.half1Removed && item.halfDetails.half1Removed.length > 0 && (
+                            <span className="font-black block text-xs text-red-600 pl-2">
+                              🚫 SIN: {item.halfDetails.half1Removed.map(r => r.toUpperCase()).join(', ')}
+                            </span>
+                          )}
+                          {item.halfDetails.half1Extras && item.halfDetails.half1Extras.length > 0 && (
+                            <span className="font-black block text-xs text-emerald-800 pl-2">
+                              ➕ ADD: {item.halfDetails.half1Extras.map(e => `${(e.quantity && e.quantity > 1) ? `${e.quantity}X ` : ''}${e.name.toUpperCase()}`).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="font-black text-amber-950">🌓 2DA MITAD:</span> <span className="font-black text-black">{item.halfDetails.half2Name?.toUpperCase()}</span>
+                          {item.halfDetails.half2Removed && item.halfDetails.half2Removed.length > 0 && (
+                            <span className="font-black block text-xs text-red-600 pl-2">
+                              🚫 SIN: {item.halfDetails.half2Removed.map(r => r.toUpperCase()).join(', ')}
+                            </span>
+                          )}
+                          {item.halfDetails.half2Extras && item.halfDetails.half2Extras.length > 0 && (
+                            <span className="font-black block text-xs text-emerald-800 pl-2">
+                              ➕ ADD: {item.halfDetails.half2Extras.map(e => `${(e.quantity && e.quantity > 1) ? `${e.quantity}X ` : ''}${e.name.toUpperCase()}`).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Proteínas */}
-                    {item.proteins && item.proteins.length > 0 && !areProteinsDefault(item.productName, item.proteins) && (
-                      <div className="text-xs text-amber-950 font-black bg-yellow-100 px-2 py-0.5 rounded-lg border border-yellow-300 inline-block">
-                        🥩 {item.proteins.join(' + ')}
+                    {!item.isHalfHalf && item.proteins && item.proteins.length > 0 && !areProteinsDefault(item.productName, item.proteins) && (
+                      <div className="text-xs font-black text-amber-950 bg-yellow-100 px-2.5 py-0.5 rounded-lg border border-yellow-300 inline-block uppercase">
+                        🥩 {item.proteins.map(p => p.toUpperCase()).join(' + ')}
                       </div>
                     )}
 
                     {/* Ingredientes Retirados (SIN) */}
-                    {item.removedIngredients && item.removedIngredients.length > 0 && (
-                      <div className="text-xs text-red-600 font-bold">
-                        🚫 SIN: {formatRemovedIngredients(item.removedIngredients).join(', ')}
+                    {!item.isHalfHalf && item.removedIngredients && item.removedIngredients.length > 0 && (
+                      <div className="text-xs sm:text-sm text-red-600 font-black uppercase">
+                        🚫 SIN: {formatRemovedIngredients(item.removedIngredients).map(r => r.toUpperCase()).join(', ')}
                       </div>
                     )}
 
                     {/* Ingredientes Extras (ADD) */}
-                    {item.extras && item.extras.length > 0 && (
-                      <div className="text-xs text-gray-800 font-bold space-y-0.5">
+                    {!item.isHalfHalf && item.extras && item.extras.length > 0 && (
+                      <div className="text-xs sm:text-sm text-gray-900 font-bold space-y-0.5 uppercase">
                         {item.extras.map((ex, exIdx) => (
                           <div key={exIdx} className="flex justify-between">
-                            <span>➕ ADD: {(ex.quantity && ex.quantity > 1) ? `${ex.quantity}x ` : ''}{ex.name}</span>
+                            <span>➕ ADD: {(ex.quantity && ex.quantity > 1) ? `${ex.quantity}X ` : ''}{ex.name.toUpperCase()}</span>
                             {ex.price > 0 && <span className="font-black text-emerald-700">+${ex.price.toFixed(2)}</span>}
                           </div>
                         ))}

@@ -57,7 +57,7 @@ export const SplitPaymentSelectionModal: React.FC<SplitPaymentSelectionModalProp
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-white text-gray-900 w-full h-full max-h-screen overflow-hidden select-none">
-      {/* 1. TOP HEADER - CLARO OFICIAL CRISPY */}
+      {/* 1. TOP HEADER - CLARO OFICIAL BASILICO */}
       <header className="bg-white text-gray-900 px-5 py-3 flex items-center justify-between border-b-2 border-yellow-400 shrink-0 shadow-xs">
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-2xl">👥</span>
@@ -177,11 +177,7 @@ export const SplitPaymentSelectionModal: React.FC<SplitPaymentSelectionModalProp
                           📦 Llevar
                         </span>
                       )}
-                      {(item.isCut || item.cutPreference === 'Picada') && (
-                        <span className="text-xs font-bold text-red-800 bg-red-100 px-2 py-0.5 rounded-lg border border-red-200">
-                          🔪 Picada
-                        </span>
-                      )}
+
                     </div>
 
                     {isPaid && (
@@ -230,7 +226,7 @@ export const SplitPaymentSelectionModal: React.FC<SplitPaymentSelectionModalProp
         </div>
       </main>
 
-      {/* 3. FOOTER TOTALES Y BOTONES - CLARO OFICIAL CRISPY */}
+      {/* 3. FOOTER TOTALES Y BOTONES - CLARO OFICIAL BASILICO */}
       <footer className="bg-white text-gray-900 px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t-2 border-yellow-400 flex flex-wrap items-center justify-between gap-4 shrink-0 shadow-lg">
         <div>
           <span className="text-xs font-black uppercase tracking-wider text-gray-500 block">

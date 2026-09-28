@@ -342,7 +342,7 @@ export const PaymentLedgerModal: React.FC<PaymentLedgerModalProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-white w-full h-full max-h-screen overflow-hidden text-gray-900 select-none">
       <div className="w-full h-full flex flex-col overflow-hidden text-gray-900 border-none rounded-none shadow-none">
-        {/* Top Title Bar - CLARO OFICIAL CRISPY */}
+        {/* Top Title Bar - CLARO OFICIAL BASILICO */}
         <div className="bg-white text-gray-900 px-6 py-3 flex items-center justify-between shrink-0 border-b-2 border-yellow-400 shadow-xs">
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="text-yellow-600 font-black text-xl">≡</span>

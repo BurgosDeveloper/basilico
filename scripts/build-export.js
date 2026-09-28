@@ -46,10 +46,10 @@ function convertPngToIco(pngBuffer) {
   return Buffer.concat([icoHeader, pngBuffer]);
 }
 
-// 1. Asegurar icono de Crispy Burger en formato PNG y formato ICO válido de Windows
+// 1. Asegurar icono de Basilico en formato PNG y formato ICO válido de Windows
 const srcIcon = path.join(assetsDir, 'icon.png');
-const exportPngIcon = path.join(exportDir, 'crispy_icon.png');
-const exportIcoIcon = path.join(exportDir, 'crispy_icon.ico');
+const exportPngIcon = path.join(exportDir, 'pizza_icon.png');
+const exportIcoIcon = path.join(exportDir, 'pizza_icon.ico');
 const legacyPngIcon = path.join(exportDir, 'pizza_icon.png');
 const legacyIcoIcon = path.join(exportDir, 'pizza_icon.ico');
 
@@ -63,9 +63,9 @@ if (fs.existsSync(srcIcon)) {
 }
 
 // 2. Generar archivos ejecutables VBS y BAT que abren el POS con la IP LAN vigente.
-const crispyVbsPath = path.join(exportDir, 'CrispyPOS.vbs');
+const basilicoVbsPath = path.join(exportDir, 'BasilicoPOS.vbs');
 const vbsContent = `' =========================================================
-' CRISPY BURGER POS - EJECUTABLE DE ESCRITORIO PC
+' BASILICO POS - EJECUTABLE DE ESCRITORIO PC
 ' =========================================================
 Set WshShell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -76,16 +76,16 @@ strRoot = fso.GetParentFolderName(strPath)
 ' El lanzador Node espera el backend y abre Chrome con su IP LAN actual.
 WshShell.Run "cmd /c cd /d """ & strRoot & """ && node scripts\\launch-pos.js", 0, False
 `;
-fs.writeFileSync(crispyVbsPath, vbsContent);
+fs.writeFileSync(basilicoVbsPath, vbsContent);
 
 // Generar también script .BAT de inicio directo con consola
-const crispyBatPath = path.join(exportDir, 'CrispyPOS_Con_Consola.bat');
+const basilicoBatPath = path.join(exportDir, 'BasilicoPOS_Con_Consola.bat');
 const batContent = `@echo off
-title SERVIDOR & POS CRISPY BURGER
+title SERVIDOR & POS BASILICO
 cd /d "%~dp0.."
 node scripts\\launch-pos.js
 `;
-fs.writeFileSync(crispyBatPath, batContent);
+fs.writeFileSync(basilicoBatPath, batContent);
 
 // 3. Crear accesos directos actualizados para export/ y el Escritorio de Windows.
 const psScriptPath = path.join(rootDir, 'create_shortcut.ps1');
@@ -93,11 +93,13 @@ const psScriptContent = `
 $WshShell = New-Object -ComObject WScript.Shell
 $desktopDir = [Environment]::GetFolderPath('Desktop')
 
-# Eliminar accesos directos legados de Basilico si existen
+# Eliminar accesos directos legados de Crispy y versiones previas si existen
 $legacyShortcuts = @(
+  "${exportDir.replace(/\\/g, '\\\\')}\\Crispy Burger.lnk",
+  "${exportDir.replace(/\\/g, '\\\\')}\\CrispyPOS.vbs",
+  "${exportDir.replace(/\\/g, '\\\\')}\\CrispyPOS_Con_Consola.bat",
   "${exportDir.replace(/\\/g, '\\\\')}\\Basilico Pizzeria.lnk",
-  "${exportDir.replace(/\\/g, '\\\\')}\\BasilicoPOS.vbs",
-  "${exportDir.replace(/\\/g, '\\\\')}\\BasilicoPOS_Con_Consola.bat",
+  (Join-Path $desktopDir 'Crispy Burger.lnk'),
   (Join-Path $desktopDir 'Basilico Pizzeria.lnk')
 )
 foreach ($legacy in $legacyShortcuts) {
@@ -107,8 +109,8 @@ foreach ($legacy in $legacyShortcuts) {
 }
 
 $shortcutConfigs = @(
-  @{ Path = "${exportDir.replace(/\\/g, '\\\\')}\\Crispy Burger.lnk"; Target = "${crispyVbsPath.replace(/\\/g, '\\\\')}"; Desc = "Crispy Burger - Sistema POS & KDS" },
-  @{ Path = (Join-Path $desktopDir 'Crispy Burger.lnk'); Target = "${crispyVbsPath.replace(/\\/g, '\\\\')}"; Desc = "Crispy Burger - Sistema POS & KDS" }
+  @{ Path = "${exportDir.replace(/\\/g, '\\\\')}\\Basilico.lnk"; Target = "${basilicoVbsPath.replace(/\\/g, '\\\\')}"; Desc = "Basilico - Sistema POS & KDS" },
+  @{ Path = (Join-Path $desktopDir 'Basilico.lnk'); Target = "${basilicoVbsPath.replace(/\\/g, '\\\\')}"; Desc = "Basilico - Sistema POS & KDS" }
 )
 $timestamp = Get-Date
 foreach ($cfg in $shortcutConfigs) {
@@ -126,8 +128,8 @@ foreach ($cfg in $shortcutConfigs) {
 }
 
 $launcherPaths = @(
-  "${crispyVbsPath.replace(/\\/g, '\\\\')}",
-  "${crispyBatPath.replace(/\\/g, '\\\\')}"
+  "${basilicoVbsPath.replace(/\\/g, '\\\\')}",
+  "${basilicoBatPath.replace(/\\/g, '\\\\')}"
 )
 foreach ($launcherPath in $launcherPaths) {
   if (Test-Path -LiteralPath $launcherPath) {
@@ -150,7 +152,7 @@ try {
   }
 }
 
-const exportedLauncherPaths = [crispyVbsPath, crispyBatPath];
+const exportedLauncherPaths = [basilicoVbsPath, basilicoBatPath];
 for (const launcherPath of exportedLauncherPaths) {
   if (fs.existsSync(launcherPath)) {
     const timestamp = new Date();
@@ -159,11 +161,11 @@ for (const launcherPath of exportedLauncherPaths) {
 }
 
 console.log('\n============================================================');
-console.log(' 🍔 CRISPY BURGER POS - ARCHIVOS DE EXPORTACIÓN Y EJECUTABLE');
+console.log(' 🍕 BASILICO POS - ARCHIVOS DE EXPORTACIÓN Y EJECUTABLE');
 console.log('============================================================');
 console.log(` 📂 Carpeta Export: ${exportDir}`);
-console.log(` 💻 Ejecutable Silencioso PC: ${crispyVbsPath}`);
-console.log(` 💻 Ejecutable Consola PC: ${crispyBatPath}`);
-console.log(` 🔗 Acceso Directo PC: ${path.join(exportDir, 'Crispy Burger.lnk')}`);
+console.log(` 💻 Ejecutable Silencioso PC: ${basilicoVbsPath}`);
+console.log(` 💻 Ejecutable Consola PC: ${basilicoBatPath}`);
+console.log(` 🔗 Acceso Directo PC: ${path.join(exportDir, 'Basilico.lnk')}`);
 console.log(` 🖼️ Icono oficial: ${exportIcoIcon}`);
 console.log('============================================================\n');

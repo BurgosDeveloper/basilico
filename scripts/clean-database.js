@@ -6,40 +6,39 @@ async function cleanDatabase() {
   try {
     await db.initDb();
 
-    if (db.usePg) {
-      // Delete in correct order respecting foreign keys
-      const tables = [
-        'order_payments',
-        'order_items',
-        'orders',
-        'caja_chica_transactions',
-        'caja_chica_cierres',
-        'caja_chica_apertura'
-      ];
+    // Delete in correct order respecting foreign keys
+    const tables = [
+      'order_payments',
+      'order_items',
+      'orders',
+      'caja_chica_transactions',
+      'caja_chica_cierres',
+      'caja_chica_apertura',
+      'order_edits'
+    ];
 
-      for (const table of tables) {
-        try {
-          const result = await db.query(`DELETE FROM ${table}`);
-          console.log(`  ✅ ${table}: ${result.rowCount} filas eliminadas`);
-        } catch (e) {
-          console.log(`  ⚠️ ${table}: ${e.message}`);
-        }
-      }
-
-      // Reset tables to libre
+    for (const table of tables) {
       try {
-        await db.query("UPDATE tables_config SET status = 'libre'");
-        console.log('  ✅ Mesas reseteadas a libre');
+        const result = await db.query(`DELETE FROM ${table}`);
+        console.log(`  ✅ ${table}: ${result.rowCount} filas eliminadas`);
       } catch (e) {
-        console.log('  ⚠️ tables_config:', e.message);
+        console.log(`  ⚠️ ${table}: ${e.message}`);
       }
-
-      // Verify
-      const r = await db.query('SELECT COUNT(*) as cnt FROM orders');
-      const r2 = await db.query('SELECT COUNT(*) as cnt FROM order_items');
-      console.log(`\n  📊 Verificación: ${r.rows[0].cnt} órdenes, ${r2.rows[0].cnt} items en PostgreSQL`);
-      console.log('✅ Base de datos PostgreSQL limpiada exitosamente.');
     }
+
+    // Reset tables to libre
+    try {
+      await db.query("UPDATE tables_config SET status = 'libre'");
+      console.log('  ✅ Mesas reseteadas a libre');
+    } catch (e) {
+      console.log('  ⚠️ tables_config:', e.message);
+    }
+
+    // Verify
+    const r = await db.query('SELECT COUNT(*) as cnt FROM orders');
+    const r2 = await db.query('SELECT COUNT(*) as cnt FROM order_items');
+    console.log(`\n  📊 Verificación: ${r.rows[0].cnt} órdenes, ${r2.rows[0].cnt} items en PostgreSQL`);
+    console.log('✅ Base de datos PostgreSQL limpiada exitosamente (contabilidad en 0).');
 
     // Clean JSON local
     if (db.dbData) {

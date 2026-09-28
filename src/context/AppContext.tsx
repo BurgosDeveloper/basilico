@@ -187,11 +187,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.removeItem('basilico_user_session');
-        window.localStorage.removeItem('crispy_user_session');
+        window.localStorage.removeItem('basilico_user_session');
       } catch (e) {}
 
       if (typeof window.sessionStorage !== 'undefined') {
-        const saved = window.sessionStorage.getItem('crispy_user_session');
+        const saved = window.sessionStorage.getItem('basilico_user_session');
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
@@ -251,11 +251,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUserSession(null);
     if (typeof window !== 'undefined') {
       if (typeof window.sessionStorage !== 'undefined') {
-        window.sessionStorage.removeItem('crispy_user_session');
+        window.sessionStorage.removeItem('basilico_user_session');
       }
       try {
         window.localStorage.removeItem('basilico_user_session');
-        window.localStorage.removeItem('crispy_user_session');
+        window.localStorage.removeItem('basilico_user_session');
       } catch (e) {}
     }
   }, []);
@@ -264,7 +264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const headers = new Headers(options.headers);
     if (userSession?.sessionToken) {
       headers.set('Authorization', `Bearer ${userSession.sessionToken}`);
-      headers.set('x-crispy-token', userSession.sessionToken);
+      headers.set('x-basilico-session', userSession.sessionToken);
       headers.set('x-basilico-session', userSession.sessionToken);
     }
     return fetch(url, { ...options, headers }).then((res) => {
@@ -357,11 +357,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setUserSession(session);
           if (typeof window !== 'undefined') {
             if (typeof window.sessionStorage !== 'undefined') {
-              window.sessionStorage.setItem('crispy_user_session', JSON.stringify(session));
+              window.sessionStorage.setItem('basilico_user_session', JSON.stringify(session));
             }
             try {
               window.localStorage.removeItem('basilico_user_session');
-              window.localStorage.removeItem('crispy_user_session');
+              window.localStorage.removeItem('basilico_user_session');
             } catch (e) {}
           }
           return { success: true, user: session };
@@ -545,8 +545,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const editOrder = async (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => {
-    if (userSession?.role !== 'admin' && userSession?.role !== 'caja') {
-      throw new Error('Solo un administrador o usuario de caja puede editar una comanda.');
+    if (userSession?.role !== 'admin' && userSession?.role !== 'caja' && userSession?.role !== 'mesero') {
+      throw new Error('Solo meseros, administradores o usuarios de caja pueden editar una comanda.');
     }
     const res = await apiFetch(`${backendUrl}/api/orders/${orderId}/edit`, {
       method: 'PATCH',

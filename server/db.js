@@ -1,4 +1,6 @@
 const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
 
 let pool = null;
 
@@ -16,13 +18,13 @@ async function tryPgPool(dbName, dbPassword) {
 }
 
 async function initDb() {
-  const targetDbName = process.env.DB_NAME || 'crispy';
+  const targetDbName = process.env.DB_NAME || 'basilico';
   const explicitPass = process.env.DB_PASSWORD;
 
   // Lista de posibles contraseñas a probar en orden
   const passwordsToTry = explicitPass
     ? [explicitPass]
-    : ['crispy1.', 'sdmaia1.', 'postgres', 'admin', 'root', ''];
+    : ['sdmaia1.', 'basilico1.', 'crispy1.', 'postgres', 'admin', 'root', ''];
 
   const dbsToTry = [targetDbName, 'postgres'];
 
@@ -178,17 +180,27 @@ async function initDb() {
       `CREATE INDEX IF NOT EXISTS idx_exchange_rate_history_shift_changed_at ON exchange_rate_history(shift, changed_at DESC);`,
 
       `INSERT INTO exchange_rates (id, cop_rate, bs_rate) VALUES (1, 3950.00, 36.50) ON CONFLICT (id) DO NOTHING;`,
-      `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('ambos', 3950.00, 36.50, 'Inicial Crispy') ON CONFLICT (shift) DO NOTHING;`,
+      `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('ambos', 3950.00, 36.50, 'Inicial Basilico') ON CONFLICT (shift) DO NOTHING;`,
       `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('manana', 3950.00, 36.50, 'Compatibilidad') ON CONFLICT (shift) DO NOTHING;`,
       `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('noche', 3950.00, 36.50, 'Compatibilidad') ON CONFLICT (shift) DO NOTHING;`,
       `INSERT INTO system_settings (key, value) VALUES ('admin_pin', '1234') ON CONFLICT (key) DO NOTHING;`,
 
       `INSERT INTO users (id, username, password, role, name, shift) VALUES
-        ('u-admin', 'carlos', 'carloscrispys', 'admin', 'Carlos', 'ambos'),
-        ('u-caja', 'cajeroa', 'cajero', 'caja', 'Cajero Principal', 'ambos'),
-        ('u-mesero', 'mesero', 'mesero', 'mesero', 'Mesero Principal', 'ambos'),
-        ('u-cocina', 'cocina', 'cocina', 'cocina', 'Jefe de Cocina', 'ambos')
-        ON CONFLICT (username) DO NOTHING;`,
+        ('u-admin', 'carlos', 'carloscrispys', 'admin', 'Carlos', 'noche'),
+        ('u-caja', 'cajeroa', 'cajero', 'caja', 'Cajero Principal', 'noche'),
+        ('u-mesero', 'mesero', 'mesero', 'mesero', 'Mesero Principal', 'noche'),
+        ('u-cocina', 'cocina', 'cocina', 'cocina', 'Jefe de Cocina', 'noche'),
+        ('u-admin-m', 'admin.manana', 'admin123', 'admin', 'Admin Mañana', 'manana'),
+        ('u-caja-m', 'caja.manana', 'caja123', 'caja', 'Caja Mañana', 'manana'),
+        ('u-mesero-m', 'mesero.manana', 'mesero123', 'mesero', 'Mesero Mañana', 'manana'),
+        ('u-cocina-m', 'cocina.manana', 'cocina123', 'cocina', 'Cocina Mañana', 'manana'),
+        ('u-admin-n', 'admin.noche', 'admin123', 'admin', 'Admin Noche', 'noche'),
+        ('u-caja-n', 'caja.noche', 'caja123', 'caja', 'Caja Noche', 'noche'),
+        ('u-mesero-n', 'mesero.noche', 'mesero123', 'mesero', 'Mesero Noche', 'noche'),
+        ('u-cocina-n', 'cocina.noche', 'cocina123', 'cocina', 'Cocina Noche', 'noche'),
+        ('u-admin-gen', 'admin', 'basilico1.', 'admin', 'Administrador General', 'ambos'),
+        ('u-dueno', 'basilico', 'basilico1.', 'admin', 'Dueño Basilico', 'ambos')
+        ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role, name = EXCLUDED.name, shift = EXCLUDED.shift;`,
 
       `INSERT INTO tables_config (id, number, name, capacity, status, zone) VALUES
         ('table-1', 1, 'Mesa #1', 4, 'libre', 'Salón Principal'),
@@ -211,31 +223,25 @@ async function initDb() {
     const productCount = parseInt(prodCountRes.rows[0].count, 10);
 
     if (productCount === 0) {
-      console.log('ℹ️ Base de datos virgen sin productos. Inicializando catálogo por defecto de Crispy Burger...');
-      const initialProductsQuery = `INSERT INTO products (id, name, category, drink_type, price, description, image, badge, base_ingredients, protein_count, default_proteins, flavors, shift) VALUES
-        ('prod-bistro', 'BISTRO', 'Hamburguesas', NULL, 7.00, 'Carne de novillo, salsa de la casa, queso, tocineta, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['CARNE DE NOVILLO', 'SALSA DE LA CASA', 'QUESO', 'TOCINETA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 1, ARRAY['CARNE DE NOVILLO'], NULL, 'ambos'),
-        ('prod-crispys', 'CRISPYS', 'Hamburguesas', NULL, 7.00, 'Pollo crispy, salsa de la casa, queso, tocineta, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['POLLO CRISPY', 'SALSA DE LA CASA', 'QUESO', 'TOCINETA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 1, ARRAY['POLLO CRISPY'], NULL, 'ambos'),
-        ('prod-chicken-grill', 'CHICKEN GRILL', 'Hamburguesas', NULL, 7.00, 'Pechuga de pollo a la plancha, salsa de la casa, queso, tocineta, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['PECHUGA DE POLLO A LA PLANCHA', 'SALSA DE LA CASA', 'QUESO', 'TOCINETA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 1, ARRAY['PECHUGA DE POLLO A LA PLANCHA'], NULL, 'ambos'),
-        ('prod-mr-pork', 'MR PORK', 'Hamburguesas', NULL, 7.00, 'Chuleta de cerdo ahumada, salsa de la casa, queso, tocineta, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['CHULETA DE CERDO AHUMADA', 'SALSA DE LA CASA', 'QUESO', 'TOCINETA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 1, ARRAY['CHULETA DE CERDO AHUMADA'], NULL, 'ambos'),
-        ('prod-street', 'STREET', 'Hamburguesas', NULL, 7.00, 'Carne mechada, salsa de la casa, queso, tocineta, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['CARNE MECHADA', 'SALSA DE LA CASA', 'QUESO', 'TOCINETA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 1, ARRAY['CARNE MECHADA'], NULL, 'ambos'),
-        ('prod-nuggets', 'NUGGETS', 'Hamburguesas', NULL, 7.00, '6 nuggets de pollo acompañado de papas fritas.', '', NULL, ARRAY['6 NUGGETS DE POLLO', 'PAPAS FRITAS', 'SALSA DE LA CASA'], 1, ARRAY[]::text[], NULL, 'ambos'),
-        ('prod-super-smash', 'SUPER SMASH', 'Hamburguesas', NULL, 7.00, 'Doble smash de carne, doble tocineta, doble queso, pepinillos y salsa smash.', '', '¡NEW!', ARRAY['DOBLE SMASH DE CARNE', 'DOBLE TOCINETA', 'DOBLE QUESO', 'PEPINILLOS', 'SALSA SMASH'], 2, ARRAY['DOBLE SMASH DE CARNE'], NULL, 'ambos'),
-        ('prod-tasty', 'TASTY', 'Hamburguesas', NULL, 7.00, 'Doble smash de carne, doble queso, tocineta, lechuga, tomate, cebolla y salsa tasty.', '', '¡NEW!', ARRAY['DOBLE SMASH DE CARNE', 'DOBLE QUESO', 'TOCINETA', 'LECHUGA', 'TOMATE', 'CEBOLLA', 'SALSA TASTY'], 2, ARRAY['DOBLE SMASH DE CARNE'], NULL, 'ambos'),
-        ('prod-mixtura', 'MIXTURA', 'Hamburguesas', NULL, 9.00, 'Carne de novillo, pollo crispy, doble queso, doble tocineta, salsa de la casa, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['CARNE DE NOVILLO', 'POLLO CRISPY', 'DOBLE QUESO', 'DOBLE TOCINETA', 'SALSA DE LA CASA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 2, ARRAY['CARNE DE NOVILLO', 'POLLO CRISPY'], NULL, 'ambos'),
-        ('prod-house', 'HOUSE', 'Hamburguesas', NULL, 9.00, 'Pollo crispy, chuleta ahumada, doble queso, doble tocineta, salsa de la casa, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['POLLO CRISPY', 'CHULETA DE CERDO AHUMADA', 'DOBLE QUESO', 'DOBLE TOCINETA', 'SALSA DE LA CASA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 2, ARRAY['POLLO CRISPY', 'CHULETA DE CERDO AHUMADA'], NULL, 'ambos'),
-        ('prod-3-0', '3.0', 'Hamburguesas', NULL, 10.00, 'Carne novillo, pollo crispy, chuleta ahumada, triple queso y triple tocineta, salsa de la casa, papas ralladas, huevo frito, lechuga, tomate y cebolla.', '', NULL, ARRAY['CARNE DE NOVILLO', 'POLLO CRISPY', 'CHULETA DE CERDO AHUMADA', 'TRIPLE QUESO', 'TRIPLE TOCINETA', 'SALSA DE LA CASA', 'PAPAS RALLADAS', 'HUEVO FRITO', 'LECHUGA', 'TOMATE', 'CEBOLLA'], 3, ARRAY['CARNE DE NOVILLO', 'POLLO CRISPY', 'CHULETA DE CERDO AHUMADA'], NULL, 'ambos'),
-        ('prod-racion-papas', 'RACIÓN DE PAPAS', 'Hamburguesas', NULL, 2.00, 'Porción individual de papas fritas doradas y crujientes.', '', NULL, ARRAY['PAPAS FRITAS', 'SAL'], 0, ARRAY[]::text[], NULL, 'ambos'),
-        ('prod-refresco-350ml', 'REFRESCO 350ML', 'Bebidas', 'refresco', 1.00, 'Refresco personal en botella de 350ml bien frío.', '', NULL, NULL, 1, ARRAY[]::text[], ARRAY['COCACOLA ORIGINAL', 'COCACOLA ZERO', 'NARANJA', 'UVA', 'TORONJA', 'CHINOTO', 'FRESCOLITA'], 'ambos'),
-        ('prod-nestea', 'LIPTON', 'Bebidas', 'te', 1.00, 'Té frío Lipton bien frío.', '', NULL, NULL, 1, ARRAY[]::text[], ARRAY['Limón', 'Durazno'], 'ambos'),
-        ('prod-nestea-drink', 'NESTEA', 'Bebidas', 'te', 1.00, 'Té frío Nestea bien frío.', '', NULL, NULL, 1, ARRAY[]::text[], ARRAY['Limón', 'Durazno'], 'ambos'),
-        ('prod-cerveza', 'CERVEZA', 'Bebidas', 'cerveza', 1.00, 'Cerveza nacional bien fría.', '', NULL, NULL, 1, ARRAY[]::text[], NULL, 'ambos'),
-        ('prod-refresco-2lt', 'REFRESCO 2LT', 'Bebidas', 'refresco', 2.50, 'Refresco familiar de 2 Litros surtido.', '', NULL, NULL, 1, ARRAY[]::text[], ARRAY['COCACOLA ORIGINAL', 'COCACOLA ZERO', 'CHINOTO', '7UP', 'FRESCOLITA', 'TORONJA', 'NARANJA', 'UVA', 'PIÑA', 'GOLDEN MANZANA', 'GOLDEN PIÑA', 'GOLDEN COLITA', 'PEPSI ORIGINAL', 'PEPSI ZERO'], 'ambos'),
-        ('prod-agua-mineral', 'AGUA MINERAL', 'Bebidas', 'agua', 1.00, 'Agua mineral embotellada bien fría.', '', NULL, NULL, 1, ARRAY[]::text[], NULL, 'ambos'),
-        ('prod-granizado', 'GRANIZADO', 'Bebidas', 'granizado', 1.50, 'Bebida granizada natural refrescante.', '', NULL, NULL, 1, ARRAY[]::text[], ARRAY['Fresa', 'Parchita'], 'ambos'),
-        ('prod-lata', 'LATA', 'Bebidas', 'refresco', 1.50, 'Refresco en lata 355ml bien frío surtido.', '', NULL, NULL, 1, ARRAY[]::text[], ARRAY['PIÑA', 'PEPSI ORIGINAL', 'PEPSI ZERO', 'GOLDEN COLITA', 'MANZANA', '7UP', 'COCA COLA ORIGINAL', 'COCACOLA ZERO'], 'ambos')
-        ON CONFLICT (id) DO NOTHING;`;
+      console.log('ℹ️ Base de datos virgen sin productos. Inicializando catálogo por defecto de Basilico (Mañana y Noche)...');
       try {
-        await client.query(initialProductsQuery);
+        const seedPath = path.join(__dirname, 'seed-catalog.json');
+        if (fs.existsSync(seedPath)) {
+          const catalog = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+          for (const prod of (catalog.products || [])) {
+            await client.query(
+              `INSERT INTO products (id, name, category, drink_type, price, price_small, description, image, badge, base_ingredients, protein_count, default_proteins, flavors, shift)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                prod.id, prod.name, prod.category, prod.drink_type || null, prod.price || 0, prod.price_small || null,
+                prod.description || '', prod.image || '', prod.badge || null, prod.base_ingredients || [],
+                prod.protein_count || 1, prod.default_proteins || [], prod.flavors || null, prod.shift || 'ambos'
+              ]
+            );
+          }
+          console.log(`✅ Catálogo inicial cargado: ${catalog.products.length} productos.`);
+        }
       } catch (err) {
         console.warn('Aviso al insertar catálogo inicial de productos:', err.message);
       }
@@ -248,45 +254,25 @@ async function initDb() {
 
     if (ingCount === 0) {
       console.log('ℹ️ Base de datos virgen sin ingredientes. Inicializando ingredientes por defecto...');
-      const initialIngQuery = `INSERT INTO ingredients (id, name, ingredient_type, price_usd, is_base, is_extra, category, available, shift) VALUES
-        ('ing-adicional-tocineta', 'TOCINETA', 'adicional', 1.00, FALSE, TRUE, 'Adicionales', TRUE, 'ambos'),
-        ('ing-adicional-queso-cheddar', 'QUESO CHEDDAR', 'adicional', 1.00, FALSE, TRUE, 'Adicionales', TRUE, 'ambos'),
-        ('ing-adicional-proteina', 'PROTEÍNA', 'adicional', 3.00, FALSE, TRUE, 'Adicionales', TRUE, 'ambos'),
-        ('ing-gratis-jalapenos', 'JALAPEÑOS PICANTES (GRATIS)', 'gratis', 0.00, FALSE, TRUE, 'Gratis', TRUE, 'ambos'),
-        ('ing-gratis-cebolla-caramelizada', 'CEBOLLA CARAMELIZADA (GRATIS)', 'gratis', 0.00, FALSE, TRUE, 'Gratis', TRUE, 'ambos'),
-        ('ing-gratis-sweet-relish', 'SWEET RELISH (GRATIS)', 'gratis', 0.00, FALSE, TRUE, 'Gratis', TRUE, 'ambos'),
-        ('ing-gratis-maiz', 'MAÍZ (GRATIS)', 'gratis', 0.00, FALSE, TRUE, 'Gratis', TRUE, 'ambos'),
-        ('ing-gratis-pepinillos', 'PEPINILLOS (GRATIS)', 'gratis', 0.00, FALSE, TRUE, 'Gratis', TRUE, 'ambos'),
-        ('ing-base-novillo', 'CARNE DE NOVILLO', 'proteina', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-pollo-crispy', 'POLLO CRISPY', 'proteina', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-pollo-plancha', 'PECHUGA DE POLLO A LA PLANCHA', 'proteina', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-chuleta', 'CHULETA DE CERDO AHUMADA', 'proteina', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-mechada', 'CARNE MECHADA', 'proteina', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-doble-smash', 'DOBLE SMASH DE CARNE', 'proteina', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-salsa-casa', 'SALSA DE LA CASA', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-salsa-smash', 'SALSA SMASH', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-salsa-tasty', 'SALSA TASTY', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-queso', 'QUESO', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-doble-queso', 'DOBLE QUESO', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-triple-queso', 'TRIPLE QUESO', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-tocineta', 'TOCINETA', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-doble-tocineta', 'DOBLE TOCINETA', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-triple-tocineta', 'TRIPLE TOCINETA', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-papas-ralladas', 'PAPAS RALLADAS', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-huevo-frito', 'HUEVO FRITO', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-lechuga', 'LECHUGA', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-tomate', 'TOMATE', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-cebolla', 'CEBOLLA', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-base-pepinillos', 'PEPINILLOS', 'base', 0.00, TRUE, FALSE, 'Ingredientes Base', TRUE, 'ambos'),
-        ('ing-salsa-casa', 'SALSA DE LA CASA', 'salsa', 0.00, FALSE, TRUE, 'Salsas', TRUE, 'ambos'),
-        ('ing-salsa-smash', 'SALSA SMASH', 'salsa', 0.00, FALSE, TRUE, 'Salsas', TRUE, 'ambos'),
-        ('ing-salsa-tasty', 'SALSA TASTY', 'salsa', 0.00, FALSE, TRUE, 'Salsas', TRUE, 'ambos'),
-        ('ing-salsa-ajo', 'SALSA DE AJO', 'salsa', 0.00, FALSE, TRUE, 'Salsas', TRUE, 'ambos'),
-        ('ing-salsa-bbq', 'SALSA BBQ', 'salsa', 0.00, FALSE, TRUE, 'Salsas', TRUE, 'ambos'),
-        ('ing-salsa-tartara', 'SALSA TÁRTARA', 'salsa', 0.00, FALSE, TRUE, 'Salsas', TRUE, 'ambos')
-        ON CONFLICT (id) DO NOTHING;`;
       try {
-        await client.query(initialIngQuery);
+        const seedPath = path.join(__dirname, 'seed-catalog.json');
+        if (fs.existsSync(seedPath)) {
+          const catalog = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+          for (const ing of (catalog.ingredients || [])) {
+            await client.query(
+              `INSERT INTO ingredients (id, name, ingredient_type, price_usd, is_base, is_extra, is_base_for_pizza, is_extra_for_pizza, price_grande_completa, price_grande_mitad, price_pequena_completa, price_pequena_mitad, category, available, shift)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                ing.id, ing.name, ing.ingredient_type || 'adicional', ing.price_usd || 0,
+                ing.is_base !== false, ing.is_extra !== false, ing.is_base_for_pizza !== false, ing.is_extra_for_pizza !== false,
+                ing.price_grande_completa || 0, ing.price_grande_mitad || 0, ing.price_pequena_completa || 0, ing.price_pequena_mitad || 0,
+                ing.category || 'Ingredientes', ing.available !== false, ing.shift || 'ambos'
+              ]
+            );
+          }
+          console.log(`✅ Ingredientes iniciales cargados: ${catalog.ingredients.length} ingredientes.`);
+        }
       } catch (err) {
         console.warn('Aviso al insertar catálogo inicial de ingredientes:', err.message);
       }

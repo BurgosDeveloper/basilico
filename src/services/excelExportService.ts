@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { roundCOP } from '../utils/currencyRounding';
+import { resolveHalfAndHalfPizza } from '../utils/reportCalculations';
 
 export interface ReporteIntervaloData {
   orders: Array<{
@@ -78,6 +79,8 @@ export interface ReporteIntervaloData {
   exchangeRates: { COP: number; Bs: number };
   dateRange: { from: string; to: string };
   apertura?: { usdCash: number; copCash: number; openedAt?: string };
+  products?: any[];
+  shift?: string;
 }
 
 function formatDate(dateStr: string): string {
@@ -271,6 +274,7 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   XLSX.utils.book_append_sheet(wb, ws2, 'Cuentas');
 
   // --- Hoja 3: Ítems Vendidos (Estructurado en 4 Secciones) ---
+  const isMorning = (data.shift || '').toLowerCase() === 'manana';
   const paidExtrasMap = new Map<string, { name: string; quantity: number; subtotalUSD: number }>();
   let freeToppingsCount = 0;
   const foodMap = new Map<string, { name: string; quantity: number; subtotalUSD: number }>();
@@ -348,11 +352,27 @@ export function exportToExcel(data: ReporteIntervaloData): void {
       rawName.toLowerCase().includes('delivery') ||
       rawName.toLowerCase().includes('servicio');
 
-    const targetMap = isDrink ? drinkMap : isOther ? othersProductMap : foodMap;
-    const prev = targetMap.get(cleanName) || { name: cleanName, quantity: 0, subtotalUSD: 0 };
-    prev.quantity += itQty;
-    prev.subtotalUSD += baseSubtotal;
-    targetMap.set(cleanName, prev);
+    if (isDrink) {
+      const prev = drinkMap.get(cleanName) || { name: cleanName, quantity: 0, subtotalUSD: 0 };
+      prev.quantity += itQty;
+      prev.subtotalUSD += baseSubtotal;
+      drinkMap.set(cleanName, prev);
+    } else if (isOther) {
+      const prev = othersProductMap.get(cleanName) || { name: cleanName, quantity: 0, subtotalUSD: 0 };
+      prev.quantity += itQty;
+      prev.subtotalUSD += baseSubtotal;
+      othersProductMap.set(cleanName, prev);
+    } else {
+      let foodName = cleanName;
+      if (!isMorning || catLower.includes('pizza') || it.isHalfHalf || it.halfDetails) {
+        const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice);
+        foodName = resolved.name;
+      }
+      const prev = foodMap.get(foodName) || { name: foodName, quantity: 0, subtotalUSD: 0 };
+      prev.quantity += itQty;
+      prev.subtotalUSD += baseSubtotal;
+      foodMap.set(foodName, prev);
+    }
   });
 
   const comidasItems = Array.from(foodMap.values()).filter((p) => p.quantity > 0).sort((a, b) => a.name.localeCompare(b.name));
@@ -402,7 +422,7 @@ export function exportToExcel(data: ReporteIntervaloData): void {
   const itemsRows: string[][] = [];
 
   // 1. COMIDAS
-  itemsRows.push(['--- 1. COMIDAS (Pizzas, Raciones) ---', '', '']);
+  itemsRows.push([`--- 1. COMIDAS (${isMorning ? 'Platos, Raciones' : 'Pizzas, Raciones'}) ---`, '', '']);
   if (comidasItems.length === 0) {
     itemsRows.push(['Sin comidas facturadas', '0', '0.00']);
   } else {

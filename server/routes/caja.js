@@ -352,6 +352,11 @@ module.exports = function(io) {
           Bs: Number(fallbackRate?.bs_rate) || 36.5,
         };
 
+        const { rows: prodRows } = await query(
+          `SELECT id, name, price, price_small, category, shift FROM products WHERE shift = $1 OR shift = 'ambos'`,
+          [activeShift]
+        );
+
         await printCierreShiftTicket({
           shift: activeShift,
           closedBy: req.user.username || 'Caja',
@@ -371,6 +376,7 @@ module.exports = function(io) {
           creditsCount: parseInt(creditSummaryRows[0]?.count || 0, 10),
           orders: mappedOrders,
           items: shiftItems,
+          products: prodRows,
           payments: shiftPayments,
           exchangeRates: currentRates,
           transactions: txRows.map((t) => ({

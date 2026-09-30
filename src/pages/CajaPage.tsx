@@ -1960,7 +1960,7 @@ export const CajaPage: React.FC = () => {
                 </button>
                 {reporteIntervaloData && (
                   <button
-                    onClick={() => exportToExcel(reporteIntervaloData)}
+                    onClick={() => exportToExcel({ ...reporteIntervaloData, products, shift: userSession?.shift })}
                     className="px-4 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-xs transition-all"
                   >
                     <IoDocumentTextOutline /> <span>EXPORTAR EXCEL (.xlsx)</span>
@@ -1988,12 +1988,14 @@ export const CajaPage: React.FC = () => {
                                 usdCash: filteredApertura.usdCash,
                                 copCash: filteredApertura.copCash,
                                 openedAt: filteredApertura.openedAt || new Date().toISOString()
-                              }
+                              },
+                          products,
+                          shift: userSession?.shift,
                         };
                         setPendingReportChoice({
                           type: 'contable',
                           title: 'Reporte Contable Consolidado',
-                          generator: () => reportService.generateReporteContable(dataForReport),
+                          generator: () => reportService.generateReporteContable(dataForReport, products, userSession?.shift),
                         });
                       }}
                       className="px-4 py-3 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs flex items-center justify-center gap-2 border border-yellow-500 shadow-xs"
@@ -2003,12 +2005,12 @@ export const CajaPage: React.FC = () => {
                     <button
                       onClick={() => setPendingReportChoice({
                         type: 'pizzas',
-                        title: 'Pizzas Vendidas e Ítems Facturados',
-                        generator: () => reportService.generatePizzasSoldIntervalReport(reporteIntervaloData),
+                        title: userSession?.shift === 'manana' ? 'Platos Vendidos e Ítems Facturados' : 'Pizzas Vendidas e Ítems Facturados',
+                        generator: () => reportService.generatePizzasSoldIntervalReport(reporteIntervaloData, products, userSession?.shift),
                       })}
                       className="px-4 py-3 rounded-xl bg-white hover:bg-yellow-50 text-gray-900 border border-gray-300 hover:border-yellow-400 font-black text-xs flex items-center justify-center gap-2 shadow-xs"
                     >
-                      <span>🍕 PIZZAS</span>
+                      <span>{userSession?.shift === 'manana' ? '🍽️ PLATOS' : '🍕 PIZZAS'}</span>
                     </button>
                     <button
                       onClick={() => setPendingReportChoice({

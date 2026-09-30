@@ -70,11 +70,11 @@ export const MenuManagementPage: React.FC = () => {
     }
   }, [userSession, isCashierUnlocked, getAdminPin, getPrintersConfig]);
 
-  // Modal Hamburguesa (Crear / Editar)
+  // Modal Pizza / Plato (Crear / Editar)
   const [isAddPizzaOpen, setIsAddPizzaOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [pizzaName, setPizzaName] = useState('');
-  const [dishCategory, setDishCategory] = useState<string>('Hamburguesas');
+  const [dishCategory, setDishCategory] = useState<string>('Pizzas');
   const [pizzaPrice, setPizzaPrice] = useState('');
   const [pizzaDesc, setPizzaDesc] = useState('');
   const [burgerProteinCount, setBurgerProteinCount] = useState<number>(1);
@@ -435,7 +435,7 @@ export const MenuManagementPage: React.FC = () => {
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-base font-black text-black">{p.name}</h3>
                     <span className="px-2 py-0.5 rounded-md bg-yellow-100 text-black border border-yellow-300 text-[10px] font-black uppercase shrink-0">
-                      {p.category || 'HAMBURGUESA'}
+                      {p.category || (userSession?.shift === 'manana' ? 'PLATO' : 'PIZZA')}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">{p.description}</p>
@@ -1396,7 +1396,7 @@ export const MenuManagementPage: React.FC = () => {
 
             <form onSubmit={handleCreatePizza} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">Nombre de la Hamburguesa:</label>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Nombre {userSession?.shift === 'manana' ? 'del Plato' : 'de la Pizza'}:</label>
                 <input
                   type="text"
                   required
@@ -1532,7 +1532,7 @@ export const MenuManagementPage: React.FC = () => {
                 type="submit"
                 className="w-full py-3.5 rounded-2xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs border border-yellow-500 shadow-md cursor-pointer transition-all"
               >
-                {editingProductId ? 'ACTUALIZAR HAMBURGUESA' : 'GUARDAR HAMBURGUESA EN EL MENÚ'}
+                {editingProductId ? (userSession?.shift === 'manana' ? 'ACTUALIZAR PLATO' : 'ACTUALIZAR PIZZA') : (userSession?.shift === 'manana' ? 'GUARDAR PLATO EN EL MENÚ' : 'GUARDAR PIZZA EN EL MENÚ')}
               </button>
             </form>
           </div>

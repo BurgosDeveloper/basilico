@@ -4,6 +4,7 @@ const path = require('path');
 
 const PRINTER_CONFIG_PATH = path.join(__dirname, '../config/thermal-printer.json');
 const { roundCOP } = require('./currencyRounding');
+const { cleanItemName, resolveHalfAndHalfPizza, findProduct } = require('./reportCalculations');
 // Font expansion in ESC/POS uses discrete sizes. Extra character spacing gives
 // the 80 mm ticket approximately 40% more horizontal presence without relying
 // on vendor-specific font modes.
@@ -707,10 +708,12 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     return buildBasilicoCierreTicket(data, is58mm ? '58mm' : '80mm');
   }
 
+  const isMorning = (data?.shift || '').toLowerCase() === 'manana';
   const titles = {
     contable: 'REPORTE CONTABLE',
-    pizzas: 'PIZZAS VENDIDAS',
-    hamburguesas: 'PIZZAS VENDIDAS',
+    pizzas: isMorning ? 'PLATOS VENDIDOS' : 'PIZZAS VENDIDAS',
+    platos: 'PLATOS VENDIDOS',
+    hamburguesas: isMorning ? 'PLATOS VENDIDOS' : 'PIZZAS VENDIDAS',
     ingresos: 'INGRESOS Y COBROS',
     egresos: 'VUELTOS Y EGRESOS',
     cocina: 'REPORTE DE COCINA',
@@ -726,15 +729,13 @@ function buildReportTicket(reportType, data, paperWidth = null) {
   const lines = [];
   addReportHeader(lines, title, data, reportWidth, formatSetup);
 
-  if (reportType === 'pizzas' || reportType === 'hamburguesas') {
+  if (reportType === 'pizzas' || reportType === 'platos' || reportType === 'hamburguesas') {
     const grouped = new Map();
 
     // 1. Productos y Adicionales
     for (const item of data.items || []) {
       const catLower = (item.category || '').toLowerCase();
-      const isPizza = catLower.includes('pizza') || catLower.includes('burger') || catLower.includes('hamburguesa') || (item.productName || '').toLowerCase().includes('pizza');
-      const baseName = getReportBaseProductName(item);
-      const fullName = (item.size && isPizza) ? `${baseName} (${item.size})` : baseName;
+      const rawPrice = Number(item.price) || 0;
       const itQty = Number(item.quantity) || 1;
 
       // Extraer adicionales pagos
@@ -762,9 +763,23 @@ function buildReportTicket(reportType, data, paperWidth = null) {
         }
       }
 
-      const rawPrice = Number(item.price) || 0;
       const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
-      const category = isPizza ? 'Pizzas' : (item.category || 'Sin categoria');
+      const isDrink = catLower.includes('bebida') || catLower.includes('drink') || catLower.includes('refresco') || catLower.includes('jugo') || catLower.includes('licor') || catLower.includes('cerveza') || catLower.includes('agua') || !!item.drinkType || !!item.flavor;
+      const isDelivery = catLower.includes('delivery');
+
+      let category = item.category || (isMorning ? 'Platos' : 'Pizzas');
+      let fullName = getReportBaseProductName(item);
+
+      if (isDrink) {
+        category = 'Bebidas';
+      } else if (isDelivery) {
+        category = 'Delivery';
+      } else {
+        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice);
+        fullName = isMorning ? getReportBaseProductName(item) : resolved.name;
+        category = isMorning ? (item.category || 'Platos') : resolved.category;
+      }
+
       const key = `${category}|${fullName}`;
       const current = grouped.get(key) || { category, name: fullName, quantity: 0, totalUSD: 0 };
       current.quantity += itQty;
@@ -790,7 +805,7 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     const totalUSD = items.reduce((total, item) => total + item.totalUSD, 0);
     addSection(lines, 'DETALLE DE ITEMS FACTURADOS');
     if (items.length === 0) {
-      lines.push('SIN PIZZAS, BEBIDAS O ADICIONALES');
+      lines.push(isMorning ? 'SIN PLATOS, BEBIDAS O ADICIONALES' : 'SIN PIZZAS, BEBIDAS O ADICIONALES');
     } else {
       let category = '';
       for (const item of items) {
@@ -2401,10 +2416,16 @@ function buildBasilicoCierreTicket(data, paperWidth = null) {
       curr.totalUSD += itemTotalUSD;
       bebidasGroup.set(baseName, curr);
     } else if (isComida) {
-      const curr = comidasGroup.get(baseName) || { name: baseName, quantity: 0, totalUSD: 0 };
+      const isMorning = (data?.shift || '').toLowerCase() === 'manana';
+      let finalComidaName = baseName;
+      if (!isMorning || rawCat.includes('pizza') || item.isHalfHalf || item.halfDetails) {
+        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice);
+        finalComidaName = resolved.name.toUpperCase();
+      }
+      const curr = comidasGroup.get(finalComidaName) || { name: finalComidaName, quantity: 0, totalUSD: 0 };
       curr.quantity += itQty;
       curr.totalUSD += itemTotalUSD;
-      comidasGroup.set(baseName, curr);
+      comidasGroup.set(finalComidaName, curr);
     } else {
       const curr = otroGroup.get(baseName) || { name: baseName, quantity: 0, totalUSD: 0 };
       curr.quantity += itQty;
@@ -2426,10 +2447,12 @@ function buildBasilicoCierreTicket(data, paperWidth = null) {
   }
 
   // 10.1 COMIDAS
-  lines.push('\x1Ba\x01', '\x1BE\x01', centered('COMIDAS', width), '\x1BE\x00', '\x1Ba\x00');
+  const isMorning = (data?.shift || '').toLowerCase() === 'manana';
+  const comidasTitle = isMorning ? 'COMIDAS / PLATOS' : 'COMIDAS / PIZZAS';
+  lines.push('\x1Ba\x01', '\x1BE\x01', centered(comidasTitle, width), '\x1BE\x00', '\x1Ba\x00');
   lines.push(formatThreeColumns('ITEM', 'CANT', 'MONTO', width));
   if (comidasGroup.size === 0) {
-    lines.push(formatThreeColumns('SIN COMIDAS', '0', '$0.00', width));
+    lines.push(formatThreeColumns(isMorning ? 'SIN PLATOS' : 'SIN PIZZAS', '0', '$0.00', width));
   } else {
     for (const it of comidasGroup.values()) {
       lines.push(formatThreeColumns(it.name, String(it.quantity), `$${it.totalUSD.toFixed(2)}`, width));

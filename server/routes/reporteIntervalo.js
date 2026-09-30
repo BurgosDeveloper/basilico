@@ -29,6 +29,12 @@ module.exports = function (io) {
         }
       }
 
+      if (!data.products) {
+        const { rows: pRows } = await query('SELECT id, name, price, price_small, category, shift FROM products');
+        data.products = pRows;
+      }
+      data.shift = data.shift || req.user.shift;
+
       const result = await printReportTicket(reportType, data, targetPrinter);
       if (!result.printed) {
         return res.status(409).json({ error: 'La impresión térmica no se pudo completar (verifique configuración de impresora).' });
@@ -217,6 +223,11 @@ module.exports = function (io) {
         openedAt: aperturaRows[0].timestamp,
       } : { usdCash: 0, copCash: 0 };
 
+      // 8. Catálogo de productos para resolución de nombres y precios de carta
+      const { rows: productRows } = await query(
+        `SELECT id, name, price, price_small, category, shift FROM products`
+      );
+
       // Construir respuesta estructurada
       const orders = orderRows.map((ord) => ({
         id: ord.id,
@@ -320,6 +331,8 @@ module.exports = function (io) {
         exchangeRates: { COP: copRate, Bs: bsRate },
         dateRange: { from, to },
         apertura,
+        products: productRows,
+        shift: req.user.shift,
       });
     } catch (err) {
       console.error('Error generando reporte por intervalo:', err);

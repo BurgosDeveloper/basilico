@@ -4,6 +4,7 @@ import { Order, CajaChicaTransaction, ExchangeRates } from '../data/mockData';
 import { ReporteIntervaloData } from './excelExportService';
 import { roundCOP } from '../utils/currencyRounding';
 import { isSalsaItem } from '../utils/productClassifier';
+import { resolveHalfAndHalfPizza } from '../utils/reportCalculations';
 
 export class ReportService {
   private openPrintWindow(title: string, htmlContent: string, isNarrowTicket: boolean = false) {
@@ -465,7 +466,8 @@ export class ReportService {
   }
 
   // 1. Reporte de Pizzas e Ítems Vendidos
-  generateProductsSoldReport(orders: Order[], rates: ExchangeRates) {
+  generateProductsSoldReport(orders: Order[], rates: ExchangeRates, products?: any[], shift?: string) {
+    const isMorning = (shift || '').toLowerCase() === 'manana';
     const paidOrders = orders.filter((o) => o.paymentStatus === 'pagado' || o.paymentStatus === 'credito');
     const tally: Record<string, { qty: number; revenueUSD: number; category: string }> = {};
 
@@ -473,9 +475,6 @@ export class ReportService {
       // 1. Productos y Adicionales
       o.items.forEach((it) => {
         const catLower = (it.category || '').toLowerCase();
-        const cleanName = this.getReportBaseProductName(it);
-        const isBurger = catLower.includes('pizza') || catLower.includes('burger') || catLower.includes('hamburguesa') || cleanName.toLowerCase().includes('burger') || cleanName.toLowerCase().includes('crispy');
-        const displayName = it.size && (catLower.includes('pizza') || isBurger) ? `${cleanName} (${it.size})` : cleanName;
         const itQty = it.quantity || 1;
 
         // Extraer adicionales pagos
@@ -513,11 +512,33 @@ export class ReportService {
         // Producto a precio base
         const rawPrice = Number(it.price) || 0;
         const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
+
+        const isDrink = catLower.includes('bebida') || catLower.includes('drink') || catLower.includes('refresco') || catLower.includes('jugo') || catLower.includes('licor') || catLower.includes('cerveza') || catLower.includes('agua') || !!(it as any).drinkType;
+        const isDelivery = catLower.includes('delivery');
+
+        let category = it.category || (isMorning ? 'Platos' : 'Pizzas');
+        let displayName = this.getReportBaseProductName(it);
+
+        if (isDrink) {
+          category = 'Bebidas';
+        } else if (isDelivery) {
+          category = 'Delivery';
+        } else {
+          if (!isMorning || catLower.includes('pizza') || (it as any).isHalfHalf || (it as any).halfDetails) {
+            const resolved = resolveHalfAndHalfPizza(it, products, baseUnitPrice);
+            displayName = resolved.name;
+            category = isMorning ? (it.category || 'Platos') : resolved.category;
+          } else {
+            displayName = this.getReportBaseProductName(it);
+            category = it.category || 'Platos';
+          }
+        }
+
         if (!tally[displayName]) {
           tally[displayName] = {
             qty: 0,
             revenueUSD: 0,
-            category: isBurger ? 'Pizzas' : (it.category || 'Bebidas/Otros'),
+            category,
           };
         }
         tally[displayName].qty += itQty;
@@ -549,8 +570,8 @@ export class ReportService {
         ([name, data], idx) => `
       <tr>
         <td>#${idx + 1}</td>
-        <td><strong>${name}</strong></td>
-        <td><span style="background:#f3f4f6; padding:2px 8px; border-radius:6px; font-weight:700;">${data.category}</span></td>
+        <td><strong>${this.escapeHtml(name)}</strong></td>
+        <td><span style="background:#f3f4f6; padding:2px 8px; border-radius:6px; font-weight:700;">${this.escapeHtml(data.category)}</span></td>
         <td style="text-align:center;"><strong>${data.qty}</strong> u.</td>
         <td style="text-align:right; font-weight:700;">$${data.revenueUSD.toFixed(2)}</td>
       </tr>
@@ -559,7 +580,7 @@ export class ReportService {
       .join('');
 
     const content = `
-      <div class="section-title">DESGLOSE DE PIZZAS E ÍTEMS VENDIDOS</div>
+      <div class="section-title">${isMorning ? 'DESGLOSE DE PLATOS E ÍTEMS VENDIDOS' : 'DESGLOSE DE PIZZAS E ÍTEMS VENDIDOS'}</div>
       <table>
         <thead>
           <tr>
@@ -571,7 +592,7 @@ export class ReportService {
           </tr>
         </thead>
         <tbody>
-          ${rows.length > 0 ? rows : '<tr><td colspan="5" style="text-align:center; color:#9ca3af;">No se registran productos facturados en el sistema aún.</td></tr>'}
+          ${rows.length > 0 ? rows : `<tr><td colspan="5" style="text-align:center; color:#9ca3af;">${isMorning ? 'No se registran platos facturados en el sistema aún.' : 'No se registran productos facturados en el sistema aún.'}</td></tr>`}
         </tbody>
       </table>
 
@@ -587,12 +608,12 @@ export class ReportService {
       </div>
     `;
 
-    this.openPrintWindow('Reporte_Ventas_Pizzas', content);
+    this.openPrintWindow(isMorning ? 'Reporte_Ventas_Platos' : 'Reporte_Ventas_Pizzas', content);
   }
 
   // Alias para retrocompatibilidad
-  generatePizzasSoldReport(orders: Order[], rates: ExchangeRates) {
-    return this.generateProductsSoldReport(orders, rates);
+  generatePizzasSoldReport(orders: Order[], rates: ExchangeRates, products?: any[], shift?: string) {
+    return this.generateProductsSoldReport(orders, rates, products, shift);
   }
 
   // 2. Reporte de Ingresos y Cobros
@@ -811,34 +832,101 @@ export class ReportService {
   }
 
   // 4. Reporte de Pizzas e Ítems Vendidos por Intervalo
-  generateProductsSoldIntervalReport(data: ReporteIntervaloData) {
+  generateProductsSoldIntervalReport(data: ReporteIntervaloData, productsMap?: any[], shiftName?: string) {
+    const isMorning = (shiftName || data.shift || '').toLowerCase() === 'manana';
+    const activeProducts = productsMap || data.products;
     const tally: Record<string, { category: string; name: string; quantity: number; totalUSD: number }> = {};
+
     data.items.forEach((item) => {
       const catLower = (item.category || '').toLowerCase();
-      const cleanName = this.getReportBaseProductName(item);
-      const isBurger = catLower.includes('pizza') || catLower.includes('burger') || catLower.includes('hamburguesa') || cleanName.toLowerCase().includes('burger') || cleanName.toLowerCase().includes('crispy');
-      const category = isBurger ? 'Pizzas' : (item.category || 'Sin categoría');
-      const displayName = item.size && (catLower.includes('pizza') || isBurger) ? `${cleanName} (${item.size})` : cleanName;
+      const itQty = item.quantity || 1;
+      const rawPrice = Number(item.price) || 0;
+
+      // Extraer adicionales pagos
+      const extrasList: any[] = [];
+      if (Array.isArray(item.extras)) extrasList.push(...item.extras);
+      else if ((item as any).extrasJson && Array.isArray((item as any).extrasJson)) extrasList.push(...(item as any).extrasJson);
+      else if (typeof (item as any).extrasJson === 'string') {
+        try {
+          const parsed = JSON.parse((item as any).extrasJson);
+          if (Array.isArray(parsed)) extrasList.push(...parsed);
+        } catch (e) {}
+      }
+
+      let paidExtrasUnitCost = 0;
+      extrasList.forEach((extra) => {
+        const price = Number(extra.price) || 0;
+        const exQty = Number(extra.quantity) || 1;
+        const rawName = (extra.name || 'Adicional').trim();
+        const cleanBaseName = rawName.replace(/^\d+x\s*/i, '').trim();
+        if (price > 0) {
+          paidExtrasUnitCost += price;
+          const extraKey = `Adicionales|ADD ${cleanBaseName}`;
+          if (!tally[extraKey]) tally[extraKey] = { category: 'Adicionales', name: `ADD ${cleanBaseName}`, quantity: 0, totalUSD: 0 };
+          tally[extraKey].quantity += itQty * exQty;
+          tally[extraKey].totalUSD += price * itQty;
+        }
+      });
+
+      const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
+      const isDrink = catLower.includes('bebida') || catLower.includes('drink') || catLower.includes('refresco') || catLower.includes('jugo') || catLower.includes('licor') || catLower.includes('cerveza') || catLower.includes('agua') || !!item.drinkType;
+      const isDelivery = catLower.includes('delivery');
+
+      let category = item.category || (isMorning ? 'Platos' : 'Pizzas');
+      let displayName = this.getReportBaseProductName(item);
+
+      if (isDrink) {
+        category = 'Bebidas';
+      } else if (isDelivery) {
+        category = 'Delivery';
+      } else {
+        if (!isMorning || catLower.includes('pizza') || item.isHalfHalf || item.halfDetails) {
+          const resolved = resolveHalfAndHalfPizza(item, activeProducts, baseUnitPrice);
+          displayName = resolved.name;
+          category = isMorning ? (item.category || 'Platos') : resolved.category;
+        } else {
+          displayName = this.getReportBaseProductName(item);
+          category = item.category || 'Platos';
+        }
+      }
+
       const key = `${category}|${displayName}`;
       if (!tally[key]) tally[key] = { category, name: displayName, quantity: 0, totalUSD: 0 };
-      tally[key].quantity += item.quantity;
-      tally[key].totalUSD += item.price * item.quantity;
+      tally[key].quantity += itQty;
+      tally[key].totalUSD += baseUnitPrice * itQty;
     });
-    const rows = Object.entries(tally).sort((a, b) => a[1].category.localeCompare(b[1].category) || a[0].localeCompare(b[0]))
+
+    (data.orders || []).forEach((ord) => {
+      const fee = Number(ord.deliveryFeeUSD) || 0;
+      if (fee > 0 || ord.type === 'delivery') {
+        const dName = fee > 0 ? `Servicio Delivery ($${fee.toFixed(2)})` : 'Servicio Delivery';
+        const key = `Delivery|${dName}`;
+        if (!tally[key]) tally[key] = { category: 'Delivery', name: dName, quantity: 0, totalUSD: 0 };
+        tally[key].quantity += 1;
+        tally[key].totalUSD += fee;
+      }
+    });
+
+    const entries = Object.entries(tally).sort((a, b) => a[1].category.localeCompare(b[1].category) || a[0].localeCompare(b[0]));
+    const rows = entries
       .map(([, item]) => `<tr><td>${this.escapeHtml(item.category)}</td><td><strong>${this.escapeHtml(item.name)}</strong></td><td style="text-align:right;">${item.quantity}</td><td style="text-align:right;">$${item.totalUSD.toFixed(2)}</td></tr>`).join('');
-    const totalUnits = data.items.reduce((total, item) => total + item.quantity, 0);
-    const totalRevenueUSD = Object.values(tally).reduce((sum, it) => sum + it.totalUSD, 0);
-    this.openPrintWindow('Pizzas_Vendidas_Intervalo', `
-      <div class="section-title">PIZZAS E ÍTEMS VENDIDOS POR TIPO Y UNIDADES</div>
+    const totalUnits = entries.reduce((total, [, item]) => total + item.quantity, 0);
+    const totalRevenueUSD = entries.reduce((sum, [, it]) => sum + it.totalUSD, 0);
+
+    const titleDoc = isMorning ? 'Platos_Vendidos_Intervalo' : 'Pizzas_Vendidas_Intervalo';
+    const sectionTitle = isMorning ? 'PLATOS Y COMIDAS FACTURADAS POR TIPO Y UNIDADES' : 'PIZZAS E ÍTEMS VENDIDOS POR TIPO Y UNIDADES';
+    const emptyMsg = isMorning ? 'Sin platos o ítems facturados en el intervalo.' : 'Sin pizzas o ítems facturados en el intervalo.';
+    this.openPrintWindow(titleDoc, `
+      <div class="section-title">${sectionTitle}</div>
       <p style="font-size:12px; color:#4b5563;">${this.intervalTitle(data)}</p>
-      <table><thead><tr><th style="width:30%;">Categoría</th><th style="width:40%;">Ítem</th><th style="width:15%; text-align:right;">Unidades</th><th style="width:15%; text-align:right;">Total USD</th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="text-align:center;">Sin ítems facturados en el intervalo.</td></tr>'}</tbody></table>
+      <table><thead><tr><th style="width:30%;">Categoría</th><th style="width:40%;">Ítem</th><th style="width:15%; text-align:right;">Unidades</th><th style="width:15%; text-align:right;">Total USD</th></tr></thead><tbody>${rows || `<tr><td colspan="4" style="text-align:center;">${emptyMsg}</td></tr>`}</tbody></table>
       <div class="total-box"><div><div class="total-label">UNIDADES FACTURADAS</div><strong>${totalUnits}</strong></div><div><div class="total-label">TOTAL FACTURADO PRODUCTOS</div><strong style="color:#047857; font-size:14px;">$${totalRevenueUSD.toFixed(2)} USD</strong></div></div>
     `);
   }
 
   // Alias para retrocompatibilidad
-  generatePizzasSoldIntervalReport(data: ReporteIntervaloData) {
-    return this.generateProductsSoldIntervalReport(data);
+  generatePizzasSoldIntervalReport(data: ReporteIntervaloData, productsMap?: any[], shiftName?: string) {
+    return this.generateProductsSoldIntervalReport(data, productsMap, shiftName);
   }
 
   // 5. Reporte de Ingresos y Cobros por Intervalo
@@ -1032,7 +1120,9 @@ export class ReportService {
   }
 
   // 8. Reporte Contable Consolidado con Desglose de Monedas y Créditos
-  generateReporteContable(data: ReporteIntervaloData) {
+  generateReporteContable(data: ReporteIntervaloData, productsMap?: any[], shiftName?: string) {
+    const isMorning = (shiftName || data.shift || '').toLowerCase() === 'manana';
+    const activeProducts = productsMap || data.products;
     const methodNames = ['Efectivo USD', 'Binance', 'Zelle', 'Efectivo COP', 'Bancolombia', 'Nequi', 'Binance COP', 'Pago Móvil', 'Tarjeta de Débito', 'Tarjeta de Crédito', 'Crédito'];
     const methodTotals = new Map(methodNames.map((method) => [
       method,
@@ -1255,10 +1345,17 @@ export class ReportService {
         rawLower.includes('servicio');
 
       const targetMap = isDrink ? drinkMap : isOther ? othersProductMap : foodMap;
-      const prevProd = targetMap.get(cleanName) || { name: cleanName, quantity: 0, subtotalUSD: 0 };
+      let finalKey = cleanName;
+      if (targetMap === foodMap) {
+        if (!isMorning || catLower.includes('pizza') || it.isHalfHalf || it.halfDetails) {
+          const resolved = resolveHalfAndHalfPizza(it, activeProducts, baseUnitPrice);
+          finalKey = resolved.name;
+        }
+      }
+      const prevProd = targetMap.get(finalKey) || { name: finalKey, quantity: 0, subtotalUSD: 0 };
       prevProd.quantity += itQty;
       prevProd.subtotalUSD += baseSubtotal;
-      targetMap.set(cleanName, prevProd);
+      targetMap.set(finalKey, prevProd);
     });
 
     const totalVentaFacturadaUSD = billedTotals.usd + (billedTotals.cop / copRateGlobal) + (billedTotals.bs / bsRateGlobal);
@@ -1373,7 +1470,7 @@ export class ReportService {
       `).join('');
     };
 
-    const comidasRows = renderCategoryRows(comidasItems, 'Sin comidas facturadas en el intervalo.');
+    const comidasRows = renderCategoryRows(comidasItems, isMorning ? 'Sin platos ni comidas facturadas en el intervalo.' : 'Sin pizzas ni comidas facturadas en el intervalo.');
     const bebidasRows = renderCategoryRows(bebidasItems, 'Sin bebidas facturadas en el intervalo.');
     const adicionalesRows = renderCategoryRows(adicionalesItems, 'Sin adicionales facturados en el intervalo.');
     const otrosRows = renderCategoryRows(otrosItems, 'Sin otros conceptos facturados en el intervalo.');
@@ -1533,7 +1630,7 @@ export class ReportService {
 
       <!-- 6.1 COMIDAS -->
       <div style="font-size:11px; font-weight:900; margin:14px 0 4px; padding:4px 10px; background:#fef3c7; color:#92400e; border-left:4px solid #f59e0b; border-radius:0 4px 4px 0;">
-        6.1 COMIDAS (Pizzas, Raciones y Acompañantes)
+        ${isMorning ? '6.1 COMIDAS (Platos, Almuerzos y Raciones)' : '6.1 COMIDAS (Pizzas, Raciones y Acompañantes)'}
       </div>
       <table>
         <thead>

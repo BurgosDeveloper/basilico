@@ -257,7 +257,7 @@ export const MeseroPage: React.FC = () => {
       id: item.productId,
       name: item.productName,
       price: estimatedBasePrice,
-      category: item.category || 'Hamburguesas',
+      category: item.category || (userSession?.shift === 'manana' ? 'Platos' : 'Pizzas'),
       baseIngredients: [],
     } as Product;
 
@@ -1396,7 +1396,7 @@ export const MeseroPage: React.FC = () => {
           </div>
       )}
 
-      {/* MODAL 2: CONFIGURADOR DE HAMBURGUESAS (Solo fallback si no hay activeOrderTarget) */}
+      {/* MODAL 2: CONFIGURADOR DE PIZZAS / PLATOS (Solo fallback si no hay activeOrderTarget) */}
       {!activeOrderTarget && (
         <BurgerBuilderModal
           burger={selectedBurger}

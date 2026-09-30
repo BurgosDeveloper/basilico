@@ -279,7 +279,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       id: item.productId,
       name: item.productName,
       price: estimatedBasePrice,
-      category: item.category || 'Hamburguesas',
+      category: item.category || (userSession?.shift === 'manana' ? 'Platos' : 'Pizzas'),
       baseIngredients: [],
     } as Product;
 
@@ -536,7 +536,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                 </span>
               </div>
               <span className="text-[11px] text-gray-500 font-bold uppercase block mt-0.5">
-                Selección de Hamburguesas, Bebidas y Acompañantes para Adicionar
+                Selección de {userSession?.shift === 'manana' ? 'Platos' : 'Pizzas'}, Bebidas y Acompañantes para Adicionar
               </span>
             </div>
           </div>
@@ -809,7 +809,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                     <div className="p-4 rounded-2xl border-2 border-dashed border-gray-300 bg-white text-center text-xs sm:text-sm font-bold text-gray-400 space-y-1">
                       <p>No has agregado nuevos productos todavía.</p>
                       <p className="text-xs text-gray-400">
-                        Toca una hamburguesa o bebida del catálogo para sumarla a esta comanda.
+                        Toca {userSession?.shift === 'manana' ? 'un plato' : 'una pizza'} o bebida del catálogo para sumarla a esta comanda.
                       </p>
                     </div>
                   ) : (

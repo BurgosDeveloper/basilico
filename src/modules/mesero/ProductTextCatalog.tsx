@@ -113,6 +113,27 @@ const STYLE_SALSAS: CategoryStyle = {
   icon: '🥣',
 };
 
+function getProductNameFontSize(name: string): string {
+  const clean = (name || '').trim();
+  const len = clean.length;
+  const words = clean.split(/\s+/).filter(Boolean);
+  const maxWordLen = words.reduce((max, w) => Math.max(max, w.length), 0);
+
+  // Muy largo: palabras de 11+ letras o nombre total de 22+ letras
+  if (maxWordLen >= 11 || len >= 22) {
+    return 'text-[9.5px] sm:text-[10.5px] leading-[1.15]';
+  }
+  // Moderado largo: palabras de 9-10 letras o nombre de 14+ letras
+  if (maxWordLen >= 9 || len >= 14) {
+    return 'text-[10.5px] sm:text-[11.5px] leading-[1.2]';
+  }
+  // Ligeramente largo: palabras de 8 letras o nombre de 10+ letras
+  if (maxWordLen >= 8 || len >= 10) {
+    return 'text-[11px] sm:text-xs leading-tight';
+  }
+  // Corto (6-7 letras)
+  return 'text-xs sm:text-sm leading-tight';
+}
 
 export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
   products,
@@ -263,18 +284,18 @@ export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
                 key={product.id}
                 type="button"
                 onClick={() => onSelectProduct(product)}
-                className={`w-full flex flex-row items-center justify-between p-2 sm:p-2.5 rounded-xl border transition-all duration-150 min-h-[50px] sm:min-h-[54px] shadow-2xs hover:shadow-xs group active:scale-[0.98] cursor-pointer text-left ${style.cardBg} ${style.cardBorder} ${style.cardHoverBg} ${style.cardHoverBorder}`}
+                className={`w-full flex flex-row items-center justify-between px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border transition-all duration-150 min-h-[50px] sm:min-h-[54px] shadow-2xs hover:shadow-xs group active:scale-[0.98] cursor-pointer text-left ${style.cardBg} ${style.cardBorder} ${style.cardHoverBg} ${style.cardHoverBorder}`}
                 title={`${product.name.toUpperCase()} - $${priceUSD.toFixed(2)} USD`}
               >
-                {/* Lado Izquierdo: SOLO el nombre del producto, legible y sin subtítulos */}
+                {/* Lado Izquierdo: SOLO el nombre del producto, dinámicamente ajustado para 1, 2 o más líneas sin cortarse */}
                 <span
-                  className={`font-black text-xs sm:text-sm leading-tight line-clamp-2 uppercase flex-1 min-w-0 pr-1.5 ${style.textColor}`}
+                  className={`font-black uppercase flex-1 min-w-0 pr-1 break-words [overflow-wrap:anywhere] line-clamp-3 text-left ${getProductNameFontSize(product.name)} ${style.textColor}`}
                 >
                   {product.name.toUpperCase()}
                 </span>
-                {/* Lado Derecho: SIEMPRE el precio en $ */}
+                {/* Lado Derecho: SIEMPRE el precio en $, optimizado para no restar espacio al nombre */}
                 <span
-                  className={`font-black text-xs sm:text-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border shrink-0 whitespace-nowrap shadow-2xs text-right ${style.priceBadge}`}
+                  className={`font-black text-[11px] sm:text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-lg border shrink-0 whitespace-nowrap shadow-2xs text-right ${style.priceBadge}`}
                 >
                   ${priceUSD.toFixed(2)}
                 </span>
@@ -369,15 +390,15 @@ export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
             {/* TURNO NOCHE: Salsas (Ámbar Miel) */}
             {showSalsas && salsaProducts.length > 0 && (
               <div key="SALSAS" className="space-y-1.5">
-                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl border bg-amber-100/80 border-amber-300 text-amber-950 select-none">
+                <div className={`flex items-center justify-between px-3 py-1.5 rounded-xl border ${STYLE_SALSAS.headerBg} ${STYLE_SALSAS.headerBorder} ${STYLE_SALSAS.headerText} select-none`}>
                   <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm tracking-wide uppercase">
-                    <span className="text-base">🥣</span>
+                    <span className="text-base">{STYLE_SALSAS.icon}</span>
                     <span>SALSAS</span>
                     <span className="text-[10px] sm:text-xs font-semibold opacity-75 hidden sm:inline uppercase">
                       (Porciones para cocina - $0.00)
                     </span>
                   </div>
-                  <span className="text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full bg-amber-200/90 text-amber-950 uppercase">
+                  <span className={`text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full ${STYLE_SALSAS.headerBadge} uppercase`}>
                     {salsaProducts.length} {salsaProducts.length === 1 ? 'ÍTEM' : 'ÍTEMS'}
                   </span>
                 </div>
@@ -388,13 +409,15 @@ export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
                       key={salsa.id}
                       type="button"
                       onClick={() => onSelectSalsa && onSelectSalsa(salsa)}
-                      className="w-full flex flex-row items-center justify-between p-2 sm:p-2.5 rounded-xl border transition-all duration-150 min-h-[50px] sm:min-h-[54px] shadow-2xs hover:shadow-xs group active:scale-[0.98] cursor-pointer text-left bg-amber-50/70 border-amber-200 hover:bg-amber-100/80 hover:border-amber-400"
+                      className={`w-full flex flex-row items-center justify-between px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl border transition-all duration-150 min-h-[50px] sm:min-h-[54px] shadow-2xs hover:shadow-xs group active:scale-[0.98] cursor-pointer text-left ${STYLE_SALSAS.cardBg} ${STYLE_SALSAS.cardBorder} ${STYLE_SALSAS.cardHoverBg} ${STYLE_SALSAS.cardHoverBorder}`}
                       title={`${salsa.name.toUpperCase()} - Clic para agregar directo a la comanda (+1)`}
                     >
-                      <span className="font-black text-xs sm:text-sm leading-tight line-clamp-2 uppercase flex-1 min-w-0 pr-1.5 text-amber-950 group-hover:text-amber-900">
+                      <span
+                        className={`font-black uppercase flex-1 min-w-0 pr-1 break-words [overflow-wrap:anywhere] line-clamp-3 text-left ${getProductNameFontSize(salsa.name)} ${STYLE_SALSAS.textColor}`}
+                      >
                         {salsa.name.toUpperCase()}
                       </span>
-                      <span className="font-black text-xs sm:text-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border shrink-0 whitespace-nowrap shadow-2xs text-right bg-amber-100/90 text-amber-950 border-amber-300">
+                      <span className={`font-black text-[11px] sm:text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-lg border shrink-0 whitespace-nowrap shadow-2xs text-right ${STYLE_SALSAS.priceBadge}`}>
                         $0.00
                       </span>
                     </button>

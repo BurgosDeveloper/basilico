@@ -775,9 +775,14 @@ function buildReportTicket(reportType, data, paperWidth = null) {
       } else if (isDelivery) {
         category = 'Delivery';
       } else {
-        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice);
-        fullName = isMorning ? getReportBaseProductName(item) : resolved.name;
-        category = isMorning ? (item.category || 'Platos') : resolved.category;
+        if (!isMorning) {
+          const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice, 'noche');
+          fullName = resolved.name;
+          category = resolved.category;
+        } else {
+          fullName = getReportBaseProductName(item);
+          category = item.category || 'Platos';
+        }
       }
 
       const key = `${category}|${fullName}`;
@@ -1204,10 +1209,15 @@ function buildReportTicket(reportType, data, paperWidth = null) {
         rawLower.includes('servicio');
 
       const targetMap = isDrink ? drinkMap : isOther ? otherProductsMap : foodMap;
-      const prevProd = targetMap.get(cleanName) || { name: cleanName, quantity: 0, subtotalUSD: 0 };
+      let finalItemName = cleanName;
+      if (!isMorning && !isDrink && !isOther) {
+        const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice, 'noche');
+        finalItemName = resolved.name;
+      }
+      const prevProd = targetMap.get(finalItemName) || { name: finalItemName, quantity: 0, subtotalUSD: 0 };
       prevProd.quantity += itQty;
       prevProd.subtotalUSD += baseSubtotal;
-      targetMap.set(cleanName, prevProd);
+      targetMap.set(finalItemName, prevProd);
     }
 
     const comidasList = Array.from(foodMap.values()).filter((p) => p.quantity > 0).sort((a, b) => a.name.localeCompare(b.name));
@@ -1890,9 +1900,14 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
   const receiptItems = (order.items || []).filter((it) => !isSalsaItem(it));
   for (const it of receiptItems) {
     const qty = it.quantity || 1;
-    const cleanName = printableText((it.productName || it.product_name || 'Producto')
+    const isMorning = (order.shift || '').toLowerCase() === 'manana';
+    const rawProdName = it.productName || it.product_name || 'Producto';
+    const isPizza = !isMorning && ((it.category || '').toLowerCase().includes('pizza') || rawProdName.toLowerCase().includes('pizza'));
+    const sizeSuffix = (isPizza && it.size && it.size !== 'Estándar') ? ` (${it.size})` : '';
+    const cleanBase = printableText(rawProdName
       .replace(/\s*\((Grande|Pequeña|Mediana|Familiar|Estándar|Modificada|Modificado)\)/gi, '')
       .trim());
+    const cleanName = `${cleanBase}${sizeSuffix}`;
     const unitPrice = Number(it.price) || 0;
     const lineTotalUSD = unitPrice * qty;
 
@@ -2418,9 +2433,11 @@ function buildBasilicoCierreTicket(data, paperWidth = null) {
     } else if (isComida) {
       const isMorning = (data?.shift || '').toLowerCase() === 'manana';
       let finalComidaName = baseName;
-      if (!isMorning || rawCat.includes('pizza') || item.isHalfHalf || item.halfDetails) {
-        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice);
+      if (!isMorning) {
+        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice, 'noche');
         finalComidaName = resolved.name.toUpperCase();
+      } else {
+        finalComidaName = baseName;
       }
       const curr = comidasGroup.get(finalComidaName) || { name: finalComidaName, quantity: 0, totalUSD: 0 };
       curr.quantity += itQty;

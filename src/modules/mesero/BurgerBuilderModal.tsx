@@ -798,7 +798,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
         return {
           burger,
           quantity,
-          size: uSize,
+          size: isMorning ? undefined : uSize,
           isHalfHalf: true,
           halfDetails,
           removedIngredients: [] as string[],
@@ -818,7 +818,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
         return {
           burger,
           quantity,
-          size: uSize,
+          size: isMorning ? undefined : uSize,
           isHalfHalf: false,
           removedIngredients: u.removedIngredients,
           extras: u.selectedPaidExtras,

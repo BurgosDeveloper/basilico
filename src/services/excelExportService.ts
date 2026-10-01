@@ -364,8 +364,8 @@ export function exportToExcel(data: ReporteIntervaloData): void {
       othersProductMap.set(cleanName, prev);
     } else {
       let foodName = cleanName;
-      if (!isMorning || catLower.includes('pizza') || it.isHalfHalf || it.halfDetails) {
-        const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice);
+      if (!isMorning) {
+        const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice, 'noche');
         foodName = resolved.name;
       }
       const prev = foodMap.get(foodName) || { name: foodName, quantity: 0, subtotalUSD: 0 };

@@ -20,13 +20,18 @@ function getSeedProducts() {
  * Normaliza y limpia el nombre del producto quitando tamaños repetidos
  * y añadiendo el tamaño normalizado ÚNICAMENTE a las pizzas.
  */
-function cleanItemName(productName, size, category, isPizza) {
+function cleanItemName(productName, size, category, isPizza, shift) {
   let clean = (productName || 'Item').trim();
   // 1. Quitar cualquier tamaño previo
   clean = clean.replace(/\s*\((grande|pequeña|pequena|mediana|familiar|estándar|estandar)\)/gi, '').trim();
 
   // 2. Quitar prefijo de mitad si venía embebido
   clean = clean.replace(/^pizza\s+1\/2\s+/i, 'Pizza ');
+
+  // Si es turno mañana, nunca lleva tamaño
+  if (shift === 'manana') {
+    return clean;
+  }
 
   const catLower = (category || '').toLowerCase();
   const isPizzaItem = isPizza || catLower.includes('pizza') || clean.toLowerCase().includes('pizza');
@@ -91,7 +96,20 @@ function obtenerPrecioCarta(name, isSmall, productsMap) {
  * Resuelve una pizza (incluyendo mitad y mitad) absorbiéndola contablemente
  * bajo el producto de mayor valor de carta para evitar mitades huérfanas.
  */
-function resolveHalfAndHalfPizza(item, productsMap, baseUnitPrice) {
+function resolveHalfAndHalfPizza(item, productsMap, baseUnitPrice, shift) {
+  const isMorning = shift === 'manana' || item.shift === 'manana';
+  if (isMorning) {
+    const rawName = (item.productName || item.name || 'Producto').trim();
+    const finalName = cleanItemName(rawName, undefined, item.category, false, 'manana');
+    return {
+      name: finalName,
+      category: item.category || 'Platos',
+      isPizza: false,
+      quantity: Number(item.quantity) || 1,
+      totalUSD: baseUnitPrice * (Number(item.quantity) || 1),
+    };
+  }
+
   const isHH = !!(item.isHalfHalf || item.is_half_half || item.halfDetails || item.half_details);
   const isSmall = (item.size || '').toLowerCase().includes('peque');
   const catLower = (item.category || '').toLowerCase();
@@ -100,7 +118,7 @@ function resolveHalfAndHalfPizza(item, productsMap, baseUnitPrice) {
   // Si no es mitad y mitad, devuelve el nombre con su tamaño si es pizza
   if (!isHH) {
     const rawName = (item.productName || item.name || 'Producto').trim();
-    const finalName = isPizza ? cleanItemName(rawName, item.size, 'Pizzas', true) : rawName;
+    const finalName = isPizza ? cleanItemName(rawName, item.size, 'Pizzas', true, shift) : rawName;
     return {
       name: finalName,
       category: isPizza ? 'Pizzas' : (item.category || 'Sin categoría'),
@@ -140,7 +158,7 @@ function resolveHalfAndHalfPizza(item, productsMap, baseUnitPrice) {
   const dominantProd = findProduct(chosenName, productsMap);
   const officialDominantName = dominantProd ? dominantProd.name : (chosenName || item.productName || 'Pizza');
 
-  const finalName = cleanItemName(officialDominantName, item.size, 'Pizzas', true);
+  const finalName = cleanItemName(officialDominantName, item.size, 'Pizzas', true, shift);
 
   return {
     name: finalName,

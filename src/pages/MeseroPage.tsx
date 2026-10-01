@@ -1158,7 +1158,7 @@ export const MeseroPage: React.FC = () => {
                                   🛵 Delivery
                                 </button>
 
-                                {item.size && (
+                                {item.size && userSession?.shift !== 'manana' && (
                                   <span className="text-xs font-black text-stone-900 bg-green-100 border border-green-300 px-2 py-0.5 rounded-md inline-block uppercase">
                                     🍕 {item.size.toUpperCase()}
                                   </span>

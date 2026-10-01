@@ -267,7 +267,7 @@ export const CocinaPage: React.FC = () => {
                               </span>
                               <div className="break-words">
                                 <span className="font-black text-slate-900">{it.productName}</span>
-                                {it.size && <span className="ml-2 text-xs font-bold text-emerald-700">({it.size})</span>}
+                                {it.size && ord.shift !== 'manana' && <span className="ml-2 text-xs font-bold text-emerald-700">({it.size})</span>}
                               </div>
                             </div>
 

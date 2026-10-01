@@ -263,7 +263,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                               🛍️ Llevar
                             </span>
                           ) : null}
-                          {item.size && (
+                          {item.size && order.shift !== 'manana' && (
                             <span className="text-xs font-black px-2.5 py-0.5 rounded-lg bg-sky-100 border border-sky-300 text-sky-900">
                               {item.size}
                             </span>

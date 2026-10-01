@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, Ingredient } from '../../data/mockData';
-import { IoSearch, IoClose, IoAdd } from 'react-icons/io5';
-import { isDrinkProduct, isPotatoProduct, isCustomizableProduct } from '../../utils/productClassifier';
+import { IoSearch, IoClose } from 'react-icons/io5';
+import { isDrinkProduct } from '../../utils/productClassifier';
 
 interface ProductTextCatalogProps {
   products: Product[];
@@ -15,6 +15,105 @@ interface ProductTextCatalogProps {
   onSelectSalsa?: (salsa: Ingredient) => void;
 }
 
+interface CategoryStyle {
+  cardBg: string;
+  cardBorder: string;
+  cardHoverBg: string;
+  cardHoverBorder: string;
+  textColor: string;
+  priceBadge: string;
+  headerBg: string;
+  headerBorder: string;
+  headerText: string;
+  headerBadge: string;
+  icon: string;
+}
+
+const STYLE_ENTRADAS: CategoryStyle = {
+  cardBg: 'bg-emerald-50/70',
+  cardBorder: 'border-emerald-200',
+  cardHoverBg: 'hover:bg-emerald-100/80',
+  cardHoverBorder: 'hover:border-emerald-400',
+  textColor: 'text-emerald-950 group-hover:text-emerald-900',
+  priceBadge: 'bg-emerald-100/90 text-emerald-950 border-emerald-300',
+  headerBg: 'bg-emerald-100/80',
+  headerBorder: 'border-emerald-300',
+  headerText: 'text-emerald-950',
+  headerBadge: 'bg-emerald-200/90 text-emerald-950',
+  icon: '🥗',
+};
+
+const STYLE_PASTAS: CategoryStyle = {
+  cardBg: 'bg-amber-50/70',
+  cardBorder: 'border-amber-200',
+  cardHoverBg: 'hover:bg-amber-100/80',
+  cardHoverBorder: 'hover:border-amber-400',
+  textColor: 'text-amber-950 group-hover:text-amber-900',
+  priceBadge: 'bg-amber-100/90 text-amber-950 border-amber-300',
+  headerBg: 'bg-amber-100/80',
+  headerBorder: 'border-amber-300',
+  headerText: 'text-amber-950',
+  headerBadge: 'bg-amber-200/90 text-amber-950',
+  icon: '🍝',
+};
+
+const STYLE_ESPECIALIDADES: CategoryStyle = {
+  cardBg: 'bg-rose-50/70',
+  cardBorder: 'border-rose-200',
+  cardHoverBg: 'hover:bg-rose-100/80',
+  cardHoverBorder: 'hover:border-rose-400',
+  textColor: 'text-rose-950 group-hover:text-rose-900',
+  priceBadge: 'bg-rose-100/90 text-rose-950 border-rose-300',
+  headerBg: 'bg-rose-100/80',
+  headerBorder: 'border-rose-300',
+  headerText: 'text-rose-950',
+  headerBadge: 'bg-rose-200/90 text-rose-950',
+  icon: '🍽️',
+};
+
+const STYLE_BEBIDAS: CategoryStyle = {
+  cardBg: 'bg-sky-50/70',
+  cardBorder: 'border-sky-200',
+  cardHoverBg: 'hover:bg-sky-100/80',
+  cardHoverBorder: 'hover:border-sky-400',
+  textColor: 'text-sky-950 group-hover:text-sky-900',
+  priceBadge: 'bg-sky-100/90 text-sky-950 border-sky-300',
+  headerBg: 'bg-sky-100/80',
+  headerBorder: 'border-sky-300',
+  headerText: 'text-sky-950',
+  headerBadge: 'bg-sky-200/90 text-sky-950',
+  icon: '🥤',
+};
+
+const STYLE_PIZZAS: CategoryStyle = {
+  cardBg: 'bg-red-50/70',
+  cardBorder: 'border-red-200',
+  cardHoverBg: 'hover:bg-red-100/80',
+  cardHoverBorder: 'hover:border-red-400',
+  textColor: 'text-red-950 group-hover:text-red-900',
+  priceBadge: 'bg-red-100/90 text-red-950 border-red-300',
+  headerBg: 'bg-red-100/80',
+  headerBorder: 'border-red-300',
+  headerText: 'text-red-950',
+  headerBadge: 'bg-red-200/90 text-red-950',
+  icon: '🍕',
+};
+
+const STYLE_SALSAS: CategoryStyle = {
+  cardBg: 'bg-amber-50/70',
+  cardBorder: 'border-amber-200',
+  cardHoverBg: 'hover:bg-amber-100/80',
+  cardHoverBorder: 'hover:border-amber-400',
+  textColor: 'text-amber-950 group-hover:text-amber-900',
+  priceBadge: 'bg-amber-100/90 text-amber-950 border-amber-300',
+  headerBg: 'bg-amber-100/80',
+  headerBorder: 'border-amber-300',
+  headerText: 'text-amber-950',
+  headerBadge: 'bg-amber-200/90 text-amber-950',
+  icon: '🥣',
+};
+
+
 export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
   products,
   onSelectProduct,
@@ -22,18 +121,17 @@ export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
   onSelectCategory,
   searchQuery,
   onSearchChange,
-  exchangeRates = { COP: 3950, Bs: 36.5 },
   salsas = [],
   onSelectSalsa,
 }) => {
   const isMorning = products.some((p) => p.shift === 'manana' || p.category === 'ESPECIALIDADES' || p.category === 'PASTAS');
 
-  // Categorías fijas y claras según turno
+  // Categorías fijas según turno
   const filterCategories = isMorning
     ? ['Todas', 'Entradas', 'Pastas', 'Especialidades', 'Bebidas']
-    : ['Todas', 'Comidas', 'Bebidas', 'Salsas'];
+    : ['Todas', 'Pizzas', 'Bebidas', 'Salsas'];
 
-  // Función de coincidencia de búsqueda
+  // Coincidencia de búsqueda
   const matchesSearch = (product: Product): boolean => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
@@ -50,235 +148,254 @@ export const ProductTextCatalog: React.FC<ProductTextCatalogProps> = ({
     return salsa.name.toLowerCase().includes(q);
   };
 
-  // Separar productos en Comidas y Bebidas, filtrando por búsqueda y ordenando alfabéticamente (A-Z)
-  const foodProducts = products
-    .filter((p) => !isDrinkProduct(p))
-    .filter(matchesSearch)
-    .filter((p) => {
-      const sel = selectedCategory.toUpperCase();
-      if (sel === 'TODAS' || sel === 'COMIDAS') return true;
-      return (p.category || '').toUpperCase() === sel;
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const selCat = selectedCategory.toUpperCase();
 
+  // Filtrado de productos para la Mañana por categorías individuales
+  const morningEntradas = isMorning
+    ? products
+        .filter((p) => !isDrinkProduct(p) && (p.category || '').toUpperCase().includes('ENTRADA'))
+        .filter(matchesSearch)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    : [];
+
+  const morningPastas = isMorning
+    ? products
+        .filter((p) => !isDrinkProduct(p) && (p.category || '').toUpperCase().includes('PASTA'))
+        .filter(matchesSearch)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    : [];
+
+  const morningEspecialidades = isMorning
+    ? products
+        .filter((p) => !isDrinkProduct(p) && (p.category || '').toUpperCase().includes('ESPECIALIDAD'))
+        .filter(matchesSearch)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    : [];
+
+  const morningOtrasComidas = isMorning
+    ? products
+        .filter(
+          (p) =>
+            !isDrinkProduct(p) &&
+            !(p.category || '').toUpperCase().includes('ENTRADA') &&
+            !(p.category || '').toUpperCase().includes('PASTA') &&
+            !(p.category || '').toUpperCase().includes('ESPECIALIDAD')
+        )
+        .filter(matchesSearch)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    : [];
+
+  // Productos de Noche (Pizzas y Comidas)
+  const nightPizzas = !isMorning
+    ? products
+        .filter((p) => !isDrinkProduct(p))
+        .filter(matchesSearch)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+    : [];
+
+  // Bebidas (ambos turnos)
   const drinkProducts = products
     .filter((p) => isDrinkProduct(p))
     .filter(matchesSearch)
-    .filter((p) => {
-      const sel = selectedCategory.toUpperCase();
-      if (sel === 'TODAS' || sel === 'BEBIDAS') return true;
-      return (p.category || '').toUpperCase() === sel;
-    })
     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
-  const salsaProducts = (salsas || [])
+  // Salsas (turno noche)
+  const salsaProducts = (!isMorning ? salsas || [] : [])
     .filter((s) => s.ingredientType === 'salsa' || s.category === 'Salsas')
     .filter((s) => s.available !== false)
     .filter(matchesSearchSalsa)
     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 
-  const showFoods = foodProducts.length > 0;
-  const showDrinks = drinkProducts.length > 0;
-  const showSalsas = !isMorning && (selectedCategory.toUpperCase() === 'TODAS' || selectedCategory.toUpperCase() === 'SALSAS') && salsaProducts.length > 0;
+  // Determinar visibilidad de secciones según filtro seleccionado
+  const showEntradas = isMorning && (selCat === 'TODAS' || selCat === 'ENTRADAS') && morningEntradas.length > 0;
+  const showPastas = isMorning && (selCat === 'TODAS' || selCat === 'PASTAS') && morningPastas.length > 0;
+  const showEspecialidades = isMorning && (selCat === 'TODAS' || selCat === 'ESPECIALIDADES') && morningEspecialidades.length > 0;
+  const showOtras = isMorning && selCat === 'TODAS' && morningOtrasComidas.length > 0;
+  const showDrinks = (selCat === 'TODAS' || selCat === 'BEBIDAS') && drinkProducts.length > 0;
+  const showNightPizzas = !isMorning && (selCat === 'TODAS' || selCat === 'PIZZAS' || selCat === 'COMIDAS') && nightPizzas.length > 0;
+  const showSalsas = !isMorning && (selCat === 'TODAS' || selCat === 'SALSAS') && salsaProducts.length > 0;
 
-  const totalVisible =
-    (showFoods ? foodProducts.length : 0) +
+  const totalVisibleCount =
+    (showEntradas ? morningEntradas.length : 0) +
+    (showPastas ? morningPastas.length : 0) +
+    (showEspecialidades ? morningEspecialidades.length : 0) +
+    (showOtras ? morningOtrasComidas.length : 0) +
     (showDrinks ? drinkProducts.length : 0) +
+    (showNightPizzas ? nightPizzas.length : 0) +
     (showSalsas ? salsaProducts.length : 0);
+
+  // Componente de Sección Compacta
+  const renderProductSection = (
+    title: string,
+    style: CategoryStyle,
+    items: Product[],
+    subtitle?: string
+  ) => {
+    if (items.length === 0) return null;
+    return (
+      <div key={title} className="space-y-1.5">
+        {/* Encabezado Compacto */}
+        <div
+          className={`flex items-center justify-between px-3 py-1.5 rounded-xl border ${style.headerBg} ${style.headerBorder} ${style.headerText} select-none`}
+        >
+          <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm tracking-wide uppercase">
+            <span className="text-base">{style.icon}</span>
+            <span>{title}</span>
+            {subtitle && (
+              <span className="text-[10px] sm:text-xs font-semibold opacity-75 hidden sm:inline uppercase">
+                ({subtitle})
+              </span>
+            )}
+          </div>
+          <span
+            className={`text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full ${style.headerBadge} uppercase`}
+          >
+            {items.length} {items.length === 1 ? 'ÍTEM' : 'ÍTEMS'}
+          </span>
+        </div>
+
+        {/* Grilla Responsiva: 4 a 5 ítems por fila en pantallas estándar y tablets */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-2.5">
+          {items.map((product) => {
+            const priceUSD = Number(product.price) || 0;
+            return (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => onSelectProduct(product)}
+                className={`w-full flex flex-row items-center justify-between p-2 sm:p-2.5 rounded-xl border transition-all duration-150 min-h-[50px] sm:min-h-[54px] shadow-2xs hover:shadow-xs group active:scale-[0.98] cursor-pointer text-left ${style.cardBg} ${style.cardBorder} ${style.cardHoverBg} ${style.cardHoverBorder}`}
+                title={`${product.name.toUpperCase()} - $${priceUSD.toFixed(2)} USD`}
+              >
+                {/* Lado Izquierdo: SOLO el nombre del producto, legible y sin subtítulos */}
+                <span
+                  className={`font-black text-xs sm:text-sm leading-tight line-clamp-2 uppercase flex-1 min-w-0 pr-1.5 ${style.textColor}`}
+                >
+                  {product.name.toUpperCase()}
+                </span>
+                {/* Lado Derecho: SIEMPRE el precio en $ */}
+                <span
+                  className={`font-black text-xs sm:text-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border shrink-0 whitespace-nowrap shadow-2xs text-right ${style.priceBadge}`}
+                >
+                  ${priceUSD.toFixed(2)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full space-y-2">
       {/* Barra Superior: Buscador y Chips de Filtrado */}
-      <div className="flex flex-wrap items-center gap-2.5 pb-2 border-b border-gray-200 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-gray-200 shrink-0">
         {/* Input de Búsqueda */}
-        <div className="relative flex-1 min-w-[170px]">
-          <IoSearch className="absolute left-3 top-3 text-gray-400 text-sm" />
+        <div className="relative flex-1 min-w-[160px]">
+          <IoSearch className="absolute left-3 top-2.5 text-gray-400 text-sm" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={isMorning ? "Buscar plato, bebida o ingrediente..." : "Buscar pizza, papas, bebida o ingrediente..."}
-            className="w-full pl-9 pr-9 py-2 rounded-xl bg-gray-50 border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 font-bold"
+            placeholder={
+              isMorning
+                ? 'Buscar plato, bebida o ingrediente...'
+                : 'Buscar pizza, salsa, bebida...'
+            }
+            className="w-full pl-8 pr-8 py-1.5 rounded-xl bg-gray-50 border border-gray-300 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-green-400 font-bold"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => onSearchChange('')}
-              className="absolute right-2.5 top-2.5 text-gray-400 hover:text-black cursor-pointer p-0.5"
+              className="absolute right-2 top-2 text-gray-400 hover:text-black cursor-pointer p-0.5"
             >
-              <IoClose className="text-base" />
+              <IoClose className="text-sm" />
             </button>
           )}
         </div>
 
         {/* Chips de Categorías */}
-        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
-          {filterCategories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => onSelectCategory(cat)}
-              className={`px-4 py-2 rounded-xl text-sm sm:text-base font-black whitespace-nowrap transition-all cursor-pointer text-center uppercase ${
-                selectedCategory.toUpperCase() === cat.toUpperCase()
-                  ? 'bg-green-500 text-black border-2 border-green-600 shadow-xs scale-[1.02]'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-transparent'
-              }`}
-            >
-              {cat.toUpperCase()}
-            </button>
-          ))}
+        <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
+          {filterCategories.map((cat) => {
+            const isSelected = selCat === cat.toUpperCase();
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => onSelectCategory(cat)}
+                className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black whitespace-nowrap transition-all cursor-pointer text-center uppercase ${
+                  isSelected
+                    ? 'bg-green-500 text-black border-2 border-green-600 shadow-xs scale-[1.02]'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-transparent'
+                }`}
+              >
+                {cat.toUpperCase()}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* LISTA CON AMBAS SECCIONES SEPARADAS A SIMPLE VISTA */}
-      <div className="flex-1 overflow-y-auto pr-1 space-y-3.5 scrollbar-thin">
-        {totalVisible === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-center text-gray-400 text-sm font-bold uppercase">
+      {/* LISTADO DE SECCIONES CON TARJETAS RECTANGULARES COMPACTAS */}
+      <div className="flex-1 overflow-y-auto pr-1 space-y-3 scrollbar-thin">
+        {totalVisibleCount === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 text-center text-gray-400 text-xs sm:text-sm font-bold uppercase">
             <p>NO SE ENCONTRARON PRODUCTOS PARA "{searchQuery.toUpperCase()}"</p>
           </div>
         ) : (
           <>
-            {/* SECCIÓN 1: COMIDAS (Pizzas o Platos según turno) */}
-            {showFoods && foodProducts.length > 0 && (
-              <div>
-                {/* Encabezado de Sección Comidas */}
-                <div className={`flex items-center justify-between px-3.5 py-2 rounded-xl ${isMorning ? 'bg-amber-100/80 border border-amber-300 text-amber-950' : 'bg-red-100/80 border border-red-300 text-red-950'} mb-2.5 select-none`}>
-                  <div className="flex items-center gap-2 font-black text-sm sm:text-base tracking-wide uppercase">
-                    <span className="text-xl">{isMorning ? '🍽️' : '🍕'}</span>
-                    <span>{isMorning ? 'PLATOS Y ESPECIALIDADES' : 'PIZZAS Y COMIDAS'}</span>
-                    <span className="text-xs font-bold text-gray-600 normal-case hidden sm:inline uppercase">
-                      {isMorning ? '(PLATOS PERSONALIZABLES CON CONTORNOS)' : '(PIZZAS PERSONALIZABLES Y RACIONES)'}
-                    </span>
-                  </div>
-                  <span className={`text-xs sm:text-sm font-black px-3 py-0.5 rounded-full ${isMorning ? 'bg-amber-200/90 text-amber-950' : 'bg-red-200/90 text-red-950'} uppercase`}>
-                    {foodProducts.length} {foodProducts.length === 1 ? 'ÍTEM' : 'ÍTEMS'}
-                  </span>
-                </div>
+            {/* TURNO MAÑANA: Separación por colores para Entradas, Pastas, Especialidades y Bebidas */}
+            {showEntradas &&
+              renderProductSection('ENTRADAS', STYLE_ENTRADAS, morningEntradas, 'Verde Esmeralda')}
 
-                {/* Grilla de Tarjetas de Comidas con Textos Centrados */}
-                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
-                  {foodProducts.map((product) => {
-                    const priceUSD = product.price;
-                    const isCustom = isCustomizableProduct(product);
-                    const isPotato = isPotatoProduct(product);
+            {showPastas &&
+              renderProductSection('PASTAS', STYLE_PASTAS, morningPastas, 'Ámbar Cálido')}
 
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => onSelectProduct(product)}
-                        className="p-3.5 rounded-2xl bg-[#fff8f8] hover:bg-red-50 border-2 border-red-200/90 hover:border-red-400 text-center transition-all shadow-xs hover:shadow-md flex flex-col items-center justify-between gap-2 group active:scale-[0.98] cursor-pointer min-h-[114px] uppercase"
-                        title={
-                          isPotato
-                            ? `${product.name.toUpperCase()} - $${priceUSD.toFixed(2)} USD (Clic para agregar directo. Clics adicionales suman cantidad)`
-                            : `${product.name.toUpperCase()} - $${priceUSD.toFixed(2)} USD (Clic para personalizar ingredientes y adicionales)`
-                        }
-                      >
-                        <div className="flex flex-col items-center justify-center text-center w-full min-w-0">
-                          <span className="font-black text-base sm:text-lg text-red-950 group-hover:text-red-900 leading-tight text-center line-clamp-2 uppercase">
-                            {product.name.toUpperCase()}
-                          </span>
-                          <span className="text-xs font-bold text-red-700/80 leading-none mt-1 text-center uppercase">
-                            {isPotato ? 'DIRECTO (+1)' : isCustom ? 'PERSONALIZABLE' : 'COMIDA'}
-                          </span>
-                        </div>
-                        <span className="font-black text-base sm:text-lg text-red-950 bg-red-100/90 group-hover:bg-red-200 px-3.5 py-1 rounded-xl border border-red-300 shrink-0 shadow-2xs text-center">
-                          ${priceUSD.toFixed(2)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {showEspecialidades &&
+              renderProductSection('ESPECIALIDADES', STYLE_ESPECIALIDADES, morningEspecialidades, 'Rojo Rubí')}
 
-            {/* SECCIÓN 2: BEBIDAS (Refrescos, Aguas, Cervezas, Jugos) - Color Azul Crema Suave */}
-            {showDrinks && drinkProducts.length > 0 && (
-              <div>
-                {/* Encabezado de Sección Bebidas */}
-                <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-sky-100/80 border border-sky-300 text-sky-950 mb-2.5 select-none">
-                  <div className="flex items-center gap-2 font-black text-sm sm:text-base tracking-wide uppercase">
-                    <span className="text-xl">🥤</span>
-                    <span>BEBIDAS</span>
-                    <span className="text-xs font-bold text-sky-800/80 normal-case hidden sm:inline uppercase">
-                      (REFRESCOS, AGUAS, TÉS Y CERVEZAS)
-                    </span>
-                  </div>
-                  <span className="text-xs sm:text-sm font-black px-3 py-0.5 rounded-full bg-sky-200/90 text-sky-950 uppercase">
-                    {drinkProducts.length} {drinkProducts.length === 1 ? 'ÍTEM' : 'ÍTEMS'}
-                  </span>
-                </div>
+            {showOtras &&
+              renderProductSection('OTROS PLATOS', STYLE_ESPECIALIDADES, morningOtrasComidas)}
 
-                {/* Grilla de Tarjetas de Bebidas con Textos Centrados */}
-                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
-                  {drinkProducts.map((product) => {
-                    const priceUSD = product.price;
+            {/* TURNO NOCHE: Pizzas y Comidas (Rojo Pizzería Cálido) */}
+            {showNightPizzas &&
+              renderProductSection('PIZZAS Y COMIDAS', STYLE_PIZZAS, nightPizzas)}
 
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => onSelectProduct(product)}
-                        className="p-3.5 rounded-2xl bg-[#f0f7ff] hover:bg-sky-50 border-2 border-sky-200/90 hover:border-sky-400 text-center transition-all shadow-xs hover:shadow-md flex flex-col items-center justify-between gap-2 group active:scale-[0.98] cursor-pointer min-h-[114px] uppercase"
-                        title={`${product.name.toUpperCase()} - $${priceUSD.toFixed(2)} USD (Clic para agregar directo. Clics adicionales suman cantidad)`}
-                      >
-                        <div className="flex flex-col items-center justify-center text-center w-full min-w-0">
-                          <span className="font-black text-base sm:text-lg text-sky-950 group-hover:text-sky-900 leading-tight text-center line-clamp-2 uppercase">
-                            {product.name.toUpperCase()}
-                          </span>
-                          <span className="text-xs font-bold text-sky-700/80 leading-none mt-1 flex items-center justify-center gap-1 text-center uppercase">
-                            <IoAdd className="text-xs" />
-                            <span>DIRECTO (+1)</span>
-                          </span>
-                        </div>
-                        <span className="font-black text-base sm:text-lg text-sky-950 bg-sky-100/90 group-hover:bg-sky-200 px-3.5 py-1 rounded-xl border border-sky-300 shrink-0 shadow-2xs text-center">
-                          ${priceUSD.toFixed(2)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* BEBIDAS: Ambos turnos (Azul Cielo) */}
+            {showDrinks &&
+              renderProductSection('BEBIDAS', STYLE_BEBIDAS, drinkProducts, 'Refrescos, Aguas, Cervezas')}
 
-            {/* SECCIÓN 3: SALSAS (Porciones para Cocina / Directo +1 / Sin Costo Contable) - Color Ámbar / Miel Suave */}
+            {/* TURNO NOCHE: Salsas (Ámbar Miel) */}
             {showSalsas && salsaProducts.length > 0 && (
-              <div>
-                {/* Encabezado de Sección Salsas */}
-                <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-amber-100/80 border border-amber-300 text-amber-950 mb-2.5 select-none">
-                  <div className="flex items-center gap-2 font-black text-sm sm:text-base tracking-wide uppercase">
-                    <span className="text-xl">🥣</span>
+              <div key="SALSAS" className="space-y-1.5">
+                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl border bg-amber-100/80 border-amber-300 text-amber-950 select-none">
+                  <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm tracking-wide uppercase">
+                    <span className="text-base">🥣</span>
                     <span>SALSAS</span>
-                    <span className="text-xs font-bold text-amber-800/80 normal-case hidden sm:inline uppercase">
-                      (PORCIONES PARA COCINA - SIN COSTO CONTABLE)
+                    <span className="text-[10px] sm:text-xs font-semibold opacity-75 hidden sm:inline uppercase">
+                      (Porciones para cocina - $0.00)
                     </span>
                   </div>
-                  <span className="text-xs sm:text-sm font-black px-3 py-0.5 rounded-full bg-amber-200/90 text-amber-950 uppercase">
+                  <span className="text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full bg-amber-200/90 text-amber-950 uppercase">
                     {salsaProducts.length} {salsaProducts.length === 1 ? 'ÍTEM' : 'ÍTEMS'}
                   </span>
                 </div>
 
-                {/* Grilla de Tarjetas de Salsas con Textos Centrados */}
-                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-2.5">
                   {salsaProducts.map((salsa) => (
                     <button
                       key={salsa.id}
                       type="button"
                       onClick={() => onSelectSalsa && onSelectSalsa(salsa)}
-                      className="p-3.5 rounded-2xl bg-[#fffbeb] hover:bg-amber-50 border-2 border-amber-200/90 hover:border-amber-400 text-center transition-all shadow-xs hover:shadow-md flex flex-col items-center justify-between gap-2 group active:scale-[0.98] cursor-pointer min-h-[114px] uppercase"
+                      className="w-full flex flex-row items-center justify-between p-2 sm:p-2.5 rounded-xl border transition-all duration-150 min-h-[50px] sm:min-h-[54px] shadow-2xs hover:shadow-xs group active:scale-[0.98] cursor-pointer text-left bg-amber-50/70 border-amber-200 hover:bg-amber-100/80 hover:border-amber-400"
                       title={`${salsa.name.toUpperCase()} - Clic para agregar directo a la comanda (+1)`}
                     >
-                      <div className="flex flex-col items-center justify-center text-center w-full min-w-0">
-                        <span className="font-black text-base sm:text-lg text-amber-950 group-hover:text-amber-900 leading-tight text-center line-clamp-2 uppercase">
-                          {salsa.name.toUpperCase()}
-                        </span>
-                        <span className="text-xs font-bold text-amber-700/80 leading-none mt-1 flex items-center justify-center gap-1 text-center uppercase">
-                          <IoAdd className="text-xs" />
-                          <span>DIRECTO (+1)</span>
-                        </span>
-                      </div>
-                      <span className="font-black text-xs sm:text-sm text-amber-950 bg-amber-200/90 group-hover:bg-amber-300 px-3.5 py-1 rounded-xl border border-amber-300 shrink-0 shadow-2xs text-center uppercase tracking-wide">
-                        $0.00 (GRATIS)
+                      <span className="font-black text-xs sm:text-sm leading-tight line-clamp-2 uppercase flex-1 min-w-0 pr-1.5 text-amber-950 group-hover:text-amber-900">
+                        {salsa.name.toUpperCase()}
+                      </span>
+                      <span className="font-black text-xs sm:text-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border shrink-0 whitespace-nowrap shadow-2xs text-right bg-amber-100/90 text-amber-950 border-amber-300">
+                        $0.00
                       </span>
                     </button>
                   ))}

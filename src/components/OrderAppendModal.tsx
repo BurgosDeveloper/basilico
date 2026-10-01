@@ -828,7 +828,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-black text-xs sm:text-sm text-black">{item.productName}</span>
-                                  {item.size && (
+                                  {item.size && order?.shift !== 'manana' && (
                                     <span className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase bg-green-100 text-green-900 border border-green-300">
                                       🍕 {item.size}
                                     </span>

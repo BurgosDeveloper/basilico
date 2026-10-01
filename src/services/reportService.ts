@@ -524,10 +524,10 @@ export class ReportService {
         } else if (isDelivery) {
           category = 'Delivery';
         } else {
-          if (!isMorning || catLower.includes('pizza') || (it as any).isHalfHalf || (it as any).halfDetails) {
-            const resolved = resolveHalfAndHalfPizza(it, products, baseUnitPrice);
+          if (!isMorning) {
+            const resolved = resolveHalfAndHalfPizza(it, products, baseUnitPrice, 'noche');
             displayName = resolved.name;
-            category = isMorning ? (it.category || 'Platos') : resolved.category;
+            category = resolved.category;
           } else {
             displayName = this.getReportBaseProductName(it);
             category = it.category || 'Platos';
@@ -880,10 +880,10 @@ export class ReportService {
       } else if (isDelivery) {
         category = 'Delivery';
       } else {
-        if (!isMorning || catLower.includes('pizza') || item.isHalfHalf || item.halfDetails) {
-          const resolved = resolveHalfAndHalfPizza(item, activeProducts, baseUnitPrice);
+        if (!isMorning) {
+          const resolved = resolveHalfAndHalfPizza(item, activeProducts, baseUnitPrice, 'noche');
           displayName = resolved.name;
-          category = isMorning ? (item.category || 'Platos') : resolved.category;
+          category = resolved.category;
         } else {
           displayName = this.getReportBaseProductName(item);
           category = item.category || 'Platos';
@@ -1347,9 +1347,11 @@ export class ReportService {
       const targetMap = isDrink ? drinkMap : isOther ? othersProductMap : foodMap;
       let finalKey = cleanName;
       if (targetMap === foodMap) {
-        if (!isMorning || catLower.includes('pizza') || it.isHalfHalf || it.halfDetails) {
-          const resolved = resolveHalfAndHalfPizza(it, activeProducts, baseUnitPrice);
+        if (!isMorning) {
+          const resolved = resolveHalfAndHalfPizza(it, activeProducts, baseUnitPrice, 'noche');
           finalKey = resolved.name;
+        } else {
+          finalKey = cleanName;
         }
       }
       const prevProd = targetMap.get(finalKey) || { name: finalKey, quantity: 0, subtotalUSD: 0 };

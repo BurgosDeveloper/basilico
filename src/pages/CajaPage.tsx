@@ -85,8 +85,11 @@ export const CajaPage: React.FC = () => {
   const [activeOrderTarget, setActiveOrderTarget] = useState<OrderTarget | null>(null);
   const [isTargetSelectorOpen, setIsTargetSelectorOpen] = useState<boolean>(false);
 
-  const filteredCajaTransactions = cajaChicaTransactions.filter(t => !t.shift || t.shift === 'ambos' || t.shift === userSession?.shift);
-  const filteredApertura = cajaChicaApertura.shift && cajaChicaApertura.shift !== 'ambos' && cajaChicaApertura.shift !== userSession?.shift ? { usdCash: 0, copCash: 0 } : cajaChicaApertura;
+  const filteredCajaTransactions = cajaChicaTransactions.filter(
+    (t) => !t.shift || t.shift === 'ambos' || userSession?.shift === 'ambos' || t.shift === userSession?.shift
+  );
+  const isDifferentShift = userSession?.shift && userSession.shift !== 'ambos' && cajaChicaApertura.shift && cajaChicaApertura.shift !== 'ambos' && cajaChicaApertura.shift !== userSession.shift;
+  const filteredApertura = isDifferentShift ? { usdCash: 0, copCash: 0 } : cajaChicaApertura;
   const isFirstApertura = !filteredApertura.openedAt && filteredApertura.usdCash === 0 && filteredApertura.copCash === 0;
 
   const [activeOrderForPay, setActiveOrderForPay] = useState<Order | null>(null);
@@ -463,6 +466,9 @@ export const CajaPage: React.FC = () => {
           >
             <IoCashOutline />
             <span>CAJA CHICA</span>
+            {isFirstApertura && (
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Fondo inicial pendiente de registro" />
+            )}
           </button>
 
           <button
@@ -510,6 +516,30 @@ export const CajaPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Banner de Aviso: Fondo Inicial Pendiente de Apertura (Sin clave la primera vez) */}
+      {isFirstApertura && (
+        <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-wrap items-center justify-between gap-3 shadow-xs shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <div className="text-xs font-black uppercase text-amber-900 tracking-wide">
+                FONDO INICIAL DE CAJA PENDIENTE ({userSession?.shift === 'manana' ? 'TURNO MAÑANA' : userSession?.shift === 'noche' ? 'TURNO NOCHE' : 'TURNO ACTUAL'})
+              </div>
+              <div className="text-[11px] font-semibold text-amber-800">
+                Este turno aún no tiene registrado su fondo inicial en caja chica. Puedes registrarlo directamente sin clave.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenAperturaModal()}
+            className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-black font-black text-xs transition-all shadow-xs flex items-center gap-1.5 cursor-pointer border border-amber-500"
+          >
+            <span>+ Registrar Fondo Inicial (Sin clave)</span>
+          </button>
+        </div>
+      )}
 
       {/* SUB-TAB 1: COMANDAS (TABLERO UNIFICADO EN 3 SECCIONES, VISTA DETALLADA O TOMA DE PEDIDOS) */}
       {(activeSubTab === 'comandas' || activeSubTab === 'default') && (
@@ -1670,15 +1700,8 @@ export const CajaPage: React.FC = () => {
               <div className="text-xs text-gray-700 font-bold">{saldoEfectivoCOP.toLocaleString()} COP</div>
               <div className="text-[10px] text-gray-500 leading-tight">Transferencias, tarjetas y Bs permanecen en el movimiento contable, no en el arqueo físico.</div>
               <button
-                onClick={() => {
-                  requireAdminPin(
-                    'Registrar Movimiento en Caja Chica',
-                    '🔐 AUTORIZACIÓN: MOVIMIENTO DE CAJA CHICA',
-                    () => setIsManualTxOpen(true),
-                    'Ingrese el PIN de seguridad de 4 dígitos para abrir el registro de egresos o ingresos:'
-                  );
-                }}
-                className="mt-2 px-3 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black border border-yellow-500 text-xs font-black shadow-xs transition-all flex items-center gap-1.5"
+                onClick={() => setIsManualTxOpen(true)}
+                className="mt-2 px-3 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black border border-yellow-500 text-xs font-black shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <span>- Registrar Vuelto / Egreso</span>
                 {userSession?.role === 'caja' && <IoLockClosedOutline className="text-black text-xs" />}

@@ -9,7 +9,9 @@ const { syncOrdersAndTables } = require('../helpers/shiftSync');
 module.exports = function(io) {
   router.get('/', requireRole('caja', 'admin'), async (req, res) => {
     try {
-      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : null;
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos')
+        ? req.user.shift
+        : (req.query.shift && req.query.shift !== 'ambos' ? req.query.shift : null);
       const shiftWhereAp = activeShift ? 'WHERE shift = $1' : '';
       const shiftParamsAp = activeShift ? [activeShift] : [];
       const { rows: aperturaRows } = await query(
@@ -82,17 +84,39 @@ module.exports = function(io) {
   router.post('/apertura', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { usdCash, copCash } = req.body;
-      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos')
+        ? req.user.shift
+        : (req.body.shift && req.body.shift !== 'ambos' ? req.body.shift : 'noche');
       const apId = `ap-${Date.now()}`;
+      const normalizedUSD = Math.max(0, parseFloat(usdCash) || 0);
+      const normalizedCOP = Math.max(0, parseFloat(copCash) || 0);
 
       await query(`DELETE FROM caja_chica_apertura WHERE shift = $1`, [activeShift]);
       await query(
         `INSERT INTO caja_chica_apertura (id, usd_cash, cop_cash, shift) VALUES ($1, $2, $3, $4)`,
-        [apId, usdCash || 0, copCash || 0, activeShift]
+        [apId, normalizedUSD, normalizedCOP, activeShift]
       );
 
+      // Registro forense inmutable en order_edits
+      try {
+        const editId = `edit-ap-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        const user = req.user?.username || 'caja';
+        await query(
+          `INSERT INTO order_edits (id, order_id, order_number, edited_by, edit_type, edit_details)
+           VALUES ($1, NULL, 'Caja Chica', $2, $3, $4)`,
+          [
+            editId,
+            user,
+            'apertura_caja',
+            `APERTURA DE CAJA: $${normalizedUSD.toFixed(2)} USD / $${Math.round(normalizedCOP).toLocaleString()} COP (Turno: ${activeShift}).`
+          ]
+        );
+      } catch (auditErr) {
+        console.warn('Aviso: No se pudo registrar auditoría de apertura:', auditErr.message);
+      }
+
       io.emit('caja:updated');
-      res.status(201).json({ success: true, usdCash, copCash, shift: activeShift });
+      res.status(201).json({ success: true, usdCash: normalizedUSD, copCash: normalizedCOP, shift: activeShift });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al aperturar caja' });
@@ -102,7 +126,9 @@ module.exports = function(io) {
   router.post('/transaction', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { type, amountUSD, amountCOP, amountBs, paymentMethod, description } = req.body;
-      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos')
+        ? req.user.shift
+        : (req.body.shift && req.body.shift !== 'ambos' ? req.body.shift : 'noche');
       const normalizedUSD = Number(amountUSD) || 0;
       const normalizedCOP = Number(amountCOP) || 0;
       const normalizedBs = Number(amountBs) || 0;
@@ -161,7 +187,9 @@ module.exports = function(io) {
   router.post('/cierre', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { actualUSD, actualCOP, notes } = req.body;
-      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
+      const activeShift = (req.user && req.user.shift && req.user.shift !== 'ambos')
+        ? req.user.shift
+        : (req.body.shift && req.body.shift !== 'ambos' ? req.body.shift : 'noche');
 
       const { rows: aperturaRows } = await query(
         `SELECT * FROM caja_chica_apertura WHERE shift = $1 ORDER BY timestamp DESC LIMIT 1`,

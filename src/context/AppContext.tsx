@@ -306,7 +306,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchCajaChica = useCallback(async () => {
     try {
-      const res = await apiFetch(`${backendUrl}/api/caja-chica`);
+      const shiftParam = userSession?.shift && userSession.shift !== 'ambos' ? `?shift=${userSession.shift}` : '';
+      const res = await apiFetch(`${backendUrl}/api/caja-chica${shiftParam}`);
       if (res.ok) {
         const data = await res.json();
         if (data.apertura) setCajaChicaApertura(data.apertura);
@@ -314,7 +315,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data.ultimoCierre) setUltimoCierre(data.ultimoCierre);
       }
     } catch (e) {}
-  }, [apiFetch, backendUrl]);
+  }, [apiFetch, backendUrl, userSession?.shift]);
 
   const fetchRates = useCallback(async () => {
     try {

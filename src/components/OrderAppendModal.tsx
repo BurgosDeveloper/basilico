@@ -8,7 +8,7 @@ import { DeliveryConfigPanel } from '../modules/mesero/DeliveryConfigPanel';
 import { AdminPinModal } from './AdminPinModal';
 import { roundCOP } from '../utils/currencyRounding';
 import { areProteinsDefault, getCleanItemNote, normalizeProteinName, formatRemovedIngredients } from '../utils/burgerProteins';
-import { isCustomizableProduct } from '../utils/productClassifier';
+import { isCustomizableProduct, isDrinkProduct } from '../utils/productClassifier';
 import {
   IoClose,
   IoAdd,
@@ -285,12 +285,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
     setEditingAppendItem({ index, item });
 
-    const isDrink =
-      (item.category || '').toLowerCase().includes('bebida') ||
-      (item.category || '').toLowerCase().includes('refresco') ||
-      (item.category || '').toLowerCase().includes('jugo') ||
-      Boolean(item.drinkType) ||
-      Boolean(item.flavor);
+    const isDrink = isDrinkProduct(prod);
 
     if (isDrink) {
       setSelectedBurger(null);

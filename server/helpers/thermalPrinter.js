@@ -4,7 +4,7 @@ const path = require('path');
 
 const PRINTER_CONFIG_PATH = path.join(__dirname, '../config/thermal-printer.json');
 const { roundCOP } = require('./currencyRounding');
-const { cleanItemName, resolveHalfAndHalfPizza, findProduct } = require('./reportCalculations');
+const { cleanItemName, resolveHalfAndHalfPizza, findProduct, isProductPizza, isProductDrink } = require('./reportCalculations');
 // Font expansion in ESC/POS uses discrete sizes. Extra character spacing gives
 // the 80 mm ticket approximately 40% more horizontal presence without relying
 // on vendor-specific font modes.
@@ -687,15 +687,14 @@ function addReportHeader(lines, title, data, width = LINE_WIDTH, formatSetup = P
   lines.push(...wrapText(`TASAS: 1 USD = ${Number(data?.exchangeRates?.COP) || 3950} COP | ${Number(data?.exchangeRates?.Bs) || 36.5} Bs`, width));
 }
 
-function getReportBaseProductName(item = {}) {
+function getReportBaseProductName(item = {}, productsMap = null) {
   let name = (item.productName || item.name || 'Item').trim();
   name = name.replace(/\s*\((Grande|Pequeña|Mediana|Familiar|Estándar|Modificada|Modificado)\)/gi, '').trim();
   if (item.flavor) {
     const escaped = String(item.flavor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     name = name.replace(new RegExp(`\\s*\\(${escaped}\\)\\s*$`, 'i'), '').trim();
   }
-  const cat = (item.category || '').toLowerCase();
-  const isDrink = cat.includes('bebida') || cat.includes('drink') || cat.includes('refresco') || cat.includes('jugo') || cat.includes('licor') || cat.includes('cerveza') || cat.includes('agua') || !!item.drinkType || !!item.flavor;
+  const isDrink = isProductDrink(item, productsMap);
   if (isDrink) {
     name = name.replace(/\s*\([^)]+\)\s*$/g, '').trim();
   }
@@ -764,25 +763,24 @@ function buildReportTicket(reportType, data, paperWidth = null) {
       }
 
       const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
-      const isDrink = catLower.includes('bebida') || catLower.includes('drink') || catLower.includes('refresco') || catLower.includes('jugo') || catLower.includes('licor') || catLower.includes('cerveza') || catLower.includes('agua') || !!item.drinkType || !!item.flavor;
-      const isDelivery = catLower.includes('delivery');
+      const isPizza = isProductPizza(item, data.products, data?.shift);
+      const isDrink = !isPizza && isProductDrink(item, data.products);
+      const isDelivery = catLower.includes('delivery') || (item.productName || item.name || '').toLowerCase().includes('delivery');
 
       let category = item.category || (isMorning ? 'Platos' : 'Pizzas');
-      let fullName = getReportBaseProductName(item);
+      let fullName = getReportBaseProductName(item, data.products);
 
-      if (isDrink) {
+      if (isPizza) {
+        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice, 'noche');
+        fullName = resolved.name;
+        category = resolved.category;
+      } else if (isDrink) {
         category = 'Bebidas';
       } else if (isDelivery) {
         category = 'Delivery';
       } else {
-        if (!isMorning) {
-          const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice, 'noche');
-          fullName = resolved.name;
-          category = resolved.category;
-        } else {
-          fullName = getReportBaseProductName(item);
-          category = item.category || 'Platos';
-        }
+        fullName = getReportBaseProductName(item, data.products);
+        category = item.category || (isMorning ? 'Platos' : 'Otros');
       }
 
       const key = `${category}|${fullName}`;
@@ -1167,50 +1165,23 @@ function buildReportTicket(reportType, data, paperWidth = null) {
 
       const catLower = (it.category || '').toLowerCase().trim();
       const rawLower = (it.productName || it.name || '').toLowerCase().trim();
-      const isDrink =
-        catLower.includes('bebida') ||
-        catLower.includes('drink') ||
-        catLower.includes('refresco') ||
-        catLower.includes('jugo') ||
-        catLower.includes('licor') ||
-        catLower.includes('cerveza') ||
-        catLower.includes('agua') ||
-        catLower.includes('trago') ||
-        catLower.includes('coctel') ||
-        catLower.includes('cóctel') ||
-        catLower.includes('vino') ||
-        catLower.includes('café') ||
-        catLower.includes('cafe') ||
-        catLower.includes('malta') ||
-        Boolean(it.drinkType) ||
-        Boolean(it.flavor) ||
-        rawLower.includes('refresco') ||
-        rawLower.includes('jugo') ||
-        rawLower.includes('agua') ||
-        rawLower.includes('cerveza') ||
-        rawLower.includes('nestea') ||
-        rawLower.includes('granizado') ||
-        rawLower.includes('soda') ||
-        rawLower.includes('malta') ||
-        rawLower.includes('licor') ||
-        rawLower.includes('ron') ||
-        rawLower.includes('vodka') ||
-        rawLower.includes('whisky') ||
-        rawLower.includes('mojito') ||
-        rawLower.includes('té') ||
-        rawLower.includes('te ') ||
-        rawLower.endsWith(' te');
 
-      const isOther =
+      const isPizza = isProductPizza(it, data.products, data?.shift);
+      const isDrink = !isPizza && isProductDrink(it, data.products);
+      const isOther = !isPizza && !isDrink && (
         catLower.includes('delivery') ||
         catLower.includes('servicio') ||
         catLower.includes('otro') ||
         rawLower.includes('delivery') ||
-        rawLower.includes('servicio');
+        rawLower.includes('servicio')
+      );
 
       const targetMap = isDrink ? drinkMap : isOther ? otherProductsMap : foodMap;
       let finalItemName = cleanName;
-      if (!isMorning && !isDrink && !isOther) {
+      if (isPizza) {
+        const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice, 'noche');
+        finalItemName = resolved.name;
+      } else if (!isMorning && !isDrink && !isOther) {
         const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice, 'noche');
         finalItemName = resolved.name;
       }
@@ -2411,14 +2382,14 @@ function buildBasilicoCierreTicket(data, paperWidth = null) {
     const itemTotalUSD = baseUnitPrice * itQty;
     totalItemsUSD += itemTotalUSD;
 
-    const baseName = getReportBaseProductName(item).toUpperCase();
+    const baseName = getReportBaseProductName(item, data.products).toUpperCase();
     const nameLower = rawName.toLowerCase();
 
-    const isDrink = rawCat.includes('bebida') || rawCat.includes('drink') || rawCat.includes('refresco') || rawCat.includes('jugo') || rawCat.includes('licor') || rawCat.includes('cerveza') || rawCat.includes('agua') || !!item.drinkType || !!item.flavor || nameLower.includes('nestea') || nameLower.includes('refresco') || nameLower.includes('lipton') || nameLower.includes('pet') || nameLower.includes('yukery') || nameLower.includes('agua') || nameLower.includes('cerveza') || nameLower.includes('soda') || nameLower.includes('gatorade') || nameLower.includes('granizado');
-
-    const isDelivery = rawCat.includes('delivery') || nameLower.includes('delivery');
-
-    const isComida = rawCat.includes('burger') || rawCat.includes('hamburguesa') || rawCat.includes('comida') || rawCat.includes('plato') || rawCat.includes('entrada') || rawCat.includes('acompañante') || rawCat.includes('combo') || (!isDrink && !isDelivery && !rawCat.includes('adicional') && !rawCat.includes('extra') && !rawCat.includes('topping'));
+    const isMorningItem = (data?.shift || '').toLowerCase() === 'manana';
+    const isPizza = isProductPizza(item, data.products, data?.shift);
+    const isDrink = !isPizza && isProductDrink(item, data.products);
+    const isDelivery = !isPizza && !isDrink && (rawCat.includes('delivery') || nameLower.includes('delivery'));
+    const isComida = isPizza || (isMorningItem && !isDrink && !isDelivery) || rawCat.includes('burger') || rawCat.includes('hamburguesa') || rawCat.includes('comida') || rawCat.includes('plato') || rawCat.includes('entrada') || rawCat.includes('acompañante') || rawCat.includes('combo') || (!isDrink && !isDelivery && !rawCat.includes('adicional') && !rawCat.includes('extra') && !rawCat.includes('topping'));
 
     if (isDelivery) {
       const curr = deliverysGroup.get(baseName) || { name: baseName, quantity: 0, totalUSD: 0 };
@@ -2431,9 +2402,11 @@ function buildBasilicoCierreTicket(data, paperWidth = null) {
       curr.totalUSD += itemTotalUSD;
       bebidasGroup.set(baseName, curr);
     } else if (isComida) {
-      const isMorning = (data?.shift || '').toLowerCase() === 'manana';
       let finalComidaName = baseName;
-      if (!isMorning) {
+      if (isPizza) {
+        const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice, 'noche');
+        finalComidaName = resolved.name.toUpperCase();
+      } else if (!isMorningItem) {
         const resolved = resolveHalfAndHalfPizza(item, data.products, baseUnitPrice, 'noche');
         finalComidaName = resolved.name.toUpperCase();
       } else {

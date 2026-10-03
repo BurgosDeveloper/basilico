@@ -4,7 +4,7 @@ import { Order, CajaChicaTransaction, ExchangeRates } from '../data/mockData';
 import { ReporteIntervaloData } from './excelExportService';
 import { roundCOP } from '../utils/currencyRounding';
 import { isSalsaItem } from '../utils/productClassifier';
-import { resolveHalfAndHalfPizza } from '../utils/reportCalculations';
+import { resolveHalfAndHalfPizza, isProductPizza, isProductDrink } from '../utils/reportCalculations';
 
 export class ReportService {
   private openPrintWindow(title: string, htmlContent: string, isNarrowTicket: boolean = false) {
@@ -448,7 +448,7 @@ export class ReportService {
   }
 
   // Normaliza y unifica el nombre del producto base para reportes (agrupando todos los sabores de una bebida bajo su producto base)
-  public getReportBaseProductName(it: any): string {
+  public getReportBaseProductName(it: any, productsMap?: any[] | Record<string, any>): string {
     let raw = (it.productName || it.name || 'Producto').trim();
     raw = raw.replace(/\s*\((Grande|Pequeña|Mediana|Familiar|Estándar|Modificada|Modificado)\)/gi, '').trim();
 
@@ -457,8 +457,7 @@ export class ReportService {
       raw = raw.replace(new RegExp(`\\s*\\(${escaped}\\)\\s*$`, 'i'), '').trim();
     }
 
-    const cat = (it.category || '').toLowerCase();
-    const isDrink = cat.includes('bebida') || cat.includes('drink') || cat.includes('refresco') || cat.includes('jugo') || cat.includes('licor') || cat.includes('cerveza') || cat.includes('agua') || !!it.drinkType || !!it.flavor;
+    const isDrink = isProductDrink(it, productsMap);
     if (isDrink) {
       raw = raw.replace(/\s*\([^)]+\)\s*$/g, '').trim();
     }
@@ -513,25 +512,24 @@ export class ReportService {
         const rawPrice = Number(it.price) || 0;
         const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
 
-        const isDrink = catLower.includes('bebida') || catLower.includes('drink') || catLower.includes('refresco') || catLower.includes('jugo') || catLower.includes('licor') || catLower.includes('cerveza') || catLower.includes('agua') || !!(it as any).drinkType;
-        const isDelivery = catLower.includes('delivery');
+        const isPizza = isProductPizza(it, products, shift);
+        const isDrink = !isPizza && isProductDrink(it, products);
+        const isDelivery = catLower.includes('delivery') || ((it as any).productName || (it as any).name || '').toLowerCase().includes('delivery');
 
         let category = it.category || (isMorning ? 'Platos' : 'Pizzas');
-        let displayName = this.getReportBaseProductName(it);
+        let displayName = this.getReportBaseProductName(it, products);
 
-        if (isDrink) {
+        if (isPizza) {
+          const resolved = resolveHalfAndHalfPizza(it, products, baseUnitPrice, 'noche');
+          displayName = resolved.name;
+          category = resolved.category;
+        } else if (isDrink) {
           category = 'Bebidas';
         } else if (isDelivery) {
           category = 'Delivery';
         } else {
-          if (!isMorning) {
-            const resolved = resolveHalfAndHalfPizza(it, products, baseUnitPrice, 'noche');
-            displayName = resolved.name;
-            category = resolved.category;
-          } else {
-            displayName = this.getReportBaseProductName(it);
-            category = it.category || 'Platos';
-          }
+          displayName = this.getReportBaseProductName(it, products);
+          category = it.category || (isMorning ? 'Platos' : 'Otros');
         }
 
         if (!tally[displayName]) {
@@ -869,25 +867,24 @@ export class ReportService {
       });
 
       const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
-      const isDrink = catLower.includes('bebida') || catLower.includes('drink') || catLower.includes('refresco') || catLower.includes('jugo') || catLower.includes('licor') || catLower.includes('cerveza') || catLower.includes('agua') || !!item.drinkType;
-      const isDelivery = catLower.includes('delivery');
+      const isPizza = isProductPizza(item, activeProducts, (data as any)?.shift);
+      const isDrink = !isPizza && isProductDrink(item, activeProducts);
+      const isDelivery = catLower.includes('delivery') || ((item as any).productName || (item as any).name || '').toLowerCase().includes('delivery');
 
       let category = item.category || (isMorning ? 'Platos' : 'Pizzas');
-      let displayName = this.getReportBaseProductName(item);
+      let displayName = this.getReportBaseProductName(item, activeProducts);
 
-      if (isDrink) {
+      if (isPizza) {
+        const resolved = resolveHalfAndHalfPizza(item, activeProducts, baseUnitPrice, 'noche');
+        displayName = resolved.name;
+        category = resolved.category;
+      } else if (isDrink) {
         category = 'Bebidas';
       } else if (isDelivery) {
         category = 'Delivery';
       } else {
-        if (!isMorning) {
-          const resolved = resolveHalfAndHalfPizza(item, activeProducts, baseUnitPrice, 'noche');
-          displayName = resolved.name;
-          category = resolved.category;
-        } else {
-          displayName = this.getReportBaseProductName(item);
-          category = item.category || 'Platos';
-        }
+        displayName = this.getReportBaseProductName(item, activeProducts);
+        category = item.category || (isMorning ? 'Platos' : 'Otros');
       }
 
       const key = `${category}|${displayName}`;
@@ -1265,7 +1262,7 @@ export class ReportService {
 
     cashItems.forEach((it: any) => {
       const itQty = Number(it.quantity) || 1;
-      const cleanName = this.getReportBaseProductName(it);
+      const cleanName = this.getReportBaseProductName(it, activeProducts);
 
       const extrasList: any[] = [];
       if (Array.isArray(it.extras)) {
@@ -1303,50 +1300,23 @@ export class ReportService {
 
       const catLower = (it.category || '').toLowerCase().trim();
       const rawLower = (it.productName || it.name || '').toLowerCase().trim();
-      const isDrink =
-        catLower.includes('bebida') ||
-        catLower.includes('drink') ||
-        catLower.includes('refresco') ||
-        catLower.includes('jugo') ||
-        catLower.includes('licor') ||
-        catLower.includes('cerveza') ||
-        catLower.includes('agua') ||
-        catLower.includes('trago') ||
-        catLower.includes('coctel') ||
-        catLower.includes('cóctel') ||
-        catLower.includes('vino') ||
-        catLower.includes('café') ||
-        catLower.includes('cafe') ||
-        catLower.includes('malta') ||
-        Boolean(it.drinkType) ||
-        Boolean(it.flavor) ||
-        rawLower.includes('refresco') ||
-        rawLower.includes('jugo') ||
-        rawLower.includes('agua') ||
-        rawLower.includes('cerveza') ||
-        rawLower.includes('nestea') ||
-        rawLower.includes('granizado') ||
-        rawLower.includes('soda') ||
-        rawLower.includes('malta') ||
-        rawLower.includes('licor') ||
-        rawLower.includes('ron') ||
-        rawLower.includes('vodka') ||
-        rawLower.includes('whisky') ||
-        rawLower.includes('mojito') ||
-        rawLower.includes('té') ||
-        rawLower.includes('te ') ||
-        rawLower.endsWith(' te');
 
-      const isOther =
+      const isPizza = isProductPizza(it, activeProducts, (data as any)?.shift);
+      const isDrink = !isPizza && isProductDrink(it, activeProducts);
+      const isOther = !isPizza && !isDrink && (
         catLower.includes('delivery') ||
         catLower.includes('servicio') ||
         catLower.includes('otro') ||
         rawLower.includes('delivery') ||
-        rawLower.includes('servicio');
+        rawLower.includes('servicio')
+      );
 
       const targetMap = isDrink ? drinkMap : isOther ? othersProductMap : foodMap;
       let finalKey = cleanName;
-      if (targetMap === foodMap) {
+      if (isPizza) {
+        const resolved = resolveHalfAndHalfPizza(it, activeProducts, baseUnitPrice, 'noche');
+        finalKey = resolved.name;
+      } else if (targetMap === foodMap) {
         if (!isMorning) {
           const resolved = resolveHalfAndHalfPizza(it, activeProducts, baseUnitPrice, 'noche');
           finalKey = resolved.name;

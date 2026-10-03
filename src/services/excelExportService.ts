@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { roundCOP } from '../utils/currencyRounding';
-import { resolveHalfAndHalfPizza } from '../utils/reportCalculations';
+import { resolveHalfAndHalfPizza, isProductPizza, isProductDrink } from '../utils/reportCalculations';
 
 export interface ReporteIntervaloData {
   orders: Array<{
@@ -290,24 +290,8 @@ export function exportToExcel(data: ReporteIntervaloData): void {
       rawName = rawName.replace(new RegExp(`\\s*\\(${escaped}\\)\\s*$`, 'i'), '').trim();
     }
     const catLower = (it.category || '').toLowerCase().trim();
-    const isDrink =
-      catLower.includes('bebida') ||
-      catLower.includes('drink') ||
-      catLower.includes('refresco') ||
-      catLower.includes('jugo') ||
-      catLower.includes('licor') ||
-      catLower.includes('cerveza') ||
-      catLower.includes('agua') ||
-      catLower.includes('trago') ||
-      catLower.includes('coctel') ||
-      catLower.includes('cóctel') ||
-      catLower.includes('vino') ||
-      catLower.includes('café') ||
-      catLower.includes('cafe') ||
-      catLower.includes('malta') ||
-      Boolean(it.drinkType) ||
-      Boolean(it.flavor) ||
-      /refresco|jugo|agua|cerveza|nestea|granizado|soda|malta|licor|ron|vodka|whisky|mojito|té|te\b/i.test(rawName);
+    const isPizza = isProductPizza(it, data.products, isMorning ? 'manana' : 'noche');
+    const isDrink = !isPizza && isProductDrink(it, data.products);
 
     if (isDrink) {
       rawName = rawName.replace(/\s*\([^)]+\)\s*$/g, '').trim();
@@ -345,14 +329,22 @@ export function exportToExcel(data: ReporteIntervaloData): void {
     const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
     const baseSubtotal = baseUnitPrice * itQty;
 
-    const isOther =
+    const isOther = !isPizza && !isDrink && (
       catLower.includes('delivery') ||
       catLower.includes('servicio') ||
       catLower.includes('otro') ||
       rawName.toLowerCase().includes('delivery') ||
-      rawName.toLowerCase().includes('servicio');
+      rawName.toLowerCase().includes('servicio')
+    );
 
-    if (isDrink) {
+    if (isPizza) {
+      const resolved = resolveHalfAndHalfPizza(it, data.products, baseUnitPrice, 'noche');
+      const foodName = resolved.name;
+      const prev = foodMap.get(foodName) || { name: foodName, quantity: 0, subtotalUSD: 0 };
+      prev.quantity += itQty;
+      prev.subtotalUSD += baseSubtotal;
+      foodMap.set(foodName, prev);
+    } else if (isDrink) {
       const prev = drinkMap.get(cleanName) || { name: cleanName, quantity: 0, subtotalUSD: 0 };
       prev.quantity += itQty;
       prev.subtotalUSD += baseSubtotal;

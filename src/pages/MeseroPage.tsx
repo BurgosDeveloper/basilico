@@ -15,7 +15,7 @@ import { PaymentLedgerModal } from '../components/PaymentLedgerModal';
 import { PrinterSelectModal } from '../components/PrinterSelectModal';
 import { roundCOP } from '../utils/currencyRounding';
 import { areProteinsDefault, getCleanItemNote, normalizeProteinName, formatRemovedIngredients } from '../utils/burgerProteins';
-import { isCustomizableProduct } from '../utils/productClassifier';
+import { isCustomizableProduct, isDrinkProduct } from '../utils/productClassifier';
 
 import {
   IoReaderOutline,
@@ -263,12 +263,7 @@ export const MeseroPage: React.FC = () => {
 
     setEditingCartItem(item);
 
-    const isDrink =
-      (item.category || '').toLowerCase().includes('bebida') ||
-      (item.category || '').toLowerCase().includes('refresco') ||
-      (item.category || '').toLowerCase().includes('jugo') ||
-      Boolean(item.drinkType) ||
-      Boolean(item.flavor);
+    const isDrink = isDrinkProduct(prod);
 
     if (isDrink) {
       setSelectedBurger(null);

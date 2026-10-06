@@ -1210,9 +1210,17 @@ module.exports = function(io) {
         nextStatus = 'en_preparacion';
       }
 
-      const updateFields = ['total_usd = $1', 'status = $2', 'delivery_fee_usd = $3', 'updated_at = CURRENT_TIMESTAMP'];
-      const updateValues = [newTotalUSD, nextStatus, deliveryFee, id];
-      let paramIdx = 5;
+      // Recalcular estado de pago si el total cambió
+      const { rows: payRows } = await client.query(
+        `SELECT COALESCE(SUM(amount_paid_usd), 0) AS total_paid FROM order_payments WHERE order_id = $1`,
+        [id]
+      );
+      const totalPaid = parseFloat(payRows[0]?.total_paid) || 0;
+      const nextPaymentStatus = (totalPaid >= newTotalUSD - 0.01 && newTotalUSD > 0) ? 'pagado' : 'no_pagado';
+
+      const updateFields = ['total_usd = $1', 'status = $2', 'delivery_fee_usd = $3', 'payment_status = $4', 'updated_at = CURRENT_TIMESTAMP'];
+      const updateValues = [newTotalUSD, nextStatus, deliveryFee, nextPaymentStatus, id];
+      let paramIdx = 6;
 
       if (customerName && customerName.trim()) {
         updateFields.push(`customer_name = $${paramIdx++}`);
@@ -1224,7 +1232,7 @@ module.exports = function(io) {
       }
 
       await client.query(
-        `UPDATE orders SET ${updateFields.join(', ')} WHERE id = $4`,
+        `UPDATE orders SET ${updateFields.join(', ')} WHERE id = $5`,
         updateValues
       );
 
@@ -1246,9 +1254,15 @@ module.exports = function(io) {
         console.warn('Aviso: No se pudo registrar auditoría de adición:', editErr.message);
       }
 
+      const cashLedgerResult = await postCompletedOrderCashMovements(client, id);
+
       await client.query('COMMIT');
       client.release();
       client = null;
+
+      if (cashLedgerResult?.posted || cashLedgerResult?.removed) {
+        io.emit('caja:updated');
+      }
 
       const updatedOrdersList = await fetchAllOrders(req.user);
       const updatedOrder = updatedOrdersList.find((o) => o.id === id);

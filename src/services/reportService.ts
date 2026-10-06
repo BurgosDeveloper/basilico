@@ -1712,7 +1712,7 @@ export class ReportService {
             const q = Number(e.quantity) || 1;
             const cleanName = (e.name || 'Adicional').replace(/^\d+x\s*/i, '').trim();
             const label = q > 1 ? `${q}x ${cleanName}` : cleanName;
-            return `+ ADD ${this.escapeHtml(label)} (€${(Number(e.price) * qty).toFixed(2)})`;
+            return `+ ADD ${this.escapeHtml(label)} ($${(Number(e.price) * qty).toFixed(2)})`;
           }).join(', ') +
           `</div>`;
       }
@@ -1742,7 +1742,7 @@ export class ReportService {
             ${extrasDetail}
           </td>
           <td style="padding: 4px 0; text-align: right; font-weight: 800; font-size: 12px; vertical-align: top; border-bottom: 1px dashed #e5e7eb;">
-            €${lineTotalUSD.toFixed(2)}
+            $${lineTotalUSD.toFixed(2)}
           </td>
         </tr>
       `;
@@ -1752,7 +1752,7 @@ export class ReportService {
     const deliveryHtml = deliveryFee > 0 ? `
       <tr>
         <td style="padding: 4px 0; font-weight: 800; font-size: 12px; color: #111827; border-bottom: 1px dashed #e5e7eb;">1x Servicio Delivery</td>
-        <td style="padding: 4px 0; text-align: right; font-weight: 800; font-size: 12px; border-bottom: 1px dashed #e5e7eb;">€${deliveryFee.toFixed(2)}</td>
+        <td style="padding: 4px 0; text-align: right; font-weight: 800; font-size: 12px; border-bottom: 1px dashed #e5e7eb;">$${deliveryFee.toFixed(2)}</td>
       </tr>
     ` : '';
 
@@ -1778,7 +1778,7 @@ export class ReportService {
         <thead>
           <tr style="border-bottom: 1px solid #9ca3af; font-size: 10px; color: #4b5563;">
             <th style="text-align: left; padding-bottom: 2px;">DESCRIPCIÓN</th>
-            <th style="text-align: right; padding-bottom: 2px;">TOTAL EUR (€)</th>
+            <th style="text-align: right; padding-bottom: 2px;">TOTAL USD ($)</th>
           </tr>
         </thead>
         <tbody>
@@ -1791,7 +1791,7 @@ export class ReportService {
       <div class="total-box" style="margin-top: 12px; padding: 10px; background: #F0FDF4; border: 2px solid #4ADE80; border-radius: 8px;">
         <div style="font-size: 11px; font-weight: 900; color: #14532D; text-transform: uppercase;">TOTAL A PAGAR:</div>
         <div style="font-size: 24px; font-weight: 900; color: #111827; text-align: right; line-height: 1.1;">
-          €${totalUSD.toFixed(2)} <span style="font-size: 12px; font-weight: 800;">EUR</span>
+          $${totalUSD.toFixed(2)} <span style="font-size: 12px; font-weight: 800;">USD</span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 900; margin-top: 8px; padding-top: 6px; border-top: 1.5px dashed #4ADE80;">
           <span style="color: #0369a1;">🇨🇴 COP: $${totalCOP.toLocaleString()}</span>

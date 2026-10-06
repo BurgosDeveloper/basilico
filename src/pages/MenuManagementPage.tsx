@@ -114,9 +114,10 @@ export const MenuManagementPage: React.FC = () => {
       .map((p) => (p || '').trim())
       .filter(Boolean);
 
+    const existing = products.find((p) => p.id === editingProductId);
     const productData = {
       name: pizzaName,
-      category: dishCategory || 'Pizzas',
+      category: dishCategory || existing?.category || 'Pizzas',
       price: pPrice,
       description: pizzaDesc || 'Deliciosa pizza artesanal Basilico.',
       image: '/logo_default.png',
@@ -124,7 +125,7 @@ export const MenuManagementPage: React.FC = () => {
       proteinCount: burgerProteinCount,
       defaultProteins: finalDefaultProteins,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || 'ambos'
+      shift: existing?.shift || (userSession?.shift && userSession.shift !== 'ambos' ? userSession.shift : 'noche')
     };
 
     if (editingProductId) {
@@ -180,6 +181,7 @@ export const MenuManagementPage: React.FC = () => {
     }
     const finalFlavors = currentList.map((f) => (f || '').trim()).filter(Boolean);
 
+    const existing = products.find((p) => p.id === editingDrinkId);
     const drinkData = {
       name: drinkName,
       category: 'Bebidas' as const,
@@ -189,7 +191,7 @@ export const MenuManagementPage: React.FC = () => {
       image: '/logo_default.png',
       flavors: finalFlavors,
       recipe: [] as RecipeIngredient[],
-      shift: userSession?.shift || 'ambos'
+      shift: existing?.shift || (userSession?.shift && userSession.shift !== 'ambos' ? userSession.shift : 'ambos')
     };
 
     if (editingDrinkId) {

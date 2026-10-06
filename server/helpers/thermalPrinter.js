@@ -1920,8 +1920,8 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
     '\x1BE\x00',
     '\x1Ba\x00',
     divider('-', width),
-    `COMANDA: #${cleanOrderNumber} | ${srvType}`,
-    `FECHA: ${dateStr}`,
+    ...wrapText(`COMANDA: #${cleanOrderNumber} | ${srvType}`, width),
+    ...wrapText(`FECHA: ${dateStr}`, width),
   ];
 
   if (order.customerName) {

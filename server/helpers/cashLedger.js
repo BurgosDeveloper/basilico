@@ -7,18 +7,6 @@ function paymentCurrency(paymentMethod) {
 }
 
 function paymentMovementAmounts(payment) {
-  if (['Crédito', 'Credito'].includes(payment.payment_method)) {
-    return {
-      paymentMethod: payment.payment_method,
-      incomeUSD: 0,
-      incomeCOP: 0,
-      incomeBs: 0,
-      changeUSD: 0,
-      changeCOP: 0,
-      changeBs: 0,
-    };
-  }
-
   let incomeUSD = Number(payment.cash_tendered_usd) || 0;
   let incomeCOP = Number(payment.cash_tendered_cop) || 0;
   let incomeBs = Number(payment.cash_tendered_bs) || 0;

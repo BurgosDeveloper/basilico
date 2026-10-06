@@ -1893,7 +1893,7 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
       }
     }
 
-    const priceCol = `$${lineTotalUSD.toFixed(2)}`;
+    const priceCol = `€${lineTotalUSD.toFixed(2)}`;
     const maxLeft = Math.max(1, width - priceCol.length - 1);
     const combinedLine = `${qty}x ${cleanName}${packagingTag}`;
     if (packagingTag && combinedLine.length > maxLeft) {
@@ -1926,14 +1926,14 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
         const rawName = printableText(ex.name || 'Adicional');
         const cleanName = rawName.replace(/^\d+x\s*/i, '').trim();
         const label = exQty > 1 ? `${exQty}x ${cleanName}` : cleanName;
-        lines.push(`  + ADD ${label} ($${(exPrice * qty).toFixed(2)})`);
+        lines.push(`  + ADD ${label} (€${(exPrice * qty).toFixed(2)})`);
       }
     }
   }
 
   const deliveryFee = Number(order.deliveryFeeUSD || order.delivery_fee_usd || 0);
   if (deliveryFee > 0) {
-    lines.push(formatTwoColumns('1x SERVICIO DELIVERY', `$${deliveryFee.toFixed(2)}`, width));
+    lines.push(formatTwoColumns('1x SERVICIO DELIVERY', `€${deliveryFee.toFixed(2)}`, width));
   }
 
   lines.push(divider('-', width));
@@ -1941,14 +1941,14 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
     // Para 58mm (POS-58): formato compacto con Doble Altura (\x1D!\x01) y Negrita (\x1BE\x01)
     // Conserva el ancho nativo de 32 columnas para máxima legibilidad sin desbordar el papel
     lines.push('\x1B \x00\x1B2\x1BM\x00\x1D!\x01\x1BE\x01');
-    lines.push(formatTwoColumns('TOTAL USD:', `$${totalUSD.toFixed(2)}`, width));
+    lines.push(formatTwoColumns('TOTAL EUR:', `€${totalUSD.toFixed(2)}`, width));
     lines.push(formatTwoColumns('TOTAL COP:', `${roundCOP(totalUSD * copRate).toLocaleString('en-US')}`, width));
     lines.push(formatTwoColumns('TOTAL Bs:', `${(totalUSD * bsRate).toFixed(2)}`, width));
     lines.push('\x1D!\x00\x1BE\x00', PRINT_FORMAT_RESET, formatSetup);
   } else {
     // Montos gigantes tamaño comanda de cocina para 80 mm (Doble Alto + Doble Ancho + Negrita)
     lines.push('\x1B \x00\x1B3\x26\x1BM\x00\x1D!\x11\x1BE\x01');
-    lines.push(formatTwoColumns('TOTAL USD:', `$${totalUSD.toFixed(2)}`, KITCHEN_LINE_WIDTH));
+    lines.push(formatTwoColumns('TOTAL EUR:', `€${totalUSD.toFixed(2)}`, KITCHEN_LINE_WIDTH));
     lines.push(formatTwoColumns('TOTAL COP:', `${roundCOP(totalUSD * copRate).toLocaleString('en-US')}`, KITCHEN_LINE_WIDTH));
     lines.push(formatTwoColumns('TOTAL Bs:', `${(totalUSD * bsRate).toFixed(2)}`, KITCHEN_LINE_WIDTH));
     lines.push('\x1D!\x00\x1BE\x00', PRINT_FORMAT_RESET, PRINT_FORMAT_SETUP_80);
@@ -1960,7 +1960,7 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
   lines.push(PRINT_FORMAT_RESET, '\n\x1DV\x00');
 
   const ticketText = lines.join('\n');
-  return Buffer.from(ticketText, 'latin1');
+  return Buffer.from(ticketText.replace(/€/g, '\x80'), 'latin1');
 }
 
 async function printReceiptTicket(order, rates = {}, targetPrinter = 'caja') {

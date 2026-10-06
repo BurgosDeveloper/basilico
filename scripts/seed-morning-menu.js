@@ -119,18 +119,18 @@ async function seedMorningMenu() {
 
     // 7. CONTORNOS Y GUARNICIONES (12 ítems como ingredientes con category: 'CONTORNOS' y shift = 'manana')
     const contornos = [
-      { id: 'm-cnt-1', name: 'ARROZ', price: 1.0 },
-      { id: 'm-cnt-2', name: 'PAPAS FRITAS', price: 1.0 },
-      { id: 'm-cnt-3', name: 'PURE DE PAPAS', price: 1.0 },
-      { id: 'm-cnt-4', name: 'TAJADAS', price: 1.0 },
-      { id: 'm-cnt-5', name: 'TOSTONES', price: 1.0 },
-      { id: 'm-cnt-6', name: 'ENSALADA DEL DIA', price: 1.0 },
-      { id: 'm-cnt-7', name: 'PAN AL AJILLO', price: 1.0 },
-      { id: 'm-cnt-8', name: 'VEGETALES SALTEADOS', price: 1.0 },
-      { id: 'm-cnt-9', name: 'VEGETALES GRATINADOS', price: 1.5 },
-      { id: 'm-cnt-10', name: 'LENTEJAS', price: 1.0 },
-      { id: 'm-cnt-11', name: 'PASTA DEL DIA', price: 1.0 },
-      { id: 'm-cnt-12', name: 'AREPAS FRITAS', price: 1.0 },
+      { id: 'm-cnt-1', name: 'ARROZ', price: 0.0 },
+      { id: 'm-cnt-2', name: 'PAPAS FRITAS', price: 0.0 },
+      { id: 'm-cnt-3', name: 'PURE DE PAPAS', price: 0.0 },
+      { id: 'm-cnt-4', name: 'TAJADAS', price: 0.0 },
+      { id: 'm-cnt-5', name: 'TOSTONES', price: 0.0 },
+      { id: 'm-cnt-6', name: 'ENSALADA DEL DIA', price: 0.0 },
+      { id: 'm-cnt-7', name: 'PAN AL AJILLO', price: 0.0 },
+      { id: 'm-cnt-8', name: 'VEGETALES SALTEADOS', price: 0.0 },
+      { id: 'm-cnt-9', name: 'VEGETALES GRATINADOS', price: 0.0 },
+      { id: 'm-cnt-10', name: 'LENTEJAS', price: 0.0 },
+      { id: 'm-cnt-11', name: 'PASTA DEL DIA', price: 0.0 },
+      { id: 'm-cnt-12', name: 'AREPAS FRITAS', price: 0.0 },
     ];
 
     for (const c of contornos) {

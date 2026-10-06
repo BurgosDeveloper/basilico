@@ -7,9 +7,17 @@ export function getIngredientExtraPrice(
 ): number {
   if (!ingredient) return 0;
 
+  if (ingredient.ingredientType === 'gratis' || ingredient.priceUSD === 0) {
+    if (!ingredient.priceGrandeCompleta || ingredient.priceGrandeCompleta === 0) {
+      return 0;
+    }
+  }
+
   const rawBase = ingredient.priceGrandeCompleta !== undefined && ingredient.priceGrandeCompleta !== null
     ? ingredient.priceGrandeCompleta
     : (ingredient.priceUSD || 0);
+
+  if (rawBase <= 0) return 0;
 
   if (size === 'Grande') {
     if (isHalf) {

@@ -228,6 +228,7 @@ export const MenuManagementPage: React.FC = () => {
     e.preventDefault();
     if (!ingName) return;
 
+    const existing = ingredients.find((i) => i.id === editingIngredientId);
     const pUSD = (ingType === 'adicional' || ingType === 'proteina' || ingType === 'salsa') ? (parseFloat(ingPriceUSD) || 0) : 0;
 
     const ingData = {
@@ -240,8 +241,8 @@ export const MenuManagementPage: React.FC = () => {
       pricePequenaMitad: pUSD > 0 ? pUSD / 2 : 0,
       isBaseForPizza: ingType === 'base',
       isExtraForPizza: ingType === 'adicional' || ingType === 'proteina' || ingType === 'salsa',
-      category: ingType === 'salsa' ? 'Salsas' : ingType === 'proteina' ? 'Proteínas' : ingType === 'gratis' ? 'Gratis' : ingType === 'adicional' ? 'Adicionales' : 'Base',
-      shift: userSession?.shift || 'ambos'
+      category: existing?.category || (ingType === 'salsa' ? 'Salsas' : ingType === 'proteina' ? 'Proteínas' : ingType === 'gratis' ? 'Gratis' : ingType === 'adicional' ? 'Adicionales' : 'Base'),
+      shift: existing?.shift || (userSession?.shift && userSession.shift !== 'ambos' ? userSession.shift : 'ambos'),
     };
 
     if (editingIngredientId) {

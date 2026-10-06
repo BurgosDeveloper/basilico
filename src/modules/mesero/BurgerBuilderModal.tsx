@@ -171,15 +171,15 @@ const createEditUnitConfig = (
 
   const allExtras = Array.isArray(item.extras) ? item.extras : [];
   const paidExtras = allExtras
-    .filter((e) => Number(e.price) > 0)
+    .filter((e) => e && typeof e.name === 'string' && e.name.trim().length > 0)
     .map((e) => {
       const cleanName = (e.name || '').replace(/^\+?\s*(ADD|EXTRA):?\s*/i, '').trim();
       const match = cleanName.match(/^(\d+)x\s*(.*)$/i);
       const quantity = e.quantity || (match ? parseInt(match[1], 10) : 1);
       const name = match ? match[2].trim() : cleanName;
-      const totalPrice = Number(e.price);
-      const unitPrice = e.unitPrice || (quantity > 0 ? totalPrice / quantity : totalPrice);
-      return { name, price: totalPrice, unitPrice, quantity };
+      const totalPrice = Number(e.price) || 0;
+      const unitPrice = e.unitPrice !== undefined && e.unitPrice !== null ? Number(e.unitPrice) : (quantity > 0 ? totalPrice / quantity : totalPrice);
+      return { name, price: totalPrice, unitPrice, quantity, category: e.category };
     });
 
   const h1Name = item.halfDetails?.half1Name || burger.name;
@@ -341,15 +341,13 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
   const paidExtrasList = useMemo(() => {
     if (isMorning) {
       return availableExtras.filter((extra) => {
-        const isNotGratis = extra.ingredientType !== 'gratis' && extra.category?.toLowerCase() !== 'gratis';
         const isContorno = extra.category?.toUpperCase() === 'CONTORNOS' || extra.shift === 'manana';
-        return isNotGratis && (isContorno || (!extra.shift && extra.category?.toUpperCase() !== 'PIZZA'));
+        return isContorno || (!extra.shift && extra.category?.toUpperCase() !== 'PIZZA');
       });
     }
     return availableExtras.filter((extra) => {
       const isExtraAllowed = extra.isExtraForPizza !== false && extra.isExtra !== false && extra.shift !== 'manana';
-      const isNotGratis = extra.ingredientType !== 'gratis' && extra.category?.toLowerCase() !== 'gratis';
-      return isExtraAllowed && isNotGratis;
+      return isExtraAllowed;
     });
   }, [availableExtras, isMorning]);
 
@@ -580,8 +578,11 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
   // Toggle de Adicional con Costo (+ ADD / CONTORNO)
   const togglePaidExtra = (extraIng: Ingredient, halfIndex?: 0 | 1) => {
     const isHalf = Boolean(currentUnit.isHalfHalf);
+    const rawMorningPrice = extraIng.priceUSD !== undefined && extraIng.priceUSD !== null && !isNaN(Number(extraIng.priceUSD))
+      ? Number(extraIng.priceUSD)
+      : 0;
     const unitPrice = isMorning
-      ? (Number(extraIng.priceUSD) || 1.0)
+      ? rawMorningPrice
       : getIngredientExtraPrice(extraIng, currentUnit.size, isHalf);
 
     updateCurrentUnit((prev) => {
@@ -1435,7 +1436,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                 </div>
                 <span className="text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 uppercase">
                   {currentUnit.selectedPaidExtras.length > 0
-                    ? `+${currentUnit.selectedPaidExtras.reduce((s, e) => s + (e.quantity || 1), 0)} CONTORNO(S) (+${currentUnitExtrasTotal.toFixed(2)} USD)`
+                    ? `+${currentUnit.selectedPaidExtras.reduce((s, e) => s + (e.quantity || 1), 0)} CONTORNO(S) (${currentUnitExtrasTotal > 0 ? `+${currentUnitExtrasTotal.toFixed(2)} USD` : 'INCLUIDOS'})`
                     : 'TOCA PARA SUMAR CONTORNO (+1X, +2X)'}
                 </span>
               </div>
@@ -1446,7 +1447,9 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                     (e) => e.name.toLowerCase().trim() === extra.name.toLowerCase().trim()
                   );
                   const count = existingExtra?.quantity || (existingExtra ? 1 : 0);
-                  const unitPrice = Number(extra.priceUSD) || 1.0;
+                  const unitPrice = extra.priceUSD !== undefined && extra.priceUSD !== null && !isNaN(Number(extra.priceUSD))
+                    ? Number(extra.priceUSD)
+                    : 0;
                   const displayPrice = count > 0 ? unitPrice * count : unitPrice;
 
                   return (
@@ -1473,7 +1476,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
                             </span>
                           )}
                           <span className="font-black text-xs sm:text-sm">
-                            +${displayPrice.toFixed(2)}
+                            {displayPrice > 0 ? `+$${displayPrice.toFixed(2)}` : 'INCLUIDO'}
                           </span>
                         </div>
                       </button>

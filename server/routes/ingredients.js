@@ -22,6 +22,9 @@ module.exports = function(io) {
         ingredientType,
         priceUSD,
         priceGrandeCompleta,
+        priceGrandeMitad,
+        pricePequenaCompleta,
+        pricePequenaMitad,
         isBase,
         isExtra,
         category,
@@ -31,20 +34,34 @@ module.exports = function(io) {
       const id = `ing-${Date.now()}`;
       const upperName = (name || '').trim().toUpperCase();
       const finalType = ingredientType || (category === 'Salsas' ? 'salsa' : (category === 'Gratis' ? 'gratis' : (category === 'Adicionales' ? 'adicional' : (isBase ? 'base' : 'adicional'))));
-      const finalPrice = (finalType === 'gratis' || finalType === 'base') ? 0 : (priceUSD !== undefined ? (parseFloat(priceUSD) || 0) : (parseFloat(priceGrandeCompleta) || 0));
+      const parsedPriceUSD = priceUSD !== undefined ? (parseFloat(priceUSD) || 0) : (parseFloat(priceGrandeCompleta) || 0);
+      const finalPrice = (finalType === 'gratis' || finalType === 'base') ? 0 : parsedPriceUSD;
       const finalIsBase = finalType === 'base' || finalType === 'proteina' || isBase === true;
       const finalIsExtra = finalType === 'adicional' || finalType === 'gratis' || finalType === 'salsa' || isExtra === true;
       const finalCategory = category || (finalType === 'salsa' ? 'Salsas' : (finalType === 'gratis' ? 'Gratis' : (finalType === 'proteina' ? 'Proteínas' : (finalType === 'base' ? 'Ingredientes Base' : 'Adicionales'))));
       const ingShift = shift || (req.user?.shift && req.user.shift !== 'ambos' ? req.user.shift : 'noche');
 
+      const gc = priceGrandeCompleta !== undefined ? (parseFloat(priceGrandeCompleta) || 0) : finalPrice;
+      const gm = priceGrandeMitad !== undefined ? (parseFloat(priceGrandeMitad) || 0) : (gc > 0 ? Number((gc / 2).toFixed(2)) : 0);
+      const pc = pricePequenaCompleta !== undefined ? (parseFloat(pricePequenaCompleta) || 0) : (gc > 0 ? Number((gc / 2).toFixed(2)) : 0);
+      const pm = pricePequenaMitad !== undefined ? (parseFloat(pricePequenaMitad) || 0) : (pc > 0 ? Number((pc / 2).toFixed(2)) : 0);
+
       await query(
-        `INSERT INTO ingredients (id, name, ingredient_type, price_usd, is_base, is_extra, is_base_for_pizza, is_extra_for_pizza, category, available, shift)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO ingredients (
+           id, name, ingredient_type, price_usd, 
+           price_grande_completa, price_grande_mitad, price_pequena_completa, price_pequena_mitad,
+           is_base, is_extra, is_base_for_pizza, is_extra_for_pizza, category, available, shift
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           id,
           upperName,
           finalType,
           finalPrice,
+          gc,
+          gm,
+          pc,
+          pm,
           finalIsBase,
           finalIsExtra,
           finalIsBase,
@@ -73,6 +90,9 @@ module.exports = function(io) {
         category,
         priceUSD,
         priceGrandeCompleta,
+        priceGrandeMitad,
+        pricePequenaCompleta,
+        pricePequenaMitad,
         isBase,
         isExtra,
         available,
@@ -81,26 +101,38 @@ module.exports = function(io) {
 
       const upperName = (name || '').trim().toUpperCase();
       const finalType = ingredientType || (category === 'Salsas' ? 'salsa' : (category === 'Gratis' ? 'gratis' : (category === 'Adicionales' ? 'adicional' : (isBase ? 'base' : 'adicional'))));
-      const finalPrice = (finalType === 'gratis' || finalType === 'base') ? 0 : (priceUSD !== undefined ? (parseFloat(priceUSD) || 0) : (parseFloat(priceGrandeCompleta) || 0));
+      const parsedPriceUSD = priceUSD !== undefined ? (parseFloat(priceUSD) || 0) : (parseFloat(priceGrandeCompleta) || 0);
+      const finalPrice = (finalType === 'gratis' || finalType === 'base') ? 0 : parsedPriceUSD;
       const finalIsBase = finalType === 'base' || finalType === 'proteina' || isBase === true;
       const finalIsExtra = finalType === 'adicional' || finalType === 'gratis' || finalType === 'salsa' || isExtra === true;
-      const finalCategory = category || (finalType === 'salsa' ? 'Salsas' : (finalType === 'gratis' ? 'Gratis' : (finalType === 'proteina' ? 'Proteínas' : (finalType === 'base' ? 'Ingredientes Base' : 'Adicionales'))));
 
-      let oldName = null;
-      const { rows } = await query(`SELECT name, shift FROM ingredients WHERE id = $1`, [id]);
-      if (rows.length > 0) oldName = rows[0].name;
-      const ingShift = shift || rows[0]?.shift || (req.user?.shift && req.user.shift !== 'ambos' ? req.user.shift : 'noche');
+      let oldRecord = null;
+      const { rows } = await query(`SELECT name, shift, category FROM ingredients WHERE id = $1`, [id]);
+      if (rows.length > 0) oldRecord = rows[0];
+      const oldName = oldRecord?.name;
+      const ingShift = shift || oldRecord?.shift || (req.user?.shift && req.user.shift !== 'ambos' ? req.user.shift : 'noche');
+      const finalCategory = category || oldRecord?.category || (finalType === 'salsa' ? 'Salsas' : (finalType === 'gratis' ? 'Gratis' : (finalType === 'proteina' ? 'Proteínas' : (finalType === 'base' ? 'Ingredientes Base' : 'Adicionales'))));
+
+      const gc = priceGrandeCompleta !== undefined ? (parseFloat(priceGrandeCompleta) || 0) : finalPrice;
+      const gm = priceGrandeMitad !== undefined ? (parseFloat(priceGrandeMitad) || 0) : (gc > 0 ? Number((gc / 2).toFixed(2)) : 0);
+      const pc = pricePequenaCompleta !== undefined ? (parseFloat(pricePequenaCompleta) || 0) : (gc > 0 ? Number((gc / 2).toFixed(2)) : 0);
+      const pm = pricePequenaMitad !== undefined ? (parseFloat(pricePequenaMitad) || 0) : (pc > 0 ? Number((pc / 2).toFixed(2)) : 0);
 
       await query(
         `UPDATE ingredients 
          SET name = $1, ingredient_type = $2, category = $3, price_usd = $4, 
-             is_base = $5, is_extra = $6, is_base_for_pizza = $7, is_extra_for_pizza = $8, available = $9, shift = $10
-         WHERE id = $11`,
+             price_grande_completa = $5, price_grande_mitad = $6, price_pequena_completa = $7, price_pequena_mitad = $8,
+             is_base = $9, is_extra = $10, is_base_for_pizza = $11, is_extra_for_pizza = $12, available = $13, shift = $14
+         WHERE id = $15`,
         [
           upperName, 
           finalType,
           finalCategory, 
           finalPrice,
+          gc,
+          gm,
+          pc,
+          pm,
           finalIsBase,
           finalIsExtra,
           finalIsBase,

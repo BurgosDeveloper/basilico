@@ -806,21 +806,21 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     const items = [...grouped.values()].sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name));
     const totalUnits = items.reduce((total, item) => total + item.quantity, 0);
     const totalUSD = items.reduce((total, item) => total + item.totalUSD, 0);
-    addSection(lines, 'DETALLE DE ITEMS FACTURADOS');
+    addSection(lines, 'DETALLE DE ITEMS FACTURADOS', reportWidth);
     if (items.length === 0) {
-      lines.push(isMorning ? 'SIN PLATOS, BEBIDAS O ADICIONALES' : 'SIN PIZZAS, BEBIDAS O ADICIONALES');
+      lines.push(...wrapText(isMorning ? 'SIN PLATOS, BEBIDAS O ADICIONALES' : 'SIN PIZZAS, BEBIDAS O ADICIONALES', reportWidth));
     } else {
       let category = '';
       for (const item of items) {
         if (item.category !== category) {
           category = item.category;
-          lines.push('', ...wrapText(`CATEGORIA: ${category}`));
+          lines.push('', ...wrapText(`CATEGORIA: ${category}`, reportWidth));
         }
-        lines.push(...wrapText(`${item.quantity}x ${item.name}`, LINE_WIDTH, '  '));
+        lines.push(...wrapText(`${item.quantity}x ${item.name}`, reportWidth, '  '));
         lines.push(`  SUBTOTAL: $${item.totalUSD.toFixed(2)} USD`);
       }
     }
-    addSection(lines, 'RESUMEN DE VENTAS');
+    addSection(lines, 'RESUMEN DE VENTAS', reportWidth);
     const rates = data.exchangeRates || {};
     lines.push(`PRODUCTOS DIFERENTES: ${items.length}`, `UNIDADES FACTURADAS: ${totalUnits}`, 'TOTAL PRODUCTOS:');
     addAmountLines(lines, {
@@ -832,7 +832,7 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     const totals = { usd: 0, cop: 0, bs: 0 };
     const changes = { usd: 0, cop: 0, bs: 0 };
     const byMethod = new Map();
-    addSection(lines, 'COBROS REGISTRADOS');
+    addSection(lines, 'COBROS REGISTRADOS', reportWidth);
     if ((data.payments || []).length === 0) lines.push('SIN COBROS EN EL INTERVALO');
     for (const payment of data.payments || []) {
       const received = reportAmounts(payment);
@@ -842,9 +842,9 @@ function buildReportTicket(reportType, data, paperWidth = null) {
       const methodTotal = byMethod.get(payment.paymentMethod) || { count: 0, usd: 0, cop: 0, bs: 0 };
       methodTotal.count += 1; methodTotal.usd += received.usd; methodTotal.cop += received.cop; methodTotal.bs += received.bs;
       byMethod.set(payment.paymentMethod, methodTotal);
-      lines.push('', ...wrapText(`${reportDate(payment.createdAt)} | #${payment.orderNumber || '?'}`));
-      lines.push(...wrapText(`METODO: ${payment.paymentMethod || 'SIN METODO'}`, LINE_WIDTH, '  '));
-      lines.push(...wrapText(`PAGADOR: ${payment.payerName || 'CLIENTE GENERAL'}`, LINE_WIDTH, '  '));
+      lines.push('', ...wrapText(`${reportDate(payment.createdAt)} | #${payment.orderNumber || '?'}`, reportWidth));
+      lines.push(...wrapText(`METODO: ${payment.paymentMethod || 'SIN METODO'}`, reportWidth, '  '));
+      lines.push(...wrapText(`PAGADOR: ${payment.payerName || 'CLIENTE GENERAL'}`, reportWidth, '  '));
       lines.push('  RECIBIDO:');
       addAmountLines(lines, received, '    ');
       if (change.usd > 0 || change.cop > 0 || change.bs > 0) {
@@ -852,31 +852,31 @@ function buildReportTicket(reportType, data, paperWidth = null) {
         addAmountLines(lines, change, '    ');
       }
     }
-    addSection(lines, 'RESUMEN DE INGRESOS');
+    addSection(lines, 'RESUMEN DE INGRESOS', reportWidth);
     lines.push(`MOVIMIENTOS: ${(data.payments || []).length}`, 'TOTAL RECIBIDO:');
     addAmountLines(lines, totals, '  ', true);
     lines.push('TOTAL VUELTOS:');
     addAmountLines(lines, changes, '  ', true);
-    addSection(lines, 'TOTALES POR METODO');
+    addSection(lines, 'TOTALES POR METODO', reportWidth);
     for (const [method, amounts] of byMethod) {
-      lines.push('', ...wrapText(`${method} (${amounts.count})`));
+      lines.push('', ...wrapText(`${method} (${amounts.count})`, reportWidth));
       addAmountLines(lines, amounts, '  ');
     }
   } else if (reportType === 'egresos') {
     const expenses = (data.transactions || []).filter((item) => item.type === 'egreso');
     const totals = { usd: 0, cop: 0, bs: 0 };
-    addSection(lines, 'MOVIMIENTOS DE SALIDA');
-    if (expenses.length === 0) lines.push('SIN VUELTOS O EGRESOS EN EL INTERVALO');
+    addSection(lines, 'MOVIMIENTOS DE SALIDA', reportWidth);
+    if (expenses.length === 0) lines.push(...wrapText('SIN VUELTOS O EGRESOS EN EL INTERVALO', reportWidth));
     for (const transaction of expenses) {
       const amounts = { usd: Number(transaction.amountUSD) || 0, cop: Number(transaction.amountCOP) || 0, bs: Number(transaction.amountBs) || 0 };
       totals.usd += amounts.usd; totals.cop += amounts.cop; totals.bs += amounts.bs;
-      lines.push('', ...wrapText(`${reportDate(transaction.timestamp)} | ${transaction.orderNumber ? `#${transaction.orderNumber}` : 'SIN COMANDA'}`));
-      lines.push(...wrapText(`METODO: ${transaction.paymentMethod || 'EGRESO'}`, LINE_WIDTH, '  '));
-      lines.push(...wrapText(`CONCEPTO: ${transaction.description || 'SIN DESCRIPCION'}`, LINE_WIDTH, '  '));
+      lines.push('', ...wrapText(`${reportDate(transaction.timestamp)} | ${transaction.orderNumber ? `#${transaction.orderNumber}` : 'SIN COMANDA'}`, reportWidth));
+      lines.push(...wrapText(`METODO: ${transaction.paymentMethod || 'EGRESO'}`, reportWidth, '  '));
+      lines.push(...wrapText(`CONCEPTO: ${transaction.description || 'SIN DESCRIPCION'}`, reportWidth, '  '));
       lines.push('  ENTREGADO:');
       addAmountLines(lines, amounts, '    ');
     }
-    addSection(lines, 'RESUMEN DE EGRESOS');
+    addSection(lines, 'RESUMEN DE EGRESOS', reportWidth);
     lines.push(`MOVIMIENTOS DE SALIDA: ${expenses.length}`, 'TOTAL ENTREGADO:');
     addAmountLines(lines, totals, '  ', true);
   } else if (reportType === 'cocina') {
@@ -884,19 +884,19 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     for (const item of data.items || []) {
       itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) || []), item]);
     }
-    addSection(lines, 'COMANDAS DEL INTERVALO');
-    if ((data.orders || []).length === 0) lines.push('SIN COMANDAS COBRADAS EN EL INTERVALO');
+    addSection(lines, 'COMANDAS DEL INTERVALO', reportWidth);
+    if ((data.orders || []).length === 0) lines.push(...wrapText('SIN COMANDAS COBRADAS EN EL INTERVALO', reportWidth));
     for (const order of data.orders || []) {
       const orderItems = itemsByOrder.get(order.id) || [];
-      lines.push('', '\x1BE\x01', ...wrapText(`#${order.orderNumber || '?'} | ${reportService(order)}`), '\x1BE\x00');
-      lines.push(...wrapText(`RECIBIDA: ${reportDate(order.createdAt)} | ESTADO: ${order.status || 'SIN ESTADO'}`, LINE_WIDTH, '  '));
-      if (order.customerName) lines.push(...wrapText(`CLIENTE: ${order.customerName}`, LINE_WIDTH, '  '));
-      lines.push(...wrapText(`PAGO: ${order.paymentMethod || 'SEGUN MOVIMIENTO'}`, LINE_WIDTH, '  '));
-      for (const item of orderItems) lines.push(...wrapText(`${item.quantity || 1}x ${item.productName || 'ITEM'}`, LINE_WIDTH, '  '));
+      lines.push('', '\x1BE\x01', ...wrapText(`#${order.orderNumber || '?'} | ${reportService(order)}`, reportWidth), '\x1BE\x00');
+      lines.push(...wrapText(`RECIBIDA: ${reportDate(order.createdAt)} | ESTADO: ${order.status || 'SIN ESTADO'}`, reportWidth, '  '));
+      if (order.customerName) lines.push(...wrapText(`CLIENTE: ${order.customerName}`, reportWidth, '  '));
+      lines.push(...wrapText(`PAGO: ${order.paymentMethod || 'SEGUN MOVIMIENTO'}`, reportWidth, '  '));
+      for (const item of orderItems) lines.push(...wrapText(`${item.quantity || 1}x ${item.productName || 'ITEM'}`, reportWidth, '  '));
       if (orderItems.length === 0) lines.push('  SIN ITEMS DISPONIBLES');
       lines.push(`  TOTAL: $${(Number(order.totalUSD) || 0).toFixed(2)} USD`);
     }
-    addSection(lines, 'RESUMEN DE COCINA');
+    addSection(lines, 'RESUMEN DE COCINA', reportWidth);
     lines.push(`COMANDAS: ${(data.orders || []).length}`, `ITEMS FACTURADOS: ${(data.items || []).reduce((total, item) => total + (Number(item.quantity) || 0), 0)}`);
   } else if (reportType === 'audit_deleted') {
     const edits = data.edits || [];
@@ -914,7 +914,7 @@ function buildReportTicket(reportType, data, paperWidth = null) {
       else editCount++;
     }
 
-    addSection(lines, 'RESUMEN FORENSE');
+    addSection(lines, 'RESUMEN FORENSE', reportWidth);
     lines.push(`COMANDAS ELIMINADAS:  ${delCount}`);
     lines.push(`COMANDAS CANCELADAS:  ${cancCount}`);
     lines.push(`PAGOS ANULADOS:       ${pmCount}`);
@@ -922,7 +922,7 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     lines.push(`MOVIMIENTOS CAJA:     ${cajaCount}`);
     lines.push(`TOTAL EVENTOS:        ${edits.length}`);
 
-    addSection(lines, 'HISTORIAL DE EVENTOS');
+    addSection(lines, 'HISTORIAL DE EVENTOS', reportWidth);
     if (edits.length === 0) {
       lines.push('SIN REGISTROS EN EL INTERVALO');
     } else {
@@ -1334,7 +1334,7 @@ function consolidateKitchenItems(items, order) {
   });
 }
 
-function buildKitchenTicket(order, isFallback = false) {
+function buildKitchenTicket(order, isFallback = false, paperWidth = null) {
   const allItems = order.items || [];
   const orderType = (order.type || '').toLowerCase();
   const isPickupOrDelivery = orderType === 'delivery' || orderType === 'pickup';
@@ -1344,33 +1344,48 @@ function buildKitchenTicket(order, isFallback = false) {
     return null;
   }
 
+  const is58mm = (paperWidth || loadPrinterConfig('cocina').paperWidth) === '58mm';
+  const width = is58mm ? LINE_WIDTH_58 : KITCHEN_LINE_WIDTH;
+  const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : KITCHEN_FORMAT_SETUP;
+
   const lines = [
     '\x1B@',
-    KITCHEN_FORMAT_SETUP,
+    formatSetup,
   ];
 
   if (isFallback) {
     lines.push(
       '\x1Ba\x01',
       '\x1BE\x01',
-      kitchenDivider('='),
-      kitchenCentered('*** ALERTA ***'),
-      kitchenCentered('FALLO EN COCINA'),
-      kitchenCentered('IMPRESO EN CAJA'),
-      kitchenCentered('(POR CABLE)'),
-      kitchenCentered('ENTREGAR A COCINA!'),
-      kitchenDivider('='),
+      divider('=', width),
+      centered('*** ALERTA ***', width),
+      centered('FALLO EN COCINA', width),
+      centered('IMPRESO EN CAJA', width),
+      centered('(POR CABLE)', width),
+      centered('ENTREGAR A COCINA!', width),
+      divider('=', width),
       '\x1BE\x00',
       '\x1Ba\x00'
     );
   }
 
-  lines.push(
-    '\x1Ba\x01',
-    `COMANDA: #${printableText(order.orderNumber)}`,
-    '\x1Ba\x00',
-    `HORA: ${formatKitchenTime(order.createdAt)}`,
-  );
+  if (is58mm) {
+    lines.push(
+      '\x1Ba\x01',
+      '\x1BE\x01\x1D!\x01',
+      `COMANDA: #${printableText(order.orderNumber)}`,
+      '\x1D!\x00\x1BE\x00',
+      '\x1Ba\x00',
+      `HORA: ${formatKitchenTime(order.createdAt)}`
+    );
+  } else {
+    lines.push(
+      '\x1Ba\x01',
+      `COMANDA: #${printableText(order.orderNumber)}`,
+      '\x1Ba\x00',
+      `HORA: ${formatKitchenTime(order.createdAt)}`
+    );
+  }
 
   if (orderType === 'mesa' && order.tableNumber) {
     lines.push(`SERVICIO: MESA #${order.tableNumber}`);
@@ -1381,39 +1396,52 @@ function buildKitchenTicket(order, isFallback = false) {
   }
 
   if (order.customerName) {
-    lines.push(...kitchenWrap(`CLIENTE: ${order.customerName}`));
+    lines.push(...wrapText(`CLIENTE: ${order.customerName}`, width));
   }
 
-  lines.push(kitchenDivider('-'));
+  lines.push(divider('-', width));
 
   const consolidated = consolidateKitchenItems(kitchenItems, order);
 
   for (const item of consolidated) {
-    lines.push(...kitchenWrap(`${item.quantity}x ${item.name}`));
-    for (const detail of item.details) {
-      lines.push(...kitchenWrap(`* ${detail}`));
+    if (is58mm) {
+      lines.push('\x1BE\x01\x1D!\x01');
+      lines.push(...wrapText(`${item.quantity}x ${item.name}`, width));
+      lines.push('\x1D!\x00\x1BE\x00');
+    } else {
+      lines.push(...wrapText(`${item.quantity}x ${item.name}`, width));
     }
-    lines.push(kitchenDivider('-'));
+
+    for (const detail of item.details) {
+      lines.push(...wrapText(`* ${detail}`, width, '  '));
+    }
+    lines.push(divider('-', width));
   }
 
   const cleanKitchenNote = getCleanItemNote(order.kitchenNotes);
   if (cleanKitchenNote) {
-    lines.push('NOTA COCINA:');
-    lines.push(...kitchenWrap(cleanKitchenNote));
-    lines.push(kitchenDivider('-'));
+    lines.push('\x1BE\x01NOTA COCINA:\x1BE\x00');
+    if (is58mm) {
+      lines.push('\x1BE\x01\x1D!\x01');
+      lines.push(...wrapText(cleanKitchenNote, width));
+      lines.push('\x1D!\x00\x1BE\x00');
+    } else {
+      lines.push(...wrapText(cleanKitchenNote, width));
+    }
+    lines.push(divider('-', width));
   }
 
   lines.push(`ITEMS ${isPickupOrDelivery ? 'TOTALES' : 'COCINA'}: ${kitchenItems.reduce((total, item) => total + (Number(item.quantity) || 0), 0)}`);
   lines.push('');
   lines.push('\x1Ba\x01');
-  lines.push('REVISAR ORDEN');
+  lines.push(centered('REVISAR ORDEN', width));
   lines.push('\x1Ba\x00');
   lines.push(PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
 
   return Buffer.from(lines.join('\n'), 'ascii');
 }
 
-function buildKitchenAdditionTicket(order, addedItems, isFallback = false) {
+function buildKitchenAdditionTicket(order, addedItems, isFallback = false, paperWidth = null) {
   const allItems = addedItems || [];
   const orderType = (order.type || '').toLowerCase();
   const isPickupOrDelivery = orderType === 'delivery' || orderType === 'pickup';
@@ -1423,34 +1451,50 @@ function buildKitchenAdditionTicket(order, addedItems, isFallback = false) {
     return null;
   }
 
+  const is58mm = (paperWidth || loadPrinterConfig('cocina').paperWidth) === '58mm';
+  const width = is58mm ? LINE_WIDTH_58 : KITCHEN_LINE_WIDTH;
+  const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : KITCHEN_FORMAT_SETUP;
+
   const lines = [
     '\x1B@',
-    KITCHEN_FORMAT_SETUP,
+    formatSetup,
   ];
 
   if (isFallback) {
     lines.push(
       '\x1Ba\x01',
       '\x1BE\x01',
-      kitchenDivider('='),
-      kitchenCentered('*** ALERTA ***'),
-      kitchenCentered('FALLO EN COCINA'),
-      kitchenCentered('IMPRESO EN CAJA'),
-      kitchenCentered('(POR CABLE)'),
-      kitchenCentered('ENTREGAR A COCINA!'),
-      kitchenDivider('='),
+      divider('=', width),
+      centered('*** ALERTA ***', width),
+      centered('FALLO EN COCINA', width),
+      centered('IMPRESO EN CAJA', width),
+      centered('(POR CABLE)', width),
+      centered('ENTREGAR A COCINA!', width),
+      divider('=', width),
       '\x1BE\x00',
       '\x1Ba\x00'
     );
   }
 
-  lines.push(
-    '\x1Ba\x01',
-    'ADICION COCINA',
-    `COMANDA: #${printableText(order.orderNumber)}`,
-    '\x1Ba\x00',
-    `HORA: ${formatKitchenTime(new Date())}`,
-  );
+  if (is58mm) {
+    lines.push(
+      '\x1Ba\x01',
+      '\x1BE\x01\x1D!\x01',
+      'ADICION COCINA',
+      `COMANDA: #${printableText(order.orderNumber)}`,
+      '\x1D!\x00\x1BE\x00',
+      '\x1Ba\x00',
+      `HORA: ${formatKitchenTime(new Date())}`
+    );
+  } else {
+    lines.push(
+      '\x1Ba\x01',
+      'ADICION COCINA',
+      `COMANDA: #${printableText(order.orderNumber)}`,
+      '\x1Ba\x00',
+      `HORA: ${formatKitchenTime(new Date())}`
+    );
+  }
 
   if (orderType === 'mesa' && order.tableNumber) {
     lines.push(`SERVICIO: MESA #${order.tableNumber}`);
@@ -1461,10 +1505,10 @@ function buildKitchenAdditionTicket(order, addedItems, isFallback = false) {
   }
 
   if (order.customerName) {
-    lines.push(...kitchenWrap(`CLIENTE: ${order.customerName}`));
+    lines.push(...wrapText(`CLIENTE: ${order.customerName}`, width));
   }
 
-  lines.push(kitchenDivider('-'));
+  lines.push(divider('-', width));
 
   const combinedItems = [
     ...(Array.isArray(order.items) ? order.items : []),
@@ -1478,17 +1522,24 @@ function buildKitchenAdditionTicket(order, addedItems, isFallback = false) {
   const consolidated = consolidateKitchenItems(kitchenItems, orderForConsolidation);
 
   for (const item of consolidated) {
-    lines.push(...kitchenWrap(`${item.quantity}x ${item.name}`));
-    for (const detail of item.details) {
-      lines.push(...kitchenWrap(`* ${detail}`));
+    if (is58mm) {
+      lines.push('\x1BE\x01\x1D!\x01');
+      lines.push(...wrapText(`${item.quantity}x ${item.name}`, width));
+      lines.push('\x1D!\x00\x1BE\x00');
+    } else {
+      lines.push(...wrapText(`${item.quantity}x ${item.name}`, width));
     }
-    lines.push(kitchenDivider('-'));
+
+    for (const detail of item.details) {
+      lines.push(...wrapText(`* ${detail}`, width, '  '));
+    }
+    lines.push(divider('-', width));
   }
 
   lines.push(`ITEMS ADICIONADOS: ${kitchenItems.reduce((total, item) => total + (Number(item.quantity) || 0), 0)}`);
   lines.push('');
   lines.push('\x1Ba\x01');
-  lines.push('SOLO PREPARAR ADICION');
+  lines.push(centered('SOLO PREPARAR ADICION', width));
   lines.push('\x1Ba\x00');
   lines.push(PRINT_FORMAT_RESET, '\n\n\n\x1DV\x00');
 
@@ -1679,10 +1730,11 @@ async function sendRawTicketToTarget(payload, targetPrinter = 'auto', defaultFal
 
 function buildTestTicket(printerName, config) {
   const is58mm = config.paperWidth === '58mm';
-  const width = is58mm ? 20 : 28;
+  const width = is58mm ? LINE_WIDTH_58 : LINE_WIDTH_80;
+  const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : PRINT_FORMAT_SETUP_80;
   const lines = [
     '\x1B@',
-    PRINT_FORMAT_SETUP,
+    formatSetup,
     '\x1Ba\x01',
     '\x1BE\x01',
     centered('BASILICO', width),
@@ -1698,8 +1750,8 @@ function buildTestTicket(printerName, config) {
     `FECHA: ${new Date().toLocaleString('es-VE')}`,
     divider('-', width),
     '\x1Ba\x01',
-    'CONEXION EXITOSA',
-    'IMPRESORA OPERATIVA Y LISTA',
+    centered('CONEXION EXITOSA', width),
+    centered('IMPRESORA OPERATIVA Y LISTA', width),
     '\x1Ba\x00',
     PRINT_FORMAT_RESET,
     '\n\n\n\x1DV\x00',
@@ -1787,8 +1839,13 @@ async function sendKitchenTicketWithFallback(payloadNormal, payloadFallback, tar
   let cajaSuccess = false;
   if (shouldPrintCajaExplicit && !fallbackSuccess && configs.caja.enabled) {
     try {
+      const cajaWidth = configs.caja.paperWidth === '58mm' ? '58mm' : '80mm';
+      const cocinaWidth = configs.cocina.paperWidth === '58mm' ? '58mm' : '80mm';
+      const payloadCaja = (cajaWidth === cocinaWidth)
+        ? payloadNormal
+        : buildKitchenTicket(order, false, cajaWidth);
       for (let copy = 0; copy < configs.caja.copies; copy++) {
-        await sendRawTicket(payloadNormal, configs.caja);
+        await sendRawTicket(payloadCaja || payloadNormal, configs.caja);
       }
       cajaSuccess = true;
     } catch (err) {
@@ -1808,20 +1865,26 @@ async function sendKitchenTicketWithFallback(payloadNormal, payloadFallback, tar
 }
 
 async function printKitchenTicket(order, targetPrinter = 'cocina', io = null) {
-  const payloadNormal = buildKitchenTicket(order, false);
+  const configs = loadDualPrinterConfig();
+  const cocinaWidth = configs.cocina.paperWidth === '58mm' ? '58mm' : '80mm';
+  const cajaWidth = configs.caja.paperWidth === '58mm' ? '58mm' : '80mm';
+  const payloadNormal = buildKitchenTicket(order, false, cocinaWidth);
   if (!payloadNormal) {
     return { printed: false, reason: 'no_kitchen_items' };
   }
-  const payloadFallback = buildKitchenTicket(order, true);
+  const payloadFallback = buildKitchenTicket(order, true, cajaWidth);
   return sendKitchenTicketWithFallback(payloadNormal, payloadFallback, targetPrinter, order, io);
 }
 
 async function printKitchenAdditionTicket(order, addedItems, targetPrinter = 'cocina', io = null) {
-  const payloadNormal = buildKitchenAdditionTicket(order, addedItems, false);
+  const configs = loadDualPrinterConfig();
+  const cocinaWidth = configs.cocina.paperWidth === '58mm' ? '58mm' : '80mm';
+  const cajaWidth = configs.caja.paperWidth === '58mm' ? '58mm' : '80mm';
+  const payloadNormal = buildKitchenAdditionTicket(order, addedItems, false, cocinaWidth);
   if (!payloadNormal) {
     return { printed: false, reason: 'no_kitchen_items' };
   }
-  const payloadFallback = buildKitchenAdditionTicket(order, addedItems, true);
+  const payloadFallback = buildKitchenAdditionTicket(order, addedItems, true, cajaWidth);
   return sendKitchenTicketWithFallback(payloadNormal, payloadFallback, targetPrinter, order, io);
 }
 
@@ -1862,7 +1925,7 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
   ];
 
   if (order.customerName) {
-    lines.push(`CLIENTE: ${printableText(order.customerName).substring(0, width)}`);
+    lines.push(...wrapText(`CLIENTE: ${printableText(order.customerName)}`, width));
   }
 
   lines.push(divider('-', width));
@@ -1895,12 +1958,33 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
 
     const priceCol = `€${lineTotalUSD.toFixed(2)}`;
     const maxLeft = Math.max(1, width - priceCol.length - 1);
-    const combinedLine = `${qty}x ${cleanName}${packagingTag}`;
-    if (packagingTag && combinedLine.length > maxLeft) {
-      lines.push(formatTwoColumns(`${qty}x ${cleanName}`, priceCol, width));
-      lines.push(`  * ${packagingTag.trim().replace(/^\(|\)$/g, '')}`);
+    const itemLabel = `${qty}x ${cleanName}`;
+
+    if (itemLabel.length <= maxLeft) {
+      lines.push(formatTwoColumns(itemLabel, priceCol, width));
     } else {
-      lines.push(formatTwoColumns(combinedLine, priceCol, width));
+      // Si el nombre del producto es largo y no cabe junto al precio en 32 columnas:
+      // Se divide limpiamente por palabras para que no se corte ninguna letra
+      const words = itemLabel.split(' ');
+      let line1 = '';
+      let line2Words = [];
+      for (const w of words) {
+        if (!line1) {
+          line1 = w;
+        } else if ((line1.length + 1 + w.length) <= maxLeft) {
+          line1 += ` ${w}`;
+        } else {
+          line2Words.push(w);
+        }
+      }
+      lines.push(formatTwoColumns(line1, priceCol, width));
+      if (line2Words.length > 0) {
+        lines.push(`   ${line2Words.join(' ')}`);
+      }
+    }
+
+    if (packagingTag) {
+      lines.push(`  * ${packagingTag.trim().replace(/^\(|\)$/g, '')}`);
     }
 
     // Si tiene sabor y no está en el nombre, listarlo indentado debajo
@@ -1926,7 +2010,14 @@ function buildReceiptTicket(order, rates = {}, paperWidth = null) {
         const rawName = printableText(ex.name || 'Adicional');
         const cleanName = rawName.replace(/^\d+x\s*/i, '').trim();
         const label = exQty > 1 ? `${exQty}x ${cleanName}` : cleanName;
-        lines.push(`  + ADD ${label} (€${(exPrice * qty).toFixed(2)})`);
+        const extraPriceCol = `(€${(exPrice * qty).toFixed(2)})`;
+        const extraLeft = `  + ADD ${label}`;
+        if ((extraLeft.length + 1 + extraPriceCol.length) <= width) {
+          lines.push(formatTwoColumns(extraLeft, extraPriceCol, width));
+        } else {
+          lines.push(extraLeft);
+          lines.push(formatTwoColumns('', extraPriceCol, width));
+        }
       }
     }
   }
@@ -2547,6 +2638,7 @@ module.exports = {
   printReportTicket,
   printCierreShiftTicket,
   printTestTicket,
+  buildTestTicket,
   areProteinsDefault,
   normalizeProteinName,
 };

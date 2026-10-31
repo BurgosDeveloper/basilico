@@ -11,6 +11,7 @@ import { PrinterSelectModal } from '../components/PrinterSelectModal';
 import { TableCompactGrid } from '../modules/mesero/TableCompactGrid';
 import { OrderCreateView, OrderTarget } from '../modules/mesero/OrderCreateView';
 import { OrderTargetSelectorModal } from '../components/OrderTargetSelectorModal';
+import { HistoricOrdersSearchModal } from '../components/HistoricOrdersSearchModal';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { PaymentMethod, Order } from '../data/mockData';
@@ -33,6 +34,7 @@ import {
   IoSwapHorizontal,
   IoTrashOutline,
   IoPrintOutline,
+  IoSearchOutline,
 } from 'react-icons/io5';
 
 const HISTORIC_PAYMENT_METHODS: PaymentMethod[] = [
@@ -99,6 +101,7 @@ export const CajaPage: React.FC = () => {
   const [printerSelectOrder, setPrinterSelectOrder] = useState<Order | null>(null);
   const [printerSelectKitchenOrder, setPrinterSelectKitchenOrder] = useState<Order | null>(null);
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState<boolean>(false);
+  const [isHistoricSearchOpen, setIsHistoricSearchOpen] = useState<boolean>(false);
   const [isCompactView, setIsCompactView] = useState<boolean>(() => {
     return localStorage.getItem('basilico_caja_view_mode') !== 'expanded';
   });
@@ -1530,6 +1533,16 @@ export const CajaPage: React.FC = () => {
                 <option value="todos">Todos los Métodos</option>
                 {HISTORIC_PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
+
+              <button
+                type="button"
+                onClick={() => setIsHistoricSearchOpen(true)}
+                className="px-4 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-xs font-black flex items-center gap-1.5 border border-emerald-300 shadow-xs transition-all cursor-pointer"
+                title="Buscar comandas archivadas o de días anteriores"
+              >
+                <IoSearchOutline />
+                <span>BUSCAR DÍAS ANTERIORES</span>
+              </button>
             </div>
           </div>
 
@@ -1823,6 +1836,16 @@ export const CajaPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-3">
               <button
+                type="button"
+                onClick={() => setIsHistoricSearchOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-black text-xs flex items-center gap-2 border border-emerald-300 shadow-xs transition-all cursor-pointer"
+                title="Búsqueda forense de comandas archivadas o de cualquier fecha"
+              >
+                <IoSearchOutline className="text-base text-emerald-700" />
+                <span>BUSCAR COMANDAS ANTERIORES</span>
+              </button>
+
+              <button
                 onClick={() => {
                   setCierreError('');
                   setIsCierreModalOpen(true);
@@ -1833,6 +1856,36 @@ export const CajaPage: React.FC = () => {
                 <span>ARQUEO DIARIO DE EFECTIVO</span>
               </button>
             </div>
+          </div>
+
+          {/* Tarjeta Destacada: Búsqueda Forense y Detalle de Comandas Anteriores (Estilo Claro y Limpio) */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-emerald-500/50 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-300 flex items-center justify-center text-emerald-700 shrink-0 font-black shadow-xs">
+                <IoSearchOutline size={26} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-black tracking-tight text-slate-900">
+                    Buscador de Comandas Históricas
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-950 border border-emerald-300 font-black text-[10px] uppercase tracking-wider">
+                    Historial Completo
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium mt-0.5">
+                  Busca cualquier comanda de días anteriores o archivadas por número, cliente o turno y examina el 100% del detalle guardado.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsHistoricSearchOpen(true)}
+              className="w-full md:w-auto px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer shrink-0 active:scale-95"
+            >
+              <IoSearchOutline className="text-lg" />
+              <span>BUSCAR COMANDAS ANTERIORES</span>
+            </button>
           </div>
 
           {/* Panel de Reporte Contable por Intervalo */}
@@ -2688,6 +2741,12 @@ export const CajaPage: React.FC = () => {
             title: title || (type === 'mesa' ? `Mesa #${tableNumber}` : (type === 'delivery' ? 'Delivery' : 'Para Llevar (Pick-Up)'))
           });
         }}
+      />
+
+      {/* Modal de Búsqueda y Detalle Forense de Comandas Históricas */}
+      <HistoricOrdersSearchModal
+        isOpen={isHistoricSearchOpen}
+        onClose={() => setIsHistoricSearchOpen(false)}
       />
 
     </div>

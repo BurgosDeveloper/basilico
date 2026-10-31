@@ -746,7 +746,90 @@ module.exports = function(io) {
       const { id } = req.params;
       const { targetPrinter = 'caja' } = req.body || {};
       const allOrders = await fetchAllOrders(req.user);
-      const targetOrder = allOrders.find((o) => o.id === id);
+      let targetOrder = allOrders.find((o) => o.id === id);
+
+      if (!targetOrder) {
+        const { rows: ordRows } = await query('SELECT * FROM orders WHERE id = $1', [id]);
+        if (ordRows[0]) {
+          const ord = ordRows[0];
+          const { rows: itemRows } = await query(
+            `SELECT oi.*, p.default_proteins 
+             FROM order_items oi 
+             LEFT JOIN products p ON (oi.product_id = p.id OR LOWER(oi.product_name) = LOWER(p.name))
+             WHERE oi.order_id = $1`,
+            [id]
+          );
+          const { rows: paymentRows } = await query('SELECT * FROM order_payments WHERE order_id = $1 ORDER BY created_at ASC', [id]);
+          targetOrder = {
+            id: ord.id,
+            orderNumber: ord.order_number,
+            type: ord.type,
+            tableNumber: ord.table_number,
+            customerName: ord.customer_name,
+            status: ord.status,
+            paymentStatus: ord.payment_status,
+            paymentMethod: ord.payment_method,
+            totalUSD: parseFloat(ord.total_usd) || 0,
+            paidAmountUSD: parseFloat(ord.paid_amount_usd) || (ord.payment_status === 'pagado' || ord.payment_status === 'credito' ? parseFloat(ord.total_usd) : 0),
+            copRateAtPayment: parseFloat(ord.cop_rate_at_payment) || 3950,
+            bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
+            waiterName: ord.waiter_name || 'Mesero',
+            kitchenNotes: ord.kitchen_notes,
+            notes: ord.notes || undefined,
+            debtorName: ord.debtor_name || ord.notes || undefined,
+            isEdited: !!ord.is_edited,
+            mergedFromOrders: ord.merged_from_orders || [],
+            deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
+            shift: ord.shift || 'noche',
+            archivedAt: ord.archived_at,
+            createdAt: ord.created_at,
+            paymentHistory: paymentRows.map((pm) => ({
+              id: pm.id,
+              orderId: pm.order_id,
+              payerName: pm.payer_name || 'Cliente General',
+              paymentMethod: pm.payment_method,
+              method: pm.payment_method,
+              amountPaidUSD: parseFloat(pm.amount_paid_usd) || 0,
+              cashTenderedUSD: parseFloat(pm.cash_tendered_usd) || 0,
+              cashTenderedCOP: parseFloat(pm.cash_tendered_cop) || 0,
+              cashTenderedBs: parseFloat(pm.cash_tendered_bs) || 0,
+              changeGivenUSD: parseFloat(pm.change_given_usd) || 0,
+              changeGivenCOP: parseFloat(pm.change_given_cop) || 0,
+              changeGivenBs: parseFloat(pm.change_given_bs) || 0,
+              copRate: parseFloat(pm.cop_rate) || 3950,
+              bsRate: parseFloat(pm.bs_rate) || 36.5,
+              itemIds: pm.item_ids || [],
+              createdAt: pm.created_at,
+            })),
+            items: itemRows.map((it) => ({
+              id: it.id,
+              productId: it.product_id,
+              productName: it.product_name,
+              price: parseFloat(it.price) || 0,
+              quantity: it.quantity,
+              size: it.size || 'Estándar',
+              isHalfHalf: !!it.is_half_half,
+              halfDetails: safeJsonParseObj(it.half_details),
+              removedIngredients: it.removed_ingredients || [],
+              proteins: it.proteins || [],
+              defaultProteins: it.default_proteins || [],
+              extras: safeJsonParse(it.extras_json),
+              sugarPreference: it.sugar_preference || undefined,
+              drinkType: it.drink_type || undefined,
+              category: it.category || undefined,
+              isTakeaway: !!it.is_takeaway,
+              isDelivery: !!it.is_delivery,
+              isCut: !!it.is_cut,
+              cutPreference: it.cut_preference || (it.is_cut ? 'Picada' : 'Entera'),
+              isNewOrModified: !!it.is_new_or_modified,
+              isPaidIndividually: !!it.is_paid_individually,
+              paidByName: it.paid_by_name || undefined,
+              flavor: it.flavor || undefined,
+              notes: it.notes || '',
+            })),
+          };
+        }
+      }
 
       if (!targetOrder) {
         return res.status(404).json({ error: 'Comanda no encontrada.' });

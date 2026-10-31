@@ -27,6 +27,7 @@ export/
 server/node_modules/
 .expo/
 gradle-*.zip
+scratch/
 
 # Android source is versioned; local SDK paths and generated artifacts are not.
 /android/.gradle/
@@ -34,4 +35,3 @@ gradle-*.zip
 /android/build/
 /android/app/build/
 /android/local.properties
-

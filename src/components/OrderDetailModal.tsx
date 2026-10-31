@@ -39,6 +39,7 @@ interface OrderDetailModalProps {
   onPrintReceipt?: (order: Order) => void;
   onReprintKitchen?: (order: Order) => void;
   userRole?: 'admin' | 'caja' | 'mesero' | 'cocina';
+  isReadOnly?: boolean;
 }
 
 function formatOrderTime(dateValue?: string | Date): string {
@@ -70,6 +71,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   onPrintReceipt,
   onReprintKitchen,
   userRole,
+  isReadOnly = false,
 }) => {
   const { reprintKitchenOrder, printOrderReceipt } = useApp();
   const [isReprinting, setIsReprinting] = useState(false);
@@ -144,9 +146,19 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 <h3 className="text-xl sm:text-2xl font-black tracking-tight text-black">
                   {isSelectableMode ? 'Seleccionar Productos a Cobrar' : `Comanda #${cleanOrderNumber}`}
                 </h3>
+                {isReadOnly && (
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-100 border border-emerald-300 text-xs font-black uppercase text-emerald-950 tracking-wider shadow-xs">
+                    🏛️ HISTÓRICO (SOLO LECTURA)
+                  </span>
+                )}
                 <span className="px-3 py-1 rounded-xl bg-yellow-400 border border-yellow-500 text-xs font-black uppercase text-black tracking-wider shadow-xs">
                   {order.type === 'mesa' ? `Mesa #${order.tableNumber}` : order.type}
                 </span>
+                {order.shift && (
+                  <span className="px-2.5 py-1 rounded-xl text-xs font-black uppercase border bg-amber-50 text-amber-900 border-amber-300">
+                    {order.shift === 'manana' ? '🌅 MAÑANA' : '🌙 NOCHE'}
+                  </span>
+                )}
                 {/* Badges de Estado */}
                 <span
                   className={`px-2.5 py-1 rounded-xl text-xs font-black uppercase border flex items-center gap-1 ${
@@ -176,9 +188,19 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <IoPersonOutline className="text-base" />
                   <span>Cliente: {order.customerName || (order.type === 'mesa' ? `Mesa #${order.tableNumber}` : 'Cliente General')}</span>
                 </span>
+                {order.debtorName && (
+                  <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 font-black">
+                    🏷️ Deudor: {order.debtorName}
+                  </span>
+                )}
+                {order.waiterName && (
+                  <span className="text-gray-600 font-bold">
+                    👤 Mesero: {order.waiterName}
+                  </span>
+                )}
                 {order.createdAt && (
-                  <span className="text-gray-500">
-                    🕒 {formatOrderTime(order.createdAt)}
+                  <span className="text-gray-500 font-semibold">
+                    📅 {new Date(order.createdAt).toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' })} 🕒 {formatOrderTime(order.createdAt)}
                   </span>
                 )}
               </div>
@@ -418,11 +440,101 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Historial Forense de Pagos / Abonos Registrados */}
+          {order.paymentHistory && order.paymentHistory.length > 0 && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <IoCashOutline className="text-emerald-600 text-base" />
+                  <span>Historial Forense de Pagos ({order.paymentHistory.length})</span>
+                </span>
+                <span className="text-emerald-700 font-black text-xs sm:text-sm">
+                  Total Registrado: ${paidAmountUSD.toFixed(2)} USD
+                </span>
+              </div>
+              <div className="divide-y divide-gray-100 space-y-2">
+                {order.paymentHistory.map((pm, idx) => (
+                  <div key={pm.id || idx} className="pt-2.5 first:pt-0 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1.5 text-xs">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-black px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-300 text-xs">
+                          {pm.paymentMethod}
+                        </span>
+                        <span className="font-bold text-slate-800">
+                          {pm.payerName || 'Cliente General'}
+                        </span>
+                        {pm.createdAt && (
+                          <span className="text-gray-400 text-[11px]">
+                            {new Date(pm.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-gray-500 mt-1 flex flex-wrap gap-2">
+                        {(pm.cashTenderedUSD || 0) > 0 && <span className="bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">Entregó: ${pm.cashTenderedUSD?.toFixed(2)} USD</span>}
+                        {(pm.cashTenderedCOP || 0) > 0 && <span className="bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">Entregó: {pm.cashTenderedCOP?.toLocaleString()} COP</span>}
+                        {(pm.cashTenderedBs || 0) > 0 && <span className="bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">Entregó: {pm.cashTenderedBs?.toFixed(2)} Bs</span>}
+                        {(pm.changeGivenUSD || 0) > 0 && <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-bold">Vuelto: ${pm.changeGivenUSD?.toFixed(2)} USD</span>}
+                        {(pm.changeGivenCOP || 0) > 0 && <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-bold">Vuelto: {pm.changeGivenCOP?.toLocaleString()} COP</span>}
+                        {(pm.changeGivenBs || 0) > 0 && <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-bold">Vuelto: {pm.changeGivenBs?.toFixed(2)} Bs</span>}
+                        {pm.copRate && pm.bsRate && (
+                          <span className="text-gray-400 italic">
+                            (Tasas: {pm.copRate} COP / {pm.bsRate} Bs)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="font-black text-sm text-emerald-700 shrink-0">
+                      ${(pm.amountPaidUSD || 0).toFixed(2)} USD
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer / Barra de Acciones de Comanda */}
         <div className="p-3 sm:p-4 bg-white border-t border-gray-200 flex flex-col gap-2.5 shrink-0">
-          {isSelectableMode ? (
+          {isReadOnly ? (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-black text-xs transition-all cursor-pointer border border-gray-300 shadow-xs"
+              >
+                CERRAR
+              </button>
+
+              <div className="flex items-center gap-2">
+                {reprintMessage && (
+                  <span className="text-xs font-bold text-green-700 animate-in fade-in">
+                    {reprintMessage}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handlePrintReceipt}
+                  disabled={isPrintingReceipt}
+                  className="px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-black text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  title="Emitir ticket de pre-cuenta térmica con las 3 monedas"
+                >
+                  <IoPrintOutline className="text-base" />
+                  <span>{isPrintingReceipt ? 'IMPRIMIENDO...' : '🧾 REIMPRIMIR PRE-CUENTA'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReprint}
+                  disabled={isReprinting}
+                  className="px-3.5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-black font-black text-xs flex items-center gap-1.5 border border-gray-300 transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                  title="Reenviar comanda a la impresora térmica de cocina"
+                >
+                  <IoPrintOutline className="text-base" />
+                  <span>{isReprinting ? 'ENVIANDO...' : '🖨️ REIMPRIMIR COCINA'}</span>
+                </button>
+              </div>
+            </div>
+          ) : isSelectableMode ? (
             <div className="flex items-center justify-between gap-2">
               <button
                 onClick={onClose}

@@ -64,7 +64,7 @@ export const RoleSelectorPage: React.FC = () => {
         <div className="flex justify-center mb-1">
           <div className="w-24 h-24 rounded-3xl bg-white border-2 border-yellow-400 p-2 flex items-center justify-center shadow-lg transform hover:scale-105 transition-all overflow-hidden">
             <img
-              src="/logo_default.png"
+              src="/logo_default.png?v=basilico2026_v3"
               alt="Basilico"
               className="w-full h-full object-contain"
               onError={(e) => { (e.target as HTMLImageElement).src = '/icon.png'; }}

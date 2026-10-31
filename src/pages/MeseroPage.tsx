@@ -111,6 +111,7 @@ export const MeseroPage: React.FC = () => {
 
   // Catalog Filters
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
+  const [mobileOrderTab, setMobileOrderTab] = useState<'catalog' | 'cart'>('catalog');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const activeProducts = useMemo(() => {
@@ -160,6 +161,7 @@ export const MeseroPage: React.FC = () => {
     setDeliveryFeeUSD(type === 'delivery' ? 1.0 : 0);
     setShowDeliveryConfig(type === 'delivery');
     setOrderError(null);
+    setMobileOrderTab('catalog');
   };
 
   const areCartItemsIdentical = (a: OrderItem, b: OrderItem): boolean => {
@@ -922,10 +924,39 @@ export const MeseroPage: React.FC = () => {
             </div>
           )}
 
+          {/* Selector de Pestañas en Móvil (< md): Catálogo vs Comanda para evitar cortes de pantalla */}
+          {!(selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder)) && (
+            <div className="flex md:hidden items-center bg-stone-200 p-1 gap-1 border-b border-gray-300 shrink-0">
+              <button
+                type="button"
+                onClick={() => setMobileOrderTab('catalog')}
+                className={`flex-1 py-2 px-2 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileOrderTab === 'catalog'
+                    ? 'bg-white text-black shadow-xs border border-gray-300'
+                    : 'text-gray-600 hover:text-black'
+                }`}
+              >
+                <span>📖 Catálogo Menú</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileOrderTab('cart')}
+                className={`flex-1 py-2 px-2 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileOrderTab === 'cart'
+                    ? 'bg-green-500 text-black shadow-xs border border-green-600'
+                    : 'text-gray-700 hover:text-black'
+                }`}
+              >
+                <span>🛒 Comanda ({cartItems.reduce((s, i) => s + i.quantity, 0)})</span>
+                <span className="px-1.5 py-0.5 rounded bg-black/10 text-[11px] font-black">${cartTotalUSD.toFixed(2)}</span>
+              </button>
+            </div>
+          )}
+
           {/* Body: Split View (Catalog + Inline Customizer on Left 65%, Cart on Right 35%) */}
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 bg-stone-100">
             {/* LEFT: 100% TEXT CATALOG & INLINE BURGER / DRINK BUILDER / DELIVERY CONFIG (65%) */}
-            <div className={`flex-1 w-full md:w-[60%] lg:w-[65%] ${selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder) ? 'p-1 sm:p-1.5' : 'p-2.5 sm:p-3'} border-b md:border-b-0 md:border-r border-gray-200 flex flex-col overflow-hidden min-h-0`}>
+            <div className={`${!(selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder)) && mobileOrderTab === 'cart' ? 'hidden md:flex' : 'flex'} flex-1 w-full md:w-[60%] lg:w-[65%] ${selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder) ? 'p-1 sm:p-1.5' : 'p-2.5 sm:p-3'} border-b md:border-b-0 md:border-r border-gray-200 flex-col overflow-hidden min-h-0`}>
               {selectedBurger ? (
                 /* INLINE BURGER BUILDER (Llega hasta arriba con máxima altura) */
                 <div className="flex-1 h-full min-h-0 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -1005,12 +1036,26 @@ export const MeseroPage: React.FC = () => {
                     salsas={availableSalsas}
                     onSelectSalsa={handleSelectSalsa}
                   />
+                  {cartItems.length > 0 && (
+                    <div className="md:hidden pt-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setMobileOrderTab('cart')}
+                        className="w-full py-3 px-4 rounded-2xl bg-green-500 hover:bg-green-600 text-black font-black text-xs sm:text-sm border-2 border-green-600 shadow-md flex items-center justify-between cursor-pointer active:scale-[0.99]"
+                      >
+                        <span>🛒 VER COMANDA ({cartItems.reduce((s, i) => s + i.quantity, 0)} ÍTEMS)</span>
+                        <span className="bg-black text-green-400 px-2.5 py-1 rounded-xl font-black">
+                          ${cartTotalUSD.toFixed(2)} USD • ENVIAR ➔
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* RIGHT: COMPACT CART & ORDER FORM (35%) */}
-            <div className="w-full md:w-[40%] lg:w-[35%] h-[48vh] md:h-full p-2.5 sm:p-3 flex flex-col justify-between bg-gray-50 overflow-hidden min-h-0 border-t md:border-t-0 md:border-l border-gray-200 shrink-0 md:shrink">
+            <div className={`${(selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder) || mobileOrderTab === 'catalog') ? 'hidden md:flex' : 'flex flex-1'} w-full md:w-[40%] lg:w-[35%] md:h-full p-2.5 sm:p-3 flex-col justify-between bg-gray-50 overflow-hidden min-h-0 border-t md:border-t-0 md:border-l border-gray-200`}>
                 <div className="flex-1 flex flex-col overflow-hidden min-h-0 space-y-2">
                   
                   {/* SECCIÓN SUPERIOR COMPACTA DE LA COMANDA */}
@@ -1092,7 +1137,7 @@ export const MeseroPage: React.FC = () => {
                   </div>
 
                   {/* Cart Items List */}
-                  <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-[140px]">
+                  <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-0">
                     {cartItems.length === 0 ? (
                       <div className="h-32 flex flex-col items-center justify-center text-center text-gray-400 text-sm border border-dashed border-gray-300 rounded-2xl bg-white/60 p-3">
                         <span className="font-bold">El carrito está vacío</span>

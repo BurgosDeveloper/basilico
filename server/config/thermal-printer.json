@@ -4,7 +4,7 @@
     "enabled": true,
     "connectionType": "lan",
     "paperWidth": "80mm",
-    "host": "192.168.1.10",
+    "host": "192.168.10.41",
     "port": 9100,
     "usbDeviceName": "POS-80",
     "timeoutMs": 8000,

@@ -157,6 +157,8 @@ export interface Order {
   kitchenNotes?: string;
   shift?: 'manana' | 'noche' | 'ambos';
   deliveryFeeUSD?: number;
+  debtorName?: string;
+  archivedAt?: string;
 }
 
 

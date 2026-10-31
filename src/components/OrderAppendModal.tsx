@@ -36,6 +36,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
 
   // Estados de catálogo y búsqueda
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
+  const [mobileOrderTab, setMobileOrderTab] = useState<'catalog' | 'cart'>('catalog');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [itemsToAdd, setItemsToAdd] = useState<OrderItem[]>([]);
   const [removedItemIds, setRemovedItemIds] = useState<string[]>([]);
@@ -79,6 +80,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
       setIsSubmitting(false);
       setSearchQuery('');
       setSelectedCategory('Todas');
+      setMobileOrderTab('catalog');
       setSelectedBurger(null);
       setSelectedDrink(null);
       setEditingAppendItem(null);
@@ -307,14 +309,15 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         ? `${config.halfDetails.half1Name} / ${config.halfDetails.half2Name}`
         : config.burger.name;
 
+      const isMorning = config.burger.shift === 'manana' || userSession?.shift === 'manana';
       return {
         id: `add-bg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         productId: config.burger.id,
         productName: displayName,
         price: config.finalPrice,
         quantity: config.quantity,
-        category: config.burger.category || 'Pizzas',
-        size: config.size || 'Grande',
+        category: config.burger.category || (isMorning ? 'Especialidades' : 'Pizzas'),
+        size: isMorning ? undefined : (config.size || 'Grande'),
         isHalfHalf: isHalf,
         halfDetails: config.halfDetails,
         proteins:
@@ -327,8 +330,8 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         extras: config.extras && config.extras.length > 0 ? config.extras : undefined,
         isTakeaway: Boolean(config.isTakeaway),
         isDelivery: Boolean(config.isDelivery),
-        isCut: config.isCut,
-        cutPreference: config.cutPreference,
+        isCut: isMorning ? false : config.isCut,
+        cutPreference: isMorning ? undefined : config.cutPreference,
         notes: getCleanItemNote(config.notes) || undefined,
         isNewOrModified: true,
       };
@@ -350,7 +353,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         }
         return current;
       });
-      setSuccessToast(`¡${list.length} pizza(s) agregada(s)!`);
+      setSuccessToast(`¡${list.length} ${userSession?.shift === 'manana' ? 'plato(s) agregado(s)' : 'pizza(s) agregada(s)'}!`);
     }
 
     if (list.some((c) => c.isDelivery) && deliveryFeeUSD <= 0) {
@@ -565,11 +568,40 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
           </div>
         )}
 
+        {/* Selector de Pestañas en Móvil (< md): Catálogo vs Resumen/Adición */}
+        {!(selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder)) && (
+          <div className="flex md:hidden items-center bg-stone-200 p-1 gap-1 border-b border-gray-300 shrink-0">
+            <button
+              type="button"
+              onClick={() => setMobileOrderTab('catalog')}
+              className={`flex-1 py-2 px-2 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                mobileOrderTab === 'catalog'
+                  ? 'bg-white text-black shadow-xs border border-gray-300'
+                  : 'text-gray-600 hover:text-black'
+              }`}
+            >
+              <span>📖 Catálogo Menú</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileOrderTab('cart')}
+              className={`flex-1 py-2 px-2 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                mobileOrderTab === 'cart'
+                  ? 'bg-yellow-400 text-black shadow-xs border border-yellow-500'
+                  : 'text-gray-700 hover:text-black'
+              }`}
+            >
+              <span>🛒 Adición ({itemsToAdd.reduce((s, i) => s + i.quantity, 0)})</span>
+              <span className="px-1.5 py-0.5 rounded bg-black/10 text-[11px] font-black">+${addedSubtotalUSD.toFixed(2)}</span>
+            </button>
+          </div>
+        )}
+
         {/* CUERPO PRINCIPAL: 2 COLUMNAS (IZQUIERDA: CATÁLOGO + INLINE BUILDER 65% | DERECHA: CANASTA Y RESUMEN 35%) */}
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 bg-stone-100">
           
           {/* COLUMNA IZQUIERDA: CATÁLOGO, PERSONALIZADOR INLINE Y CONFIGURADOR DE DELIVERY */}
-          <div className={`flex-1 md:w-[65%] ${selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder) ? 'p-1 sm:p-1.5' : 'p-2.5 sm:p-3'} border-r border-gray-200 flex flex-col overflow-hidden min-h-0`}>
+          <div className={`${!(selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder)) && mobileOrderTab === 'cart' ? 'hidden md:flex' : 'flex'} flex-1 md:w-[65%] ${selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder) ? 'p-1 sm:p-1.5' : 'p-2.5 sm:p-3'} border-r border-gray-200 flex-col overflow-hidden min-h-0`}>
             
             {/* Contenedor del Catálogo de Productos (Oculto mientras se personaliza para dar máxima altura) */}
             {selectedBurger ? (
@@ -653,12 +685,26 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
                   salsas={availableSalsas}
                   onSelectSalsa={handleSelectSalsa}
                 />
+                {(itemsToAdd.length > 0 || removedItemIds.length > 0) && (
+                  <div className="md:hidden pt-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setMobileOrderTab('cart')}
+                      className="w-full py-3 px-4 rounded-2xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs sm:text-sm border-2 border-yellow-500 shadow-md flex items-center justify-between cursor-pointer active:scale-[0.99]"
+                    >
+                      <span>🛒 REVISAR ADICIÓN ({itemsToAdd.reduce((s, i) => s + i.quantity, 0)} ÍTEMS)</span>
+                      <span className="bg-black text-yellow-400 px-2.5 py-1 rounded-xl font-black">
+                        +${addedSubtotalUSD.toFixed(2)} USD • CONFIRMAR ➔
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
           {/* COLUMNA DERECHA: RESUMEN DE COMANDA Y PRODUCTOS A ADICIONAR (35%) */}
-          <div className="md:w-[35%] p-2.5 sm:p-3 flex flex-col justify-between bg-gray-50 overflow-hidden min-h-0 border-l border-gray-200">
+          <div className={`${(selectedBurger || selectedDrink || (showDeliveryConfig && isDeliveryOrder) || mobileOrderTab === 'catalog') ? 'hidden md:flex' : 'flex flex-1'} md:w-[35%] p-2.5 sm:p-3 flex-col justify-between bg-gray-50 overflow-hidden min-h-0 border-l border-gray-200`}>
             
             <div className="flex-1 flex flex-col overflow-hidden min-h-0 space-y-2">
               {/* Banner interactivo de Delivery si la comanda incluye delivery */}

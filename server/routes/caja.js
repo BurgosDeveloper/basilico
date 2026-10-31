@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
-const { fetchAllOrders, fetchAllTables } = require('../helpers/fetchAll');
+const { fetchAllOrders, fetchAllTables, safeJsonParse, safeJsonParseObj } = require('../helpers/fetchAll');
 const { requireRole } = require('../helpers/sessionAuth');
 const { printCierreShiftTicket } = require('../helpers/thermalPrinter');
 const { syncOrdersAndTables } = require('../helpers/shiftSync');
@@ -507,6 +507,272 @@ module.exports = function(io) {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Error al generar reporte diario' });
+    }
+  });
+
+  // Consulta forense y búsqueda de comandas históricas (de cualquier día o rango, archivadas o activas)
+  router.get('/comandas-historicas', requireRole('caja', 'admin'), async (req, res) => {
+    try {
+      const {
+        from,
+        to,
+        search,
+        shift,
+        paymentStatus,
+        orderType,
+        archived,
+        limit = 50,
+        page = 1,
+      } = req.query;
+
+      // Determinar ámbito de turno según rol y parámetros (respetando GUIA.md)
+      let targetShift = null;
+      if (shift && shift !== 'todos' && shift !== 'ambos') {
+        targetShift = shift;
+      } else if (!shift && req.user && req.user.shift && req.user.shift !== 'ambos' && req.user.role !== 'admin') {
+        targetShift = req.user.shift;
+      }
+
+      // Normalizar fechas para matching de timestamp en PostgreSQL
+      let fromClean = from ? String(from).trim().replace('T', ' ') : null;
+      let toClean = to ? String(to).trim().replace('T', ' ') : null;
+      if (fromClean) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fromClean)) fromClean += ' 00:00:00';
+        else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(fromClean)) fromClean += ':00';
+      }
+      if (toClean) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(toClean)) toClean += ' 23:59:59.999';
+        else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(toClean)) toClean += ':59.999';
+        else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(toClean)) toClean += '.999';
+      }
+
+      const whereClauses = [];
+      const params = [];
+
+      if (fromClean) {
+        params.push(fromClean);
+        whereClauses.push(`orders.created_at >= $${params.length}`);
+      }
+      if (toClean) {
+        params.push(toClean);
+        whereClauses.push(`orders.created_at <= $${params.length}`);
+      }
+      if (targetShift === 'manana') {
+        whereClauses.push(`(
+          orders.shift = 'manana'
+          OR (
+            (orders.shift = 'ambos' OR orders.shift IS NULL)
+            AND EXTRACT(HOUR FROM (orders.created_at AT TIME ZONE 'America/Caracas')) >= 6
+            AND EXTRACT(HOUR FROM (orders.created_at AT TIME ZONE 'America/Caracas')) < 17
+          )
+        )`);
+      } else if (targetShift === 'noche') {
+        whereClauses.push(`(
+          orders.shift = 'noche'
+          OR (
+            (orders.shift = 'ambos' OR orders.shift IS NULL)
+            AND (
+              EXTRACT(HOUR FROM (orders.created_at AT TIME ZONE 'America/Caracas')) < 6
+              OR EXTRACT(HOUR FROM (orders.created_at AT TIME ZONE 'America/Caracas')) >= 17
+            )
+          )
+        )`);
+      }
+      if (paymentStatus && paymentStatus !== 'todos') {
+        params.push(paymentStatus);
+        whereClauses.push(`orders.payment_status = $${params.length}`);
+      }
+      if (orderType && orderType !== 'todos') {
+        params.push(orderType);
+        whereClauses.push(`orders.type = $${params.length}`);
+      }
+      if (archived === 'archived') {
+        whereClauses.push(`orders.archived_at IS NOT NULL`);
+      } else if (archived === 'active') {
+        whereClauses.push(`orders.archived_at IS NULL`);
+      }
+
+      if (search && search.trim()) {
+        const term = search.trim();
+        params.push(`%${term}%`);
+        const pIdx = params.length;
+        if (/^\d+$/.test(term)) {
+          params.push(parseInt(term, 10));
+          const numIdx = params.length;
+          whereClauses.push(`(
+            orders.order_number ILIKE $${pIdx} 
+            OR orders.customer_name ILIKE $${pIdx} 
+            OR orders.debtor_name ILIKE $${pIdx} 
+            OR orders.notes ILIKE $${pIdx} 
+            OR orders.kitchen_notes ILIKE $${pIdx} 
+            OR orders.waiter_name ILIKE $${pIdx}
+            OR orders.table_number = $${numIdx}
+          )`);
+        } else {
+          whereClauses.push(`(
+            orders.order_number ILIKE $${pIdx} 
+            OR orders.customer_name ILIKE $${pIdx} 
+            OR orders.debtor_name ILIKE $${pIdx} 
+            OR orders.notes ILIKE $${pIdx} 
+            OR orders.kitchen_notes ILIKE $${pIdx} 
+            OR orders.waiter_name ILIKE $${pIdx}
+          )`);
+        }
+      }
+
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      // 1. Resumen y métricas de coincidencias
+      const countSql = `
+        SELECT 
+          COUNT(*)::int AS total_count,
+          COALESCE(SUM(total_usd), 0)::numeric AS total_usd,
+          COALESCE(SUM(paid_amount_usd), 0)::numeric AS total_paid_usd
+        FROM orders
+        ${whereSql}
+      `;
+      const { rows: countRows } = await query(countSql, params);
+      const totalCount = parseInt(countRows[0]?.total_count || 0, 10);
+      const totalUSD = parseFloat(countRows[0]?.total_usd || 0);
+      const totalPaidUSD = parseFloat(countRows[0]?.total_paid_usd || 0);
+
+      // 2. Paginación segura
+      const parsedLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 300);
+      const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+      const offset = (parsedPage - 1) * parsedLimit;
+      const totalPages = Math.max(1, Math.ceil(totalCount / parsedLimit));
+
+      const queryParams = [...params, parsedLimit, offset];
+      const ordersSql = `
+        SELECT * FROM orders
+        ${whereSql}
+        ORDER BY orders.created_at DESC
+        LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}
+      `;
+      const { rows: orderRows } = await query(ordersSql, queryParams);
+
+      const orderIds = orderRows.map((o) => o.id);
+      let itemsRows = [];
+      let paymentsRows = [];
+
+      if (orderIds.length > 0) {
+        const { rows: fetchedItems } = await query(
+          `SELECT oi.*, p.default_proteins 
+           FROM order_items oi 
+           LEFT JOIN products p ON (oi.product_id = p.id OR LOWER(oi.product_name) = LOWER(p.name))
+           WHERE oi.order_id = ANY($1::text[])`,
+          [orderIds]
+        );
+        itemsRows = fetchedItems;
+
+        const { rows: fetchedPayments } = await query(
+          `SELECT * FROM order_payments WHERE order_id = ANY($1::text[]) ORDER BY created_at ASC`,
+          [orderIds]
+        );
+        paymentsRows = fetchedPayments;
+      }
+
+      // 3. Mapeo forense completo idéntico al modelo Order
+      const mappedOrders = orderRows.map((ord) => ({
+        id: ord.id,
+        orderNumber: ord.order_number,
+        type: ord.type,
+        tableNumber: ord.table_number,
+        customerName: ord.customer_name,
+        status: ord.status,
+        paymentStatus: ord.payment_status,
+        paymentMethod: ord.payment_method,
+        totalUSD: parseFloat(ord.total_usd) || 0,
+        paidAmountUSD: parseFloat(ord.paid_amount_usd) || (ord.payment_status === 'pagado' || ord.payment_status === 'credito' ? parseFloat(ord.total_usd) : 0),
+        copRateAtPayment: parseFloat(ord.cop_rate_at_payment) || 3950,
+        bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
+        waiterName: ord.waiter_name || 'Mesero',
+        kitchenNotes: ord.kitchen_notes,
+        notes: ord.notes || undefined,
+        debtorName: ord.debtor_name || ord.notes || undefined,
+        isEdited: !!ord.is_edited,
+        mergedFromOrders: ord.merged_from_orders || [],
+        deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
+        shift: (ord.shift === 'manana' || ord.shift === 'noche')
+          ? ord.shift
+          : (() => {
+              const dt = new Date(ord.created_at);
+              const caracasHour = (dt.getUTCHours() - 4 + 24) % 24;
+              return (caracasHour >= 6 && caracasHour < 17) ? 'manana' : 'noche';
+            })(),
+        archivedAt: ord.archived_at,
+        createdAt: ord.created_at,
+        paymentHistory: paymentsRows
+          .filter((pm) => pm.order_id === ord.id)
+          .map((pm) => ({
+            id: pm.id,
+            orderId: pm.order_id,
+            payerName: pm.payer_name || 'Cliente General',
+            paymentMethod: pm.payment_method,
+            method: pm.payment_method,
+            entryType: (parseFloat(pm.change_given_usd || 0) > 0 || parseFloat(pm.change_given_cop || 0) > 0 || parseFloat(pm.change_given_bs || 0) > 0) ? 'change' : 'payment',
+            currency: (parseFloat(pm.cash_tendered_cop || 0) > 0 || parseFloat(pm.change_given_cop || 0) > 0 || (pm.payment_method && (pm.payment_method.includes('COP') || pm.payment_method.includes('Bancolombia') || pm.payment_method.includes('Nequi'))))
+              ? 'COP'
+              : (parseFloat(pm.cash_tendered_bs || 0) > 0 || parseFloat(pm.change_given_bs || 0) > 0 || (pm.payment_method && (pm.payment_method.includes('Bs') || pm.payment_method.includes('Movil') || pm.payment_method.includes('Debito') || pm.payment_method.includes('Tarjeta de Crédito'))))
+              ? 'Bs'
+              : 'USD',
+            amountPaidUSD: parseFloat(pm.amount_paid_usd) || 0,
+            cashTenderedUSD: parseFloat(pm.cash_tendered_usd) || 0,
+            cashTenderedCOP: parseFloat(pm.cash_tendered_cop) || 0,
+            cashTenderedBs: parseFloat(pm.cash_tendered_bs) || 0,
+            changeGivenUSD: parseFloat(pm.change_given_usd) || 0,
+            changeGivenCOP: parseFloat(pm.change_given_cop) || 0,
+            changeGivenBs: parseFloat(pm.change_given_bs) || 0,
+            copRate: parseFloat(pm.cop_rate) || 3950,
+            bsRate: parseFloat(pm.bs_rate) || 36.5,
+            itemIds: pm.item_ids || [],
+            createdAt: pm.created_at,
+          })),
+        items: itemsRows
+          .filter((it) => it.order_id === ord.id)
+          .map((it) => ({
+            id: it.id,
+            productId: it.product_id,
+            productName: it.product_name,
+            price: parseFloat(it.price) || 0,
+            quantity: it.quantity,
+            size: it.size || 'Estándar',
+            isHalfHalf: !!it.is_half_half,
+            halfDetails: safeJsonParseObj(it.half_details),
+            removedIngredients: it.removed_ingredients || [],
+            proteins: it.proteins || [],
+            defaultProteins: it.default_proteins || [],
+            extras: safeJsonParse(it.extras_json),
+            sugarPreference: it.sugar_preference || undefined,
+            drinkType: it.drink_type || undefined,
+            category: it.category || undefined,
+            isTakeaway: !!it.is_takeaway,
+            isDelivery: !!it.is_delivery,
+            isCut: !!it.is_cut,
+            cutPreference: it.cut_preference || (it.is_cut ? 'Picada' : 'Entera'),
+            isNewOrModified: !!it.is_new_or_modified,
+            isPaidIndividually: !!it.is_paid_individually,
+            paidByName: it.paid_by_name || undefined,
+            flavor: it.flavor || undefined,
+            notes: it.notes || '',
+          })),
+      }));
+
+      res.json({
+        success: true,
+        summary: {
+          totalCount,
+          totalUSD,
+          totalPaidUSD,
+          page: parsedPage,
+          totalPages,
+          limit: parsedLimit,
+        },
+        orders: mappedOrders,
+      });
+    } catch (err) {
+      console.error('Error al consultar comandas históricas:', err);
+      res.status(500).json({ error: 'Error al consultar historial de comandas' });
     }
   });
 

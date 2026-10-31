@@ -655,7 +655,7 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-[140px]">
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-0">
               {cartItems.length === 0 ? (
                 <div className="h-32 flex flex-col items-center justify-center text-center text-gray-400 text-sm border border-dashed border-gray-300 rounded-2xl bg-white/60 p-3">
                   <span className="font-bold">El carrito está vacío</span>
@@ -716,7 +716,7 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
                             🛵 Delivery
                           </button>
 
-                          {item.size && (
+                          {item.size && userSession?.shift !== 'manana' && (
                             <span className="text-xs font-black text-stone-900 bg-green-100 border border-green-300 px-2 py-0.5 rounded-md inline-block uppercase">
                               🍕 {item.size.toUpperCase()}
                             </span>

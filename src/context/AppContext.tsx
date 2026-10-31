@@ -25,6 +25,31 @@ export interface UserSession {
   sessionToken?: string;
 }
 
+export interface HistoricOrdersParams {
+  from?: string;
+  to?: string;
+  search?: string;
+  shift?: 'manana' | 'noche' | 'ambos' | 'todos';
+  paymentStatus?: 'todos' | 'pagado' | 'credito' | 'no_pagado' | 'cancelado';
+  orderType?: 'todos' | 'mesa' | 'delivery' | 'pickup';
+  archived?: 'todos' | 'archived' | 'active';
+  limit?: number;
+  page?: number;
+}
+
+export interface HistoricOrdersResponse {
+  success: boolean;
+  summary: {
+    totalCount: number;
+    totalUSD: number;
+    totalPaidUSD: number;
+    page: number;
+    totalPages: number;
+    limit: number;
+  };
+  orders: Order[];
+}
+
 interface AppContextType {
   userSession: UserSession | null;
   login: (username: string, password: string) => Promise<{ success: boolean; user?: UserSession; error?: string }>;
@@ -107,6 +132,7 @@ interface AppContextType {
   realizarCierreCaja: (actualUSD?: number, actualCOP?: number, notes?: string) => Promise<any>;
   obtenerReporteDiario: () => Promise<any>;
   fetchReporteIntervalo: (from: string, to: string) => Promise<any>;
+  fetchHistoricOrders: (params: HistoricOrdersParams) => Promise<HistoricOrdersResponse>;
   printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted', data: any, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   printOrderReceipt: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   reprintKitchenOrder: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
@@ -141,25 +167,24 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const getInitialBackendUrl = (): string => {
-  // El cliente web consulta /api/connection-info antes de iniciar la sincronización.
-  if (typeof document !== 'undefined') return '';
+  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+    const savedIp = window.localStorage.getItem('basilico_server_ip');
+    if (savedIp) {
+      const cleanIp = savedIp.trim().replace(/\/+$/, '');
+      if (cleanIp) {
+        return cleanIp.startsWith('http') ? cleanIp : `http://${cleanIp.includes(':') ? cleanIp : `${cleanIp}:3001`}`;
+      }
+    }
+  }
 
-  // La app nativa usa la IP LAN incluida en su paquete.
+  if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http')) {
+    return window.location.origin;
+  }
+
   try {
     const lanConfig = require('../config/lanConfig.json');
     if (lanConfig && lanConfig.backendUrl) return lanConfig.backendUrl;
   } catch (e) {}
-
-  // Respaldo manual para clientes nativos con una configuración específica.
-  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
-    const savedIp = window.localStorage.getItem('basilico_server_ip');
-    if (savedIp) {
-      const cleanIp = savedIp.trim();
-      if (cleanIp) {
-        return cleanIp.startsWith('http') ? cleanIp : `http://${cleanIp}:3001`;
-      }
-    }
-  }
 
   return '';
 };
@@ -168,8 +193,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [backendUrl, setBackendUrlState] = useState<string>(getInitialBackendUrl);
 
   const updateServerIp = useCallback((newIp: string) => {
-    let cleanIp = newIp.trim();
-    if (!cleanIp) return;
+    let cleanIp = newIp.trim().replace(/\/+$/, '');
+    if (!cleanIp) {
+      if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+        window.localStorage.removeItem('basilico_server_ip');
+      }
+      if (typeof window !== 'undefined' && window.location?.origin?.startsWith('http')) {
+        setBackendUrlState(window.location.origin);
+      }
+      return;
+    }
     if (!cleanIp.startsWith('http://') && !cleanIp.startsWith('https://')) {
       if (cleanIp.includes(':')) {
         cleanIp = `http://${cleanIp}`;
@@ -212,6 +245,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let isActive = true;
     const resolveLanBackend = async () => {
       try {
+        const customSaved = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+          ? window.localStorage.getItem('basilico_server_ip')
+          : null;
+        if (customSaved && customSaved.trim()) {
+          const targetBase = customSaved.trim().replace(/\/+$/, '');
+          const customRes = await fetch(`${targetBase}/api/connection-info`, { cache: 'no-store' });
+          if (customRes.ok) {
+            if (isActive) {
+              setBackendUrlState(targetBase);
+              setSyncError(null);
+            }
+            return;
+          }
+        }
+
         const response = await fetch('/api/connection-info', { cache: 'no-store' });
         const connectionInfo = await response.json();
         if (!response.ok || !connectionInfo.backendUrl) {
@@ -789,6 +837,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const fetchHistoricOrders = async (params: HistoricOrdersParams): Promise<HistoricOrdersResponse> => {
+    try {
+      const searchParams = new URLSearchParams();
+      if (params.from) searchParams.set('from', params.from);
+      if (params.to) searchParams.set('to', params.to);
+      if (params.search) searchParams.set('search', params.search);
+      if (params.shift) searchParams.set('shift', params.shift);
+      if (params.paymentStatus) searchParams.set('paymentStatus', params.paymentStatus);
+      if (params.orderType) searchParams.set('orderType', params.orderType);
+      if (params.archived) searchParams.set('archived', params.archived);
+      if (params.limit) searchParams.set('limit', String(params.limit));
+      if (params.page) searchParams.set('page', String(params.page));
+
+      const res = await apiFetch(`${backendUrl}/api/caja/comandas-historicas?${searchParams.toString()}`);
+      if (res.ok) return await res.json();
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al consultar historial de comandas.');
+    } catch (e: any) {
+      setSyncError(e.message || 'Error al consultar historial de comandas.');
+      throw e;
+    }
+  };
+
   const printReporteIntervalo = async (
     reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted',
     data: any,
@@ -1051,6 +1122,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         realizarCierreCaja,
         obtenerReporteDiario,
         fetchReporteIntervalo,
+        fetchHistoricOrders,
         printReporteIntervalo,
         printOrderReceipt,
         reprintKitchenOrder,

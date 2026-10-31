@@ -362,7 +362,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex items-center justify-between pb-3 border-b border-gray-200 mb-3">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-yellow-400 border border-yellow-500 p-0.5 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
-            <img src="/logo_default.png" alt="Basilico" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = '/icon.png'; }} />
+            <img src="/logo_default.png?v=basilico2026_v3" alt="Basilico" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = '/icon.png'; }} />
           </div>
           {!isCollapsed && (
             <span className="font-black text-sm tracking-wider text-black">

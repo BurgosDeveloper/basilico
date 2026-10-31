@@ -505,7 +505,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
             }
       )
     );
-    setCopyToast(`¡Personalización de #${activeUnitIndex + 1} copiada a las ${units.length} pizzas!`);
+    setCopyToast(`¡Personalización de #${activeUnitIndex + 1} copiada a ${isMorning ? `los ${units.length} platos` : `las ${units.length} pizzas`}!`);
     setTimeout(() => setCopyToast(''), 2500);
   };
 
@@ -514,7 +514,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
     if (!burger) return;
     const fresh = createInitialUnitConfig(activeUnitIndex, burger, defaultTakeaway, defaultDelivery, effectivePizzas);
     updateCurrentUnit(() => fresh);
-    setCopyToast(`Pizza #${activeUnitIndex + 1} restablecida a su receta base.`);
+    setCopyToast(`${isMorning ? 'Plato' : 'Pizza'} #${activeUnitIndex + 1} restablecid${isMorning ? 'o' : 'a'} a su receta base.`);
     setTimeout(() => setCopyToast(''), 2000);
   };
 
@@ -850,7 +850,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
     <div className={inline ? "flex flex-col h-full bg-stone-100 text-gray-900 w-full overflow-hidden select-none" : "fixed inset-0 z-[100] flex flex-col bg-stone-100 text-gray-900 w-full h-full max-h-screen overflow-hidden select-none"}>
       {/* 1. TOP HEADER (CORTE COMPACTO Y CLARO CON IDENTIDAD BASILICO) */}
       <header className={`bg-white text-gray-900 ${inline ? 'px-3.5 py-2' : 'px-4 sm:px-6 py-3'} flex items-center justify-between border-b-2 ${isMorning ? 'border-amber-500' : 'border-green-500'} shrink-0 shadow-xs`}>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0 flex-1">
           <span className={inline ? "text-2xl sm:text-3xl" : "text-3xl sm:text-4xl"}>
             {isMorning ? '🍽️' : '🍕'}
           </span>
@@ -916,7 +916,7 @@ export const BurgerBuilderModal: React.FC<BurgerBuilderModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-gray-800 hover:text-black transition-colors cursor-pointer flex items-center gap-1.5 font-black text-xs sm:text-sm shadow-2xs border border-gray-300"
+          className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-gray-800 hover:text-black transition-colors cursor-pointer flex items-center gap-1.5 font-black text-xs sm:text-sm shadow-2xs border border-gray-300 shrink-0"
           title={inline ? "Volver al catálogo" : "Cerrar modal"}
         >
           <IoClose className={inline ? "text-xl text-gray-700" : "text-2xl"} />

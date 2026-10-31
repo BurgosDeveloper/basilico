@@ -52,7 +52,20 @@ if (!fs.existsSync(uploadsDir)) {
 app.use('/uploads', express.static(uploadsDir));
 
 app.get('/api/connection-info', (req, res) => {
-  res.json({ app: 'basilico', ...refreshLanConnectionInfo() });
+  const info = refreshLanConnectionInfo();
+  const hostHeader = String(req.headers.host || '').trim();
+  const hostIpMatch = hostHeader.match(/^((?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[0-1])\.)\d{1,3}\.\d{1,3})(?::(\d+))?$/);
+  if (hostIpMatch) {
+    const reqIp = hostIpMatch[1];
+    const reqPort = hostIpMatch[2] || '3001';
+    return res.json({
+      app: 'basilico',
+      ...info,
+      lanIp: reqIp,
+      backendUrl: `http://${reqIp}:${reqPort}`,
+    });
+  }
+  res.json({ app: 'basilico', ...info });
 });
 
 const server = http.createServer(app);

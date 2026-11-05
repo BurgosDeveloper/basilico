@@ -113,12 +113,33 @@ function getConnectionInfo() {
   });
 }
 
+function ensureNodeModules() {
+  const localNm = path.join(rootDir, 'node_modules');
+  const siblingNm = path.join(rootDir, '..', 'crispy', 'node_modules');
+  if (!fs.existsSync(localNm) && fs.existsSync(siblingNm)) {
+    try {
+      execSync(`cmd /c mklink /J "${localNm}" "${siblingNm}"`, { stdio: 'ignore' });
+    } catch (_) {}
+  }
+}
+
 function startBackend() {
-  const child = spawn('node', ['server/index.js'], {
+  ensureNodeModules();
+  const siblingNm = path.join(rootDir, '..', 'crispy', 'node_modules');
+  const localNm = path.join(rootDir, 'node_modules');
+  const nodePath = fs.existsSync(localNm) ? localNm : (fs.existsSync(siblingNm) ? siblingNm : '');
+
+  const env = { ...process.env };
+  if (nodePath) {
+    env.NODE_PATH = env.NODE_PATH ? `${nodePath};${env.NODE_PATH}` : nodePath;
+  }
+
+  const child = spawn(process.execPath, ['server/index.js'], {
     cwd: rootDir,
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
+    env,
   });
   child.unref();
 }

@@ -128,6 +128,7 @@ export function saveStandbyOrder(data: {
   deliveryFeeUSD?: number;
   targetPrinter?: 'cocina' | 'caja' | 'ambas' | 'ninguna';
   totalUSD?: number;
+  shift?: string;
 }): StandbyOrder {
   const current = getStandbyOrders();
   const id = data.id || `standby_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -151,6 +152,7 @@ export function saveStandbyOrder(data: {
     totalUSD: total,
     createdAt: new Date().toISOString(),
     itemCount,
+    shift: data.shift || 'ambos',
   };
 
   const existingIdx = current.findIndex((o) => o.id === id);

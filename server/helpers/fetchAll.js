@@ -1,4 +1,5 @@
 const { query } = require('../db');
+const { paymentHistoryTotals } = require('./paymentLedger');
 
 function safeJsonParse(val, fallback = []) {
   if (!val) return fallback;
@@ -52,30 +53,48 @@ async function fetchAllOrders(user = null) {
   );
   const { rows: payments } = await query(`SELECT * FROM order_payments WHERE order_id = ANY($1::text[]) ORDER BY created_at ASC`, [orderIds]);
 
-  return orders.map((ord) => ({
-    id: ord.id,
-    orderNumber: ord.order_number,
-    type: ord.type,
-    tableNumber: ord.table_number,
-    customerName: ord.customer_name,
-    status: ord.status,
-    paymentStatus: ord.payment_status,
-    paymentMethod: ord.payment_method,
-    totalUSD: parseFloat(ord.total_usd) || 0,
-    paidAmountUSD: parseFloat(ord.paid_amount_usd) || (ord.payment_status === 'pagado' || ord.payment_status === 'credito' ? parseFloat(ord.total_usd) : 0),
-    copRateAtPayment: parseFloat(ord.cop_rate_at_payment) || 3950,
-    bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
-    waiterName: ord.waiter_name || 'Mesero',
-    kitchenNotes: ord.kitchen_notes,
-    notes: ord.notes || undefined,
-    isEdited: !!ord.is_edited,
-    mergedFromOrders: ord.merged_from_orders || [],
-    deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
-    shift: ord.shift || 'noche',
-    createdAt: ord.created_at,
-    paymentHistory: payments
-      .filter((pm) => pm.order_id === ord.id)
-      .map((pm) => ({
+  return orders.map((ord) => {
+    const orderRawPayments = payments.filter((pm) => pm.order_id === ord.id);
+    const totals = paymentHistoryTotals(orderRawPayments);
+    const totalUSD = parseFloat(ord.total_usd) || 0;
+    const rawPaidUSD = parseFloat(ord.paid_amount_usd) || 0;
+    const copRateOrd = parseFloat(ord.cop_rate_at_payment) || 3950;
+    const hasCop = orderRawPayments.some((p) => Number(p.cash_tendered_cop) > 0 || Number(p.change_given_cop) > 0);
+    const maxChangeToleranceUSD = Math.max(0.05, hasCop && copRateOrd > 0 ? 1000 / copRateOrd : 0.05);
+    const isAlreadyClosedPaid = Boolean(ord.archived_at) || (ord.status === 'entregada' && ord.payment_status === 'pagado');
+    const pendingChangeUSD = isAlreadyClosedPaid ? 0 : Math.max(0, totals.tenderedUSD - totalUSD - totals.changeGivenUSD);
+    const hasPendingChange = !isAlreadyClosedPaid && pendingChangeUSD > maxChangeToleranceUSD;
+    const isCovered = rawPaidUSD > 0 && (rawPaidUSD >= totalUSD - 0.05) && !hasPendingChange;
+    const resolvedPaymentStatus = ord.payment_status === 'credito'
+      ? 'credito'
+      : hasPendingChange
+      ? (rawPaidUSD > 0.05 ? 'parcial' : 'no_pagado')
+      : (isCovered ? 'pagado' : ord.payment_status);
+    const paidAmountUSD = rawPaidUSD || (resolvedPaymentStatus === 'pagado' || resolvedPaymentStatus === 'credito' ? totalUSD : 0);
+
+    return {
+      id: ord.id,
+      orderNumber: ord.order_number,
+      type: ord.type,
+      tableNumber: ord.table_number,
+      customerName: ord.customer_name,
+      status: ord.status,
+      paymentStatus: resolvedPaymentStatus,
+      paymentMethod: ord.payment_method,
+      totalUSD,
+      paidAmountUSD,
+      pendingChangeUSD,
+      copRateAtPayment: copRateOrd,
+      bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
+      waiterName: ord.waiter_name || 'Mesero',
+      kitchenNotes: ord.kitchen_notes,
+      notes: ord.notes || undefined,
+      isEdited: !!ord.is_edited,
+      mergedFromOrders: ord.merged_from_orders || [],
+      deliveryFeeUSD: parseFloat(ord.delivery_fee_usd) || 0,
+      shift: ord.shift || 'noche',
+      createdAt: ord.created_at,
+      paymentHistory: orderRawPayments.map((pm) => ({
         id: pm.id,
         orderId: pm.order_id,
         payerName: pm.payer_name || 'Cliente General',
@@ -99,35 +118,36 @@ async function fetchAllOrders(user = null) {
         itemIds: pm.item_ids || [],
         createdAt: pm.created_at,
       })),
-    items: items
-      .filter((it) => it.order_id === ord.id)
-      .map((it) => ({
-        id: it.id,
-        productId: it.product_id,
-        productName: it.product_name,
-        price: parseFloat(it.price) || 0,
-        quantity: it.quantity,
-        size: it.size || 'Estándar',
-        isHalfHalf: !!it.is_half_half,
-        halfDetails: safeJsonParseObj(it.half_details),
-        removedIngredients: it.removed_ingredients || [],
-        proteins: it.proteins || [],
-        defaultProteins: it.default_proteins || [],
-        extras: safeJsonParse(it.extras_json),
-        sugarPreference: it.sugar_preference || undefined,
-        drinkType: it.drink_type || undefined,
-        category: it.category || undefined,
-        isTakeaway: !!it.is_takeaway,
-        isDelivery: !!it.is_delivery,
-        isCut: !!it.is_cut,
-        cutPreference: it.cut_preference || (it.is_cut ? 'Picada' : 'Entera'),
-        isNewOrModified: !!it.is_new_or_modified,
-        isPaidIndividually: !!it.is_paid_individually,
-        paidByName: it.paid_by_name || undefined,
-        flavor: it.flavor || undefined,
-        notes: it.notes || '',
-      })),
-  }));
+      items: items
+        .filter((it) => it.order_id === ord.id)
+        .map((it) => ({
+          id: it.id,
+          productId: it.product_id,
+          productName: it.product_name,
+          price: parseFloat(it.price) || 0,
+          quantity: it.quantity,
+          size: it.size || 'Estándar',
+          isHalfHalf: !!it.is_half_half,
+          halfDetails: safeJsonParseObj(it.half_details),
+          removedIngredients: it.removed_ingredients || [],
+          proteins: it.proteins || [],
+          defaultProteins: it.default_proteins || [],
+          extras: safeJsonParse(it.extras_json),
+          sugarPreference: it.sugar_preference || undefined,
+          drinkType: it.drink_type || undefined,
+          category: it.category || undefined,
+          isTakeaway: !!it.is_takeaway,
+          isDelivery: !!it.is_delivery,
+          isCut: !!it.is_cut,
+          cutPreference: it.cut_preference || (it.is_cut ? 'Picada' : 'Entera'),
+          isNewOrModified: !!it.is_new_or_modified,
+          isPaidIndividually: !!it.is_paid_individually,
+          paidByName: it.paid_by_name || undefined,
+          flavor: it.flavor || undefined,
+          notes: it.notes || '',
+        })),
+    };
+  });
 }
 
 async function fetchAllProducts(user = null) {
@@ -201,7 +221,7 @@ async function fetchAllTables(user = null) {
     // Las mesas son la ÚNICA entidad física compartida: si una mesa tiene una comanda activa
     // en cualquier turno, debe reflejarse como ocupada para evitar cruces en el salón físico.
     const { rows: activeOrders } = await query(
-      `SELECT table_number FROM orders WHERE type = 'mesa' AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL`
+      `SELECT table_number FROM orders WHERE type = 'mesa' AND status NOT IN ('cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL AND NOT (status = 'entregada' AND payment_status = 'pagado')`
     );
     activeOccupiedTables = new Set(activeOrders.map((o) => o.table_number).filter(Boolean));
   } catch (e) {}
@@ -216,6 +236,43 @@ async function fetchAllTables(user = null) {
   }));
 }
 
+async function fetchAllStandbyOrders() {
+  try {
+    const { rows } = await query(`SELECT * FROM standby_orders ORDER BY created_at DESC`);
+    return rows.map((r) => {
+      let items = [];
+      if (typeof r.cart_items === 'string') {
+        items = safeJsonParse(r.cart_items);
+      } else if (Array.isArray(r.cart_items)) {
+        items = r.cart_items;
+      }
+
+      return {
+        id: r.id,
+        target: {
+          type: r.target_type || 'mesa',
+          tableNumber: r.table_number || undefined,
+          title: r.title || (r.target_type === 'mesa' ? `Mesa ${r.table_number}` : (r.target_type === 'delivery' ? 'Delivery' : 'Para Llevar')),
+        },
+        cartItems: items,
+        customerName: r.customer_name || '',
+        kitchenNotes: r.kitchen_notes || '',
+        deliveryFeeUSD: parseFloat(r.delivery_fee_usd) || 0,
+        targetPrinter: r.target_printer || 'cocina',
+        totalUSD: parseFloat(r.total_usd) || 0,
+        itemCount: parseInt(r.item_count, 10) || items.reduce((acc, it) => acc + (it.quantity || 1), 0),
+        shift: r.shift || 'ambos',
+        createdBy: r.created_by || 'mesero',
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      };
+    });
+  } catch (err) {
+    console.error('Error en fetchAllStandbyOrders:', err.message);
+    return [];
+  }
+}
+
 module.exports = {
   safeJsonParse,
   safeJsonParseObj,
@@ -224,4 +281,5 @@ module.exports = {
   fetchAllProducts,
   fetchAllIngredients,
   fetchAllTables,
+  fetchAllStandbyOrders,
 };

@@ -135,6 +135,32 @@ module.exports = function(io) {
           return res.status(409).json({ error: 'El monto a pagar para esta selección ya está cubierto. Registra únicamente el vuelto pendiente si aplica.' });
         }
 
+        if (currency === 'USD') {
+          if (paymentMethod !== 'Efectivo USD' && localAmount > scopePendingDebtUSD + 0.05) {
+            await client.query('ROLLBACK');
+            client.release();
+            client = null;
+            return res.status(400).json({
+              error: `Los pagos por ${paymentMethod} no generan vuelto y no pueden exceder el saldo pendiente ($${scopePendingDebtUSD.toFixed(2)} USD). Si el monto es en Pesos Colombianos, selecciona la moneda PESOS (COP).`,
+            });
+          }
+          if (paymentMethod === 'Efectivo USD' && (localAmount > scopePendingDebtUSD + 100 || (localAmount >= 500 && scopePendingDebtUSD < 400))) {
+            await client.query('ROLLBACK');
+            client.release();
+            client = null;
+            return res.status(400).json({
+              error: `El monto ingresado en Dólares ($${localAmount.toLocaleString()} USD) excede el límite permitido para el saldo pendiente de $${scopePendingDebtUSD.toFixed(2)} USD (máximo $100 USD de vuelto). Si el monto es en Pesos Colombianos, selecciona la moneda PESOS (COP).`,
+            });
+          }
+        } else if (currency === 'Bs' && amountUSD > scopePendingDebtUSD + 100) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(400).json({
+            error: `El monto en Bolívares (${localAmount.toLocaleString()} Bs ≈ $${amountUSD.toFixed(2)} USD) excede el límite válido para el saldo pendiente ($${scopePendingDebtUSD.toFixed(2)} USD). Verifica si la moneda correcta es PESOS (COP).`,
+          });
+        }
+
         // El monto imputado al pago (principal) es el mínimo entre lo entregado (amountUSD) y la deuda pendiente.
         // En COP, si el cliente paga el monto comercial redondeado, cubre la totalidad de la deuda.
         if (currency === 'COP') {
@@ -149,12 +175,32 @@ module.exports = function(io) {
         }
         tendered = paymentAmounts(localAmount, currency);
       } else {
+        if (currency === 'USD' && localAmount >= 100) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(400).json({
+            error: `El vuelto en Dólares ($${localAmount.toLocaleString()} USD) es inválido (no puede ser igual o mayor a $100 USD). Si el vuelto es en Pesos Colombianos (ej. ${localAmount.toLocaleString()} COP), selecciona la moneda PESOS (COP).`,
+          });
+        }
+        if (currency === 'Bs' && amountUSD >= 100) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(400).json({
+            error: `El vuelto en Bolívares (${localAmount.toLocaleString()} Bs ≈ $${amountUSD.toFixed(2)} USD) excede el límite permitido. Si el vuelto es en Pesos Colombianos, selecciona la moneda PESOS (COP).`,
+          });
+        }
         const copToleranceUSD = currency === 'COP' && copRate > 0 ? (1000 / copRate) : 0.02;
         if (amountUSD > pendingChangeUSD + copToleranceUSD) {
           await client.query('ROLLBACK');
           client.release();
           client = null;
-          return res.status(400).json({ error: 'El vuelto excede el monto pendiente por entregar.' });
+          return res.status(400).json({
+            error: currency === 'USD'
+              ? `El vuelto ($${localAmount.toFixed(2)} USD) excede el vuelto pendiente por entregar ($${pendingChangeUSD.toFixed(2)} USD). Si deseas registrar el vuelto en Pesos Colombianos, selecciona la moneda PESOS (COP).`
+              : 'El vuelto excede el monto pendiente por entregar.',
+          });
         }
         change = changeAmounts(localAmount, currency);
       }
@@ -172,11 +218,32 @@ module.exports = function(io) {
         ]
       );
 
-      const paidAmountUSD = totals.paidUSD + amountPaidUSD;
+      const updatedPaymentRows = [
+        ...paymentRows,
+        {
+          amount_paid_usd: amountPaidUSD,
+          cash_tendered_usd: tendered.cashTenderedUSD,
+          cash_tendered_cop: tendered.cashTenderedCOP,
+          cash_tendered_bs: tendered.cashTenderedBs,
+          change_given_usd: change.changeGivenUSD,
+          change_given_cop: change.changeGivenCOP,
+          change_given_bs: change.changeGivenBs,
+          cop_rate: copRate,
+          bs_rate: bsRate,
+        },
+      ];
+      const updatedTotals = paymentHistoryTotals(updatedPaymentRows);
+      const paidAmountUSD = updatedTotals.paidUSD;
+      const newPendingDebtUSD = Math.max(0, orderTotal - paidAmountUSD);
+      const newPendingChangeUSD = Math.max(0, updatedTotals.tenderedUSD - orderTotal - updatedTotals.changeGivenUSD);
+      const hasCopMovement = updatedPaymentRows.some((p) => Number(p.cash_tendered_cop) > 0 || Number(p.change_given_cop) > 0);
+      const maxChangeToleranceUSD = Math.max(0.05, hasCopMovement && copRate > 0 ? 1000 / copRate : 0.05);
+      const isFullPaid = newPendingDebtUSD <= 0.05 && newPendingChangeUSD <= maxChangeToleranceUSD && paidAmountUSD > 0;
+      const nextPaymentStatus = isFullPaid ? 'pagado' : (paidAmountUSD > 0.05 ? 'parcial' : 'no_pagado');
       await client.query(
-        `UPDATE orders SET payment_status = 'no_pagado', payment_method = $1, paid_amount_usd = $2,
-          cop_rate_at_payment = $3, bs_rate_at_payment = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5`,
-        [paymentMethod, paidAmountUSD, copRate, bsRate, id]
+        `UPDATE orders SET payment_status = $1, payment_method = $2, paid_amount_usd = $3,
+          cop_rate_at_payment = $4, bs_rate_at_payment = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6`,
+        [nextPaymentStatus, paymentMethod, paidAmountUSD, copRate, bsRate, id]
       );
 
       if (entryType === 'payment' && normalizedItemIds.length > 0) {
@@ -187,6 +254,19 @@ module.exports = function(io) {
             `UPDATE order_items SET is_paid_individually = true, paid_by_name = $1 WHERE order_id = $2 AND id = ANY($3::text[])`,
             [payerName || 'Cliente General', id, normalizedItemIds]
           );
+        }
+      }
+
+      if (isFullPaid) {
+        const { rows: ordRows } = await client.query('SELECT table_number, type, status FROM orders WHERE id = $1', [id]);
+        if (ordRows[0]?.status === 'entregada' && ordRows[0]?.type === 'mesa' && ordRows[0]?.table_number) {
+          const { rows: otherOrders } = await client.query(
+            `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL`,
+            [ordRows[0].table_number, id]
+          );
+          if (otherOrders.length === 0) {
+            await client.query(`UPDATE tables_config SET status = 'libre' WHERE number = $1`, [ordRows[0].table_number]);
+          }
         }
       }
 
@@ -219,7 +299,7 @@ module.exports = function(io) {
     try {
       client = await getClient();
       await client.query('BEGIN');
-      const { rows: orderRows } = await client.query('SELECT total_usd, status, shift, type, table_number FROM orders WHERE id = $1 FOR UPDATE', [id]);
+      const { rows: orderRows } = await client.query('SELECT total_usd, status, shift, type, table_number, cop_rate_at_payment FROM orders WHERE id = $1 FOR UPDATE', [id]);
       const order = orderRows[0];
       if (!order) {
         await client.query('ROLLBACK');
@@ -259,7 +339,7 @@ module.exports = function(io) {
       // Si es mesa, liberar la mesa en tables_config si no hay otras comandas activas
       if (isMesa && order.table_number) {
         const { rows: otherOrders } = await client.query(
-          `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito'`,
+          `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL AND NOT (status = 'entregada' AND payment_status = 'pagado')`,
           [order.table_number, id]
         );
         if (otherOrders.length === 0) {
@@ -409,25 +489,26 @@ module.exports = function(io) {
         }
 
         const pm = paymentRows[0];
-        const isChange = (Number(pm.change_given_usd) > 0 || Number(pm.change_given_cop) > 0 || Number(pm.change_given_bs) > 0) && Number(pm.amount_paid_usd) === 0;
+        const isChange = Number(pm.change_given_usd || 0) > 0 || Number(pm.change_given_cop || 0) > 0 || Number(pm.change_given_bs || 0) > 0;
         const editId = `edit-pm-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-        const auditMsg = isChange
-          ? `Vuelto / cambio entregado a ${pm.payer_name || 'Cliente general'} fue ANULADO / ELIMINADO de la comanda #${order.order_number || id}.`
+        const editDetails = isChange
+          ? `Vuelto (${pm.payment_method || 'Efectivo'}) de la comanda #${order.order_number || id} fue ANULADO / ELIMINADO.`
           : `Pago de $${Number(pm.amount_paid_usd || 0).toFixed(2)} USD (${pm.payment_method || 'Efectivo'}) de ${pm.payer_name || 'Cliente general'} fue ANULADO / ELIMINADO de la comanda #${order.order_number || id}.`;
 
         await client.query(
-          `INSERT INTO order_edits (id, order_id, order_number, edited_by, edit_type, edit_details) VALUES ($1, $2, $3, $4, 'anulacion_pago', $5)`,
+          `INSERT INTO order_edits (id, order_id, order_number, edited_by, edit_type, edit_details) VALUES ($1, $2, $3, $4, $5, $6)`,
           [
             editId,
             id,
             order.order_number || '',
             req.user.username || 'caja',
-            auditMsg
+            isChange ? 'anulacion_vuelto' : 'anulacion_pago',
+            editDetails,
           ]
         );
 
         await client.query(`DELETE FROM order_payments WHERE id = $1 AND order_id = $2`, [paymentId, id]);
-        await client.query(`DELETE FROM caja_chica_transactions WHERE order_id = $1 AND description LIKE $2`, [id, `%[${paymentId}]%`]);
+        await client.query(`DELETE FROM caja_chica_transactions WHERE order_id = $1 AND (description LIKE $2 OR id LIKE $3)`, [id, `%[${paymentId}]%`, `%${paymentId}%`]);
 
         const { rows: remainingPayments } = await client.query(`SELECT * FROM order_payments WHERE order_id = $1`, [id]);
         const remainingTotals = paymentHistoryTotals(remainingPayments);
@@ -436,7 +517,7 @@ module.exports = function(io) {
         const total = parseFloat(order.total_usd || 0);
         const pendingDebtUSD = Math.max(0, total - newPaid);
         const pendingChangeUSD = Math.max(0, remainingTotals.tenderedUSD - total - remainingTotals.changeGivenUSD);
-        const newStatus = pendingDebtUSD <= 0.05 && pendingChangeUSD <= 0.05 ? 'pagado' : 'no_pagado';
+        const newStatus = newPaid > 0 && pendingDebtUSD <= 0.05 && pendingChangeUSD <= 0.05 ? 'pagado' : 'no_pagado';
 
         await client.query(`UPDATE orders SET paid_amount_usd = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`, [newPaid, newStatus, id]);
 

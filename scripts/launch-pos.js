@@ -1,12 +1,45 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFileSync } = require('child_process');
 
 const rootDir = path.join(__dirname, '..');
 const port = 3001;
-const startupTimeoutMs = 15000;
+const startupTimeoutMs = 20000;
 const retryDelayMs = 250;
+
+function ensurePostgresRunning() {
+  if (process.platform !== 'win32') return;
+  try {
+    const outNet = execSync('netstat -ano | findstr :5432', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    if (outNet && outNet.includes('LISTENING')) return;
+  } catch (_) {}
+
+  try {
+    const pgBase = path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'PostgreSQL');
+    if (!fs.existsSync(pgBase)) return;
+    const versions = fs.readdirSync(pgBase).sort((a, b) => Number(b) - Number(a));
+    for (const ver of versions) {
+      const pgCtl = path.join(pgBase, ver, 'bin', 'pg_ctl.exe');
+      const dataDir = path.join(pgBase, ver, 'data');
+      if (fs.existsSync(pgCtl) && fs.existsSync(dataDir)) {
+        try {
+          execFileSync(pgCtl, ['start', '-D', dataDir, '-w'], {
+            stdio: 'ignore',
+            windowsHide: true,
+            timeout: 15000,
+          });
+          return;
+        } catch (_) {
+          try {
+            execSync(`net start postgresql-x64-${ver}`, { stdio: 'ignore', windowsHide: true, timeout: 10000 });
+            return;
+          } catch (__) {}
+        }
+      }
+    }
+  } catch (_) {}
+}
 
 function killOldPosInstances() {
   try {
@@ -65,22 +98,23 @@ function getConnectionInfo() {
           return;
         }
         try {
-          const connectionInfo = JSON.parse(body);
-          if (!connectionInfo.backendUrl) throw new Error('No se detectó una IP LAN válida.');
-          if (connectionInfo.app !== 'basilico') throw new Error('El backend respondiendo no pertenece a Basilico.');
-          resolve(connectionInfo);
+          resolve(JSON.parse(body));
         } catch (error) {
-          reject(error);
+          reject(new Error('La respuesta de connection-info no es un JSON válido.'));
         }
       });
     });
-    request.once('timeout', () => request.destroy(new Error('El backend no respondió a tiempo.')));
-    request.once('error', reject);
+
+    request.on('error', reject);
+    request.on('timeout', () => {
+      request.destroy();
+      reject(new Error('Tiempo de espera agotado al consultar connection-info.'));
+    });
   });
 }
 
 function startBackend() {
-  const child = spawn(process.execPath, ['server/index.js'], {
+  const child = spawn('node', ['server/index.js'], {
     cwd: rootDir,
     detached: true,
     stdio: 'ignore',
@@ -89,34 +123,51 @@ function startBackend() {
   child.unref();
 }
 
-function tryOpenBrowser(executable, args) {
-  return new Promise((resolve) => {
-    const browser = spawn(executable, args, { detached: true, stdio: 'ignore', windowsHide: false });
-    browser.once('error', () => resolve(false));
-    browser.once('spawn', () => {
-      browser.unref();
-      resolve(true);
-    });
-  });
+function fileExists(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
 }
 
-async function openPos(backendUrl) {
-  const args = [`--app=${backendUrl}`, '--new-window'];
-  const programFiles = process.env.PROGRAMFILES || 'C:\\Program Files';
-  const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)';
+function getBrowserCandidates() {
   const localAppData = process.env.LOCALAPPDATA || '';
-  const candidates = [
+  const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+
+  return [
     path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
     path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    'chrome.exe',
-    'msedge.exe',
-  ];
+    path.join(programFiles, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+    path.join(localAppData, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+  ].filter(fileExists);
+}
+
+function tryOpenBrowser(command, args) {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(command, args, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      child.unref();
+      resolve(true);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function openPos(backendUrl) {
+  const candidates = getBrowserCandidates();
+  const args = [`--app=${backendUrl}`];
 
   for (const candidate of candidates) {
-    if (path.isAbsolute(candidate) && !fs.existsSync(candidate)) continue;
     if (await tryOpenBrowser(candidate, args)) return;
   }
 
@@ -147,11 +198,14 @@ async function launch() {
     console.log('El servidor POS no está activo aún. Iniciando...');
   }
 
-  // 2. Si no responde, asegurar puerto 3001 e iniciar backend
+  // 2. Asegurar que PostgreSQL esté corriendo antes de iniciar backend
+  ensurePostgresRunning();
+
+  // 3. Si no responde, asegurar puerto 3001 e iniciar backend
   killOldPosInstances();
   startBackend();
 
-  // 3. Esperar a que el backend esté listo
+  // 4. Esperar a que el backend esté listo
   const connectionInfo = await waitForBackend();
   console.log('✅ Servidor POS iniciado en:', connectionInfo.backendUrl);
   await openPos(connectionInfo.backendUrl);

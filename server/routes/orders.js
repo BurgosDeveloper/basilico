@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { query, getClient } = require('../db');
-const { fetchAllOrders, fetchAllTables, safeJsonParse, safeJsonParseObj } = require('../helpers/fetchAll');
+const { fetchAllOrders, fetchAllTables, fetchAllStandbyOrders, safeJsonParse, safeJsonParseObj } = require('../helpers/fetchAll');
+const { paymentHistoryTotals } = require('../helpers/paymentLedger');
 const { postCompletedOrderCashMovements } = require('../helpers/cashLedger');
 const { requireRole } = require('../helpers/sessionAuth');
 const { assertShiftAccess } = require('../helpers/shiftScope');
@@ -60,7 +61,7 @@ module.exports = function(io) {
   router.post('/', requireRole('mesero', 'caja', 'admin'), async (req, res) => {
     let client;
     try {
-      const { type, tableNumber, customerName, kitchenNotes, items, totalUSD, deliveryFeeUSD, targetPrinter } = req.body;
+      const { type, tableNumber, customerName, kitchenNotes, items, totalUSD, deliveryFeeUSD, targetPrinter, standbyDraftId } = req.body;
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: 'La comanda debe incluir al menos un ítem.' });
       }
@@ -82,6 +83,20 @@ module.exports = function(io) {
 
       client = await getClient();
       await client.query('BEGIN');
+
+      // Si viene de un borrador en espera (Standby), consumirlo atómicamente primero.
+      // Si otra terminal o doble clic ya lo consumió, rowCount será 0 y abortamos
+      // evitando cualquier duplicación de comanda o cobro.
+      if (standbyDraftId) {
+        const deleteRes = await client.query('DELETE FROM standby_orders WHERE id = $1', [standbyDraftId]);
+        if (deleteRes.rowCount === 0) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(409).json({ error: 'Este pedido en espera ya fue procesado o eliminado por otro terminal.' });
+        }
+      }
+
       const orderId = `ord-${Date.now()}`;
 
       const orderShift = (req.user && req.user.shift && req.user.shift !== 'ambos') ? req.user.shift : 'noche';
@@ -171,6 +186,11 @@ module.exports = function(io) {
       emitToShift(io, orderShift, 'order:created', createdOrder);
       await syncOrdersAndTables(io, orderShift);
 
+      if (standbyDraftId) {
+        const allStandby = await fetchAllStandbyOrders();
+        io.emit('standby:sync', allStandby);
+      }
+
       console.log(`✅ [COMANDA REGISTRADA OK] ${createdOrder.orderNumber} enviada a WebSocket`);
       if (requiresKitchen && targetPrinter !== 'ninguna') {
         void printKitchenTicket(createdOrder, targetPrinter || 'cocina', io)
@@ -220,26 +240,74 @@ module.exports = function(io) {
       client = await getClient();
       await client.query('BEGIN');
       const orderShift = await assertOrderAccess(client, req.user, id);
-      const { rows } = await client.query(
-        `UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id`,
-        [status, id]
+      const { rows: currentOrd } = await client.query(
+        'SELECT id, total_usd, payment_status, paid_amount_usd, cop_rate_at_payment FROM orders WHERE id = $1',
+        [id]
       );
-      if (rows.length === 0) {
+      if (currentOrd.length === 0) {
         await client.query('ROLLBACK');
         client.release();
         client = null;
         return res.status(404).json({ error: 'Comanda no encontrada.' });
       }
+
+      const ord = currentOrd[0];
+      if (status === 'entregada' && ord.payment_status !== 'credito') {
+        const { rows: paymentRows } = await client.query('SELECT * FROM order_payments WHERE order_id = $1', [id]);
+        const totals = paymentHistoryTotals(paymentRows);
+        const totalUSD = Number(ord.total_usd) || 0;
+        const currentPaidUSD = Number(ord.paid_amount_usd) || 0;
+        const effectivePaid = Math.max(totals.paidUSD, currentPaidUSD);
+        const copRateOrd = Number(ord.cop_rate_at_payment) || 3950;
+        const hasCop = paymentRows.some((p) => Number(p.cash_tendered_cop) > 0 || Number(p.change_given_cop) > 0);
+        const maxChangeToleranceUSD = Math.max(0.05, hasCop && copRateOrd > 0 ? 1000 / copRateOrd : 0.05);
+        const pendingDebtUSD = Math.max(0, totalUSD - effectivePaid);
+        const pendingChangeUSD = Math.max(0, totals.tenderedUSD - totalUSD - totals.changeGivenUSD);
+
+        if (pendingDebtUSD > 0.05 || (totalUSD > 0 && effectivePaid <= 0)) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(409).json({
+            error: `No se puede entregar la comanda porque aún tiene saldo pendiente por cobrar ($${pendingDebtUSD.toFixed(2)} USD). Primero debe registrarse el cobro completo.`
+          });
+        }
+
+        if (pendingChangeUSD > maxChangeToleranceUSD) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
+          return res.status(409).json({
+            error: `No se puede entregar la comanda porque aún tiene vuelto pendiente por entregar ($${pendingChangeUSD.toFixed(2)} USD). Primero debe registrarse el vuelto completo.`
+          });
+        }
+
+        await client.query(
+          `UPDATE orders SET status = 'entregada', payment_status = 'pagado', paid_amount_usd = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [Math.min(effectivePaid, totalUSD), id]
+        );
+      } else {
+        await client.query(
+          `UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [status, id]
+        );
+      }
+
       if (status === 'entregada' || status === 'cancelado') {
         const { rows: ordRows } = await client.query('SELECT table_number, type FROM orders WHERE id = $1', [id]);
         if (ordRows[0]?.type === 'mesa' && ordRows[0]?.table_number) {
           const { rows: otherOrders } = await client.query(
-            `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('entregada', 'cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL`,
+            `SELECT id FROM orders WHERE type = 'mesa' AND table_number = $1 AND id != $2 AND status NOT IN ('cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL AND NOT (status = 'entregada' AND payment_status = 'pagado')`,
             [ordRows[0].table_number, id]
           );
           if (otherOrders.length === 0) {
             await client.query(`UPDATE tables_config SET status = 'libre' WHERE number = $1`, [ordRows[0].table_number]);
           }
+        }
+      } else if (status === 'en_preparacion' || status === 'preparada') {
+        const { rows: ordRows } = await client.query('SELECT table_number, type FROM orders WHERE id = $1', [id]);
+        if (ordRows[0]?.type === 'mesa' && ordRows[0]?.table_number) {
+          await client.query(`UPDATE tables_config SET status = 'ocupada' WHERE number = $1`, [ordRows[0].table_number]);
         }
       }
 
@@ -594,7 +662,7 @@ module.exports = function(io) {
       await assertOrderAccess(client, req.user, id);
 
       const { rows: orderRows } = await client.query(
-        `SELECT id, order_number, type, table_number, payment_status, shift FROM orders WHERE id = $1 FOR UPDATE`,
+        `SELECT id, order_number, type, table_number, payment_status, total_usd, shift, paid_amount_usd FROM orders WHERE id = $1 FOR UPDATE`,
         [id]
       );
       if (orderRows.length === 0) {
@@ -607,6 +675,16 @@ module.exports = function(io) {
       assertShiftAccess(req.user, ord.shift);
 
       const isCreditOrder = ord.payment_status === 'credito' || ord.type === 'credito';
+
+      // Consultar pagos registrados para preservar el estado contable real y no destruir pagos previos
+      const { rows: paymentRows } = await client.query('SELECT * FROM order_payments WHERE order_id = $1', [id]);
+      const totals = paymentHistoryTotals(paymentRows);
+      const totalUSD = Number(ord.total_usd) || 0;
+      const currentPaid = Number(ord.paid_amount_usd) || 0;
+      const effectivePaid = Math.max(totals.paidUSD, currentPaid);
+
+      let nextPaymentStatus = 'no_pagado';
+      let nextPaidAmount = 0;
 
       if (isCreditOrder) {
         // Al reactivar una comanda que estaba a crédito, su tipo pasa a ser 'credito' permanente sin ocupar mesa física
@@ -621,13 +699,23 @@ module.exports = function(io) {
           [id]
         );
       } else {
+        const pendingChangeUSD = Math.max(0, totals.tenderedUSD - totalUSD - totals.changeGivenUSD);
+        if (effectivePaid >= (totalUSD - 0.05) && effectivePaid > 0 && pendingChangeUSD <= 0.05) {
+          nextPaymentStatus = 'pagado';
+          nextPaidAmount = Math.min(effectivePaid, totalUSD);
+        } else if (effectivePaid > 0.05) {
+          nextPaymentStatus = 'parcial';
+          nextPaidAmount = effectivePaid;
+        }
+
         await client.query(
           `UPDATE orders SET
             status = 'preparada',
-            payment_status = 'no_pagado',
+            payment_status = $1,
+            paid_amount_usd = $2,
             updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1`,
-          [id]
+           WHERE id = $3`,
+          [nextPaymentStatus, nextPaidAmount, id]
         );
 
         // Si es comanda de mesa normal, marcar la mesa como ocupada

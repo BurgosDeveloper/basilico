@@ -10,6 +10,7 @@ const {
   fetchAllProducts,
   fetchAllIngredients,
   fetchAllTables,
+  fetchAllStandbyOrders,
 } = require('./helpers/fetchAll');
 const { getLanConnectionInfo, writeLanConfig } = require('./helpers/lan');
 const { getSession, requireSession } = require('./helpers/sessionAuth');
@@ -102,7 +103,8 @@ io.on('connection', (socket) => {
     fetchAllIngredients(user),
     fetchAllTables(user),
     getRatesForShift({ query }, userShift),
-  ]).then(([orders, products, ingredients, tables, rates]) => {
+    fetchAllStandbyOrders(),
+  ]).then(([orders, products, ingredients, tables, rates, standbyOrders]) => {
     socket.emit('orders:sync', orders);
     socket.emit('products:sync', products);
     socket.emit('ingredients:sync', ingredients);
@@ -112,6 +114,7 @@ io.on('connection', (socket) => {
       Bs: rates.Bs,
     });
     socket.emit('caja:updated');
+    socket.emit('standby:sync', standbyOrders);
   }).catch((error) => {
     console.error(`Error sincronizando WebSocket inicial para ${socket.id}:`, error.message);
   });
@@ -132,6 +135,7 @@ const ratesRoutes = require('./routes/rates');
 const uploadRoutes = require('./routes/upload');
 const reporteIntervaloRoutes = require('./routes/reporteIntervalo');
 const printersRoutes = require('./routes/printers');
+const standbyRoutes = require('./routes/standby');
 
 app.use('/api/auth', authRoutes(io));
 app.use('/api', requireSession);
@@ -147,6 +151,7 @@ app.use('/api/caja', reporteIntervaloRoutes(io));
 app.use('/api/printers', printersRoutes(io));
 app.use('/api/rates', ratesRoutes(io));
 app.use('/api/upload', uploadRoutes(io));
+app.use('/api/standby', standbyRoutes(io));
 
 const buildDir = path.join(__dirname, '../build');
 if (fs.existsSync(buildDir)) {

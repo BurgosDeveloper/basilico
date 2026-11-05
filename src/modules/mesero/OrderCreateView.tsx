@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Product, OrderItem, Ingredient } from '../../data/mockData';
 import { ProductTextCatalog } from './ProductTextCatalog';
@@ -7,6 +7,11 @@ import { DrinkSelectorModal, DrinkOrderConfirmationItem } from './DrinkSelectorM
 import { DeliveryConfigPanel } from './DeliveryConfigPanel';
 import { areProteinsDefault, getCleanItemNote, normalizeProteinName, formatRemovedIngredients } from '../../utils/burgerProteins';
 import { isCustomizableProduct } from '../../utils/productClassifier';
+import {
+  saveStandbyOrder,
+  removeStandbyOrder,
+  StandbyOrder,
+} from '../../utils/standbyOrders';
 
 import {
   IoClose,
@@ -16,6 +21,7 @@ import {
   IoPrintOutline,
   IoArrowBack,
   IoPencilOutline,
+  IoPauseCircle,
 } from 'react-icons/io5';
 
 export interface OrderTarget {
@@ -26,14 +32,18 @@ export interface OrderTarget {
 
 interface OrderCreateViewProps {
   target: OrderTarget;
+  initialStandbyOrder?: StandbyOrder | null;
   onClose: () => void;
   onOrderCreated?: () => void;
+  onStandbySaved?: () => void;
 }
 
 export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
   target,
+  initialStandbyOrder,
   onClose,
   onOrderCreated,
+  onStandbySaved,
 }) => {
   const {
     products,
@@ -47,15 +57,34 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Carrito y Formulario de Orden
-  const [cartItems, setCartItems] = useState<OrderItem[]>([]);
-  const [customerName, setCustomerName] = useState<string>('');
-  const [kitchenNotes, setKitchenNotes] = useState<string>('');
-  const [deliveryFeeUSD, setDeliveryFeeUSD] = useState<number>(target.type === 'delivery' ? 1.0 : 0);
-  const [showDeliveryConfig, setShowDeliveryConfig] = useState<boolean>(target.type === 'delivery');
+  // Carrito y Formulario de Orden (soporte Standby)
+  const [activeStandbyDraftId, setActiveStandbyDraftId] = useState<string | null>(initialStandbyOrder?.id || null);
+  const [cartItems, setCartItems] = useState<OrderItem[]>(initialStandbyOrder?.cartItems || []);
+  const [customerName, setCustomerName] = useState<string>(initialStandbyOrder?.customerName || '');
+  const [kitchenNotes, setKitchenNotes] = useState<string>(initialStandbyOrder?.kitchenNotes || '');
+  const [deliveryFeeUSD, setDeliveryFeeUSD] = useState<number>(
+    initialStandbyOrder ? initialStandbyOrder.deliveryFeeUSD : (target.type === 'delivery' ? 1.0 : 0)
+  );
+  const [showDeliveryConfig, setShowDeliveryConfig] = useState<boolean>(
+    initialStandbyOrder ? initialStandbyOrder.target.type === 'delivery' : (target.type === 'delivery')
+  );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const [orderError, setOrderError] = useState<string | null>(null);
-  const [targetPrinter, setTargetPrinter] = useState<'cocina' | 'caja' | 'ambas' | 'ninguna'>('cocina');
+  const [targetPrinter, setTargetPrinter] = useState<'cocina' | 'caja' | 'ambas' | 'ninguna'>(
+    (initialStandbyOrder?.targetPrinter as any) || 'cocina'
+  );
+
+  useEffect(() => {
+    if (initialStandbyOrder) {
+      setActiveStandbyDraftId(initialStandbyOrder.id);
+      setCartItems(initialStandbyOrder.cartItems || []);
+      setCustomerName(initialStandbyOrder.customerName || '');
+      setKitchenNotes(initialStandbyOrder.kitchenNotes || '');
+      setDeliveryFeeUSD(initialStandbyOrder.deliveryFeeUSD ?? (initialStandbyOrder.target.type === 'delivery' ? 1.0 : 0));
+      setShowDeliveryConfig(initialStandbyOrder.target.type === 'delivery');
+      setTargetPrinter((initialStandbyOrder.targetPrinter as any) || 'cocina');
+    }
+  }, [initialStandbyOrder]);
 
   // Modales de Productos
   const [selectedBurger, setSelectedBurger] = useState<Product | null>(null);
@@ -435,7 +464,13 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
         deliveryFeeUSD: effectiveDeliveryFee,
         shift: userSession?.shift || 'ambos',
         targetPrinter,
+        standbyDraftId: activeStandbyDraftId || undefined,
       } as any);
+
+      if (activeStandbyDraftId) {
+        removeStandbyOrder(activeStandbyDraftId);
+        setActiveStandbyDraftId(null);
+      }
 
       if (onOrderCreated) {
         onOrderCreated();
@@ -445,6 +480,29 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
       setOrderError(err?.message || 'Error al enviar la comanda a cocina y caja.');
     } finally {
       setIsSubmittingOrder(false);
+    }
+  };
+
+  const handlePutInStandby = () => {
+    if (cartItems.length === 0) {
+      alert('Agrega al menos un ítem al pedido para poder dejarlo en espera (Standby).');
+      return;
+    }
+
+    saveStandbyOrder({
+      id: activeStandbyDraftId || undefined,
+      target,
+      customerName: customerName.trim() || undefined,
+      kitchenNotes: kitchenNotes.trim() || undefined,
+      deliveryFeeUSD: showDeliveryConfig ? deliveryFeeUSD : 0,
+      targetPrinter,
+      cartItems,
+    });
+
+    if (onStandbySaved) {
+      onStandbySaved();
+    } else {
+      onClose();
     }
   };
 
@@ -471,14 +529,26 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-3 py-1.5 rounded-xl bg-white hover:bg-red-50 text-gray-800 hover:text-red-700 transition-colors flex items-center gap-1.5 font-black text-xs cursor-pointer border border-gray-200 shadow-xs"
-        >
-          <IoClose className="text-base" />
-          <span>Cerrar Pedido</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePutInStandby}
+            className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 text-white transition-all flex items-center gap-1.5 font-black text-xs cursor-pointer shadow-sm"
+            title="Guardar en espera (Standby) sin enviar a cocina ni asignar número"
+          >
+            <IoPauseCircle className="text-base" />
+            <span>PONER EN ESPERA</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-xl bg-white hover:bg-red-50 text-gray-800 hover:text-red-700 transition-colors flex items-center gap-1.5 font-black text-xs cursor-pointer border border-gray-200 shadow-xs"
+          >
+            <IoClose className="text-base" />
+            <span>Cerrar Pedido</span>
+          </button>
+        </div>
       </div>
 
       {/* Alerta de Error si la hay */}
@@ -928,19 +998,31 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              disabled={cartItems.length === 0 || isSubmittingOrder}
-              onClick={handleSubmitOrder}
-              className={`w-full py-3.5 rounded-2xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
-                cartItems.length === 0 || isSubmittingOrder
-                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                  : 'bg-yellow-400 hover:bg-yellow-500 text-black border-2 border-yellow-500 active:scale-[0.99]'
-              }`}
-            >
-              <IoPaperPlane className="text-base" />
-              <span>{isSubmittingOrder ? 'ENVIANDO COMANDA...' : 'ENVIAR A COCINA & CAJA'}</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handlePutInStandby}
+                className="w-full py-3 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-1.5 bg-orange-100 hover:bg-orange-200 text-orange-950 border border-orange-300 transition-all cursor-pointer shadow-xs active:scale-98"
+                title="Pausar y guardar este pedido sin generar número de comanda"
+              >
+                <IoPauseCircle className="text-lg text-orange-600" />
+                <span>PONER EN ESPERA</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={cartItems.length === 0 || isSubmittingOrder}
+                onClick={handleSubmitOrder}
+                className={`w-full py-3 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
+                  cartItems.length === 0 || isSubmittingOrder
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-yellow-400 hover:bg-yellow-500 text-black border-2 border-yellow-500 active:scale-[0.99]'
+                }`}
+              >
+                <IoPaperPlane className="text-base" />
+                <span>{isSubmittingOrder ? 'ENVIANDO...' : 'ENVIAR COMANDA'}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -15,6 +15,12 @@ import { HistoricOrdersSearchModal } from '../components/HistoricOrdersSearchMod
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { PaymentMethod, Order } from '../data/mockData';
+import {
+  getOrderPendingChangeUSD as calcOrderPendingChangeUSD,
+  isOrderFullySettled,
+} from '../utils/orderSettlement';
+import { StandbyOrdersModal } from '../components/StandbyOrdersModal';
+import { useStandbyOrders, StandbyOrder } from '../utils/standbyOrders';
 import { reportService } from '../services/reportService';
 import { exportToExcel, ReporteIntervaloData } from '../services/excelExportService';
 import { roundCOP } from '../utils/currencyRounding';
@@ -86,6 +92,17 @@ export const CajaPage: React.FC = () => {
   // Toma de Pedidos Nativa en Caja
   const [activeOrderTarget, setActiveOrderTarget] = useState<OrderTarget | null>(null);
   const [isTargetSelectorOpen, setIsTargetSelectorOpen] = useState<boolean>(false);
+
+  // Standby (Pedidos en Espera)
+  const { standbyOrders } = useStandbyOrders();
+  const [isStandbyModalOpen, setIsStandbyModalOpen] = useState<boolean>(false);
+  const [activeStandbyDraft, setActiveStandbyDraft] = useState<StandbyOrder | null>(null);
+
+  const handleSelectStandbyOrder = (standbyOrder: StandbyOrder) => {
+    setActiveStandbyDraft(standbyOrder);
+    setActiveOrderTarget(standbyOrder.target);
+    setIsStandbyModalOpen(false);
+  };
 
   const filteredCajaTransactions = cajaChicaTransactions.filter(
     (t) => !t.shift || t.shift === 'ambos' || userSession?.shift === 'ambos' || t.shift === userSession?.shift
@@ -210,11 +227,21 @@ export const CajaPage: React.FC = () => {
   const [isLoadingReporte, setIsLoadingReporte] = useState<boolean>(false);
   const [reporteError, setReporteError] = useState<string>('');
 
+  const getOrderPendingChangeUSD = (ord: Order): number =>
+    calcOrderPendingChangeUSD(ord, exchangeRates);
+
+  const isOrderSettled = (o: Order): boolean =>
+    isOrderFullySettled(o, exchangeRates);
+
   // Comandas activas no finalizadas/pagadas totalmente (excluye canceladas, fusionadas, pagadas y créditos ya entregados)
   const activeComandas = orders.filter(
-    (o) => o.status !== 'cancelado' && o.status !== 'fusionada' && !(o.status === 'entregada' && (o.paymentStatus === 'pagado' || o.paymentStatus === 'credito')) && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
+    (o) => o.status !== 'cancelado' && o.status !== 'fusionada' && !(o.status === 'entregada' && isOrderSettled(o)) && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
   );
-  const paidOrdersToday = orders.filter((o) => (o.paymentStatus === 'pagado' || o.paymentStatus === 'credito') && (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift));
+  const paidOrdersToday = orders.filter(
+    (o) =>
+      isOrderSettled(o) &&
+      (!o.shift || o.shift === 'ambos' || o.shift === userSession?.shift)
+  );
 
   // Historico Filters
   const [historicoSearch, setHistoricoSearch] = useState<string>('');
@@ -352,6 +379,13 @@ export const CajaPage: React.FC = () => {
   const handleManualTxSubmit = async () => {
     const amount = parseFloat(manualAmountUSD);
     if (!Number.isFinite(amount) || amount <= 0) return;
+
+    if (manualCurrency === 'USD' && (amount >= 1000 || (manualType === 'egreso' && amount > 500))) {
+      alert(
+        `⚠️ El monto ingresado en Dólares ($${amount.toLocaleString()} USD) excede el límite permitido y parece corresponder a Pesos Colombianos (COP). Si el movimiento es en Pesos, selecciona la moneda COP.`
+      );
+      return;
+    }
 
     const doSubmit = async () => {
       await addCajaTransaction({
@@ -498,8 +532,25 @@ export const CajaPage: React.FC = () => {
             <span>REPORTES & CIERRE</span>
           </button>
 
+          {standbyOrders.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsStandbyModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 bg-amber-400 hover:bg-amber-500 text-black border border-amber-500 shadow-xs cursor-pointer animate-pulse"
+              title="Ver pedidos en espera (Standby)"
+            >
+              <span>⏸️ STANDBY</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-black text-yellow-300 text-[10px] font-black leading-none">
+                {standbyOrders.length}
+              </span>
+            </button>
+          )}
+
           <button
-            onClick={() => setIsTargetSelectorOpen(true)}
+            onClick={() => {
+              setActiveStandbyDraft(null);
+              setIsTargetSelectorOpen(true);
+            }}
             className="px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 bg-yellow-400 hover:bg-yellow-500 text-black border border-yellow-500 shadow-xs cursor-pointer"
             title="Crear y tomar nuevos pedidos para mesas, delivery o pick-up"
           >
@@ -550,19 +601,32 @@ export const CajaPage: React.FC = () => {
           {activeOrderTarget ? (
             <OrderCreateView
               target={activeOrderTarget}
-              onClose={() => setActiveOrderTarget(null)}
+              initialStandbyOrder={activeStandbyDraft}
+              onClose={() => {
+                setActiveOrderTarget(null);
+                setActiveStandbyDraft(null);
+              }}
+              onOrderCreated={() => {
+                setActiveStandbyDraft(null);
+              }}
+              onStandbySaved={() => {
+                setActiveStandbyDraft(null);
+              }}
             />
           ) : cajaViewMode === 'tablero' ? (
             <TableCompactGrid
               tables={tables}
               orders={orders}
               onSelectTarget={(type, tableNumber) => {
+                setActiveStandbyDraft(null);
                 setActiveOrderTarget({
                   type,
                   tableNumber,
                   title: type === 'mesa' ? `Mesa #${tableNumber}` : (type === 'delivery' ? 'Delivery' : 'Para Llevar (Pick-Up)')
                 });
               }}
+              onOpenStandby={() => setIsStandbyModalOpen(true)}
+              standbyCount={standbyOrders.length}
               onViewActiveOrder={(ord) => setOrderDetailModalOrder(ord)}
               onAppendOrder={(ord) => setOrderAppendModalOrder(ord)}
               canPay={true}
@@ -692,13 +756,14 @@ export const CajaPage: React.FC = () => {
           ) : isCompactView ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
               {activeComandas.map((ord) => {
+                const paid = ord.paidAmountUSD || 0;
+                const remaining = Math.max(0, ord.totalUSD - paid);
+                const pendingChangeUSD = getOrderPendingChangeUSD(ord);
                 const isPrepared = ord.status === 'preparada' || ord.status === 'entregada';
-                const isPaid = ord.paymentStatus === 'pagado';
+                const isPaid = pendingChangeUSD <= 0 && (ord.paymentStatus === 'pagado' || (paid > 0 && remaining <= 0.05));
                 const isDelivered = ord.status === 'entregada';
                 const isSelectedForMultiPay = selectedOrderIdsForMultiPay.includes(ord.id);
                 const isExpanded = expandedOrderIds.includes(ord.id);
-                const paid = ord.paidAmountUSD || 0;
-                const remaining = Math.max(0, ord.totalUSD - paid);
                 const isDelivery = ord.type === 'delivery';
                 const titleText = ord.type === 'mesa'
                   ? `Mesa #${ord.tableNumber}`
@@ -992,7 +1057,11 @@ export const CajaPage: React.FC = () => {
                                   className="flex-1 py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-sm flex items-center justify-center gap-2 border border-yellow-500 shadow-sm transition-all cursor-pointer"
                                 >
                                   <IoCashOutline className="text-base" />
-                                  <span>COBRAR (${remaining > 0 ? remaining.toFixed(2) : ord.totalUSD.toFixed(2)})</span>
+                                  <span>
+                                    {pendingChangeUSD > 0
+                                      ? `DAR VUELTO ($${pendingChangeUSD.toFixed(2)})`
+                                      : `COBRAR ($${remaining > 0 ? remaining.toFixed(2) : ord.totalUSD.toFixed(2)})`}
+                                  </span>
                                 </button>
                               )}
 
@@ -1017,27 +1086,30 @@ export const CajaPage: React.FC = () => {
                           );
                         })()
                       ) : (
-                        <div className="py-2 px-3 rounded-xl bg-green-100 border border-green-300 text-green-900 text-xs font-black flex items-center gap-1">
-                          <IoCheckmarkCircle className="text-base text-green-700" />
-                          <span>💳 PAGADO</span>
-                        </div>
-                      )}
-
-                      {/* Botón Entregar / Reactivar (Quita la comanda si se cobró o la reactiva) */}
-                      {!isDelivered ? (
                         <button
                           type="button"
-                          onClick={() => updateOrderStatus(ord.id, 'entregada')}
-                          className={`py-2.5 px-4 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer ${
-                            isPaid
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-700 animate-pulse'
-                              : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'
-                          }`}
-                          title="Marcar orden como entregada (si está cobrada se retira de la pantalla)"
+                          onClick={() => handleOpenPayModal(ord)}
+                          className="py-2 px-3 rounded-xl bg-green-100 hover:bg-green-200 border border-green-300 text-green-900 text-xs font-black flex items-center gap-1 cursor-pointer transition-all"
+                          title="Abrir registro de cobros y vueltos de la comanda"
                         >
-                          <IoCheckmarkDone className="text-base" />
-                          <span>📦 MARCAR ENTREGADA</span>
+                          <IoCheckmarkCircle className="text-base text-green-700" />
+                          <span>💳 PAGADO</span>
                         </button>
+                      )}
+
+                      {/* Botón Entregar / Reactivar (Solo permite entregar cuando la cuenta está 100% cuadrada en cobros y vueltos) */}
+                      {!isDelivered ? (
+                        isPaid && (
+                          <button
+                            type="button"
+                            onClick={() => updateOrderStatus(ord.id, 'entregada')}
+                            className="py-2.5 px-4 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-700 animate-pulse"
+                            title="Cuenta cuadrada: marcar orden como entregada y retirar de la pantalla"
+                          >
+                            <IoCheckmarkDone className="text-base" />
+                            <span>📦 MARCAR ENTREGADA</span>
+                          </button>
+                        )
                       ) : (
                         <button
                           type="button"
@@ -1123,8 +1195,11 @@ export const CajaPage: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {activeComandas.map((ord) => {
+                const paid = ord.paidAmountUSD || 0;
+                const remaining = Math.max(0, ord.totalUSD - paid);
+                const pendingChangeUSD = getOrderPendingChangeUSD(ord);
                 const isPrepared = ord.status === 'preparada' || ord.status === 'entregada';
-                const isPaid = ord.paymentStatus === 'pagado';
+                const isPaid = pendingChangeUSD <= 0 && (ord.paymentStatus === 'pagado' || (paid > 0 && remaining <= 0.05));
                 const isDelivered = ord.status === 'entregada';
                 const isSelectedForMultiPay = selectedOrderIdsForMultiPay.includes(ord.id);
 
@@ -1380,7 +1455,11 @@ export const CajaPage: React.FC = () => {
                                     className="w-full py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs flex items-center justify-center gap-1.5 border border-yellow-500 shadow-sm transition-all cursor-pointer"
                                   >
                                     <IoCashOutline className="text-base" />
-                                    <span>💳 COBRAR (${(ord.totalUSD - (ord.paidAmountUSD || 0)).toFixed(2)})</span>
+                                    <span>
+                                      {pendingChangeUSD > 0
+                                        ? `💵 DAR VUELTO ($${pendingChangeUSD.toFixed(2)})`
+                                        : `💳 COBRAR ($${Math.max(0, ord.totalUSD - (ord.paidAmountUSD || 0)).toFixed(2)})`}
+                                    </span>
                                   </button>
                                 )}
 
@@ -1405,20 +1484,29 @@ export const CajaPage: React.FC = () => {
                           })()}
                         </>
                       ) : (
-                        <div className="p-2 rounded-xl bg-green-100 border border-green-300 text-green-900 text-[11px] font-black text-center flex items-center justify-center gap-1 sm:col-span-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPayModal(ord)}
+                          className="p-2 rounded-xl bg-green-100 hover:bg-green-200 border border-green-300 text-green-900 text-[11px] font-black text-center flex items-center justify-center gap-1 sm:col-span-2 cursor-pointer transition-all"
+                          title="Abrir registro de cobros y vueltos de la comanda"
+                        >
                           <IoCheckmarkCircle className="text-sm text-green-700" />
                           <span>💳 PAGADO</span>
-                        </div>
+                        </button>
                       )}
 
                       {!isDelivered ? (
-                        <button
-                          onClick={() => updateOrderStatus(ord.id, 'entregada')}
-                          className="w-full py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-black text-xs flex items-center justify-center gap-1.5 border border-gray-300 transition-all"
-                        >
-                          <IoCheckmarkDone className="text-base text-gray-700" />
-                          <span>📦 ENTREGAR</span>
-                        </button>
+                        isPaid && (
+                          <button
+                            type="button"
+                            onClick={() => updateOrderStatus(ord.id, 'entregada')}
+                            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 border-2 border-emerald-700 shadow-sm transition-all cursor-pointer animate-pulse"
+                            title="Cuenta cuadrada: marcar orden como entregada y retirar de la pantalla"
+                          >
+                            <IoCheckmarkDone className="text-base" />
+                            <span>📦 ENTREGAR</span>
+                          </button>
+                        )
                       ) : (
                         <div className="p-2 rounded-xl bg-gray-100 border border-gray-200 text-gray-600 text-[11px] font-bold text-center">
                           📦 ENTREGADA
@@ -2747,6 +2835,13 @@ export const CajaPage: React.FC = () => {
       <HistoricOrdersSearchModal
         isOpen={isHistoricSearchOpen}
         onClose={() => setIsHistoricSearchOpen(false)}
+      />
+
+      {/* Modal de Pedidos en Espera (Standby) */}
+      <StandbyOrdersModal
+        isOpen={isStandbyModalOpen}
+        onClose={() => setIsStandbyModalOpen(false)}
+        onSelectOrder={handleSelectStandbyOrder}
       />
 
     </div>

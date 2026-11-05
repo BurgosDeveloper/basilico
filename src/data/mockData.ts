@@ -142,6 +142,7 @@ export interface Order {
   items: OrderItem[];
   totalUSD: number;
   paidAmountUSD?: number;
+  pendingChangeUSD?: number;
   mergedFromOrders?: string[];
   paymentHistory?: OrderPaymentBreakdown[];
   copRateAtPayment?: number;

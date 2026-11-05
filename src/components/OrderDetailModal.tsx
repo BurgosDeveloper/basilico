@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Order } from '../data/mockData';
 import { useApp } from '../context/AppContext';
 import { roundCOP } from '../utils/currencyRounding';
+import { getOrderPendingChangeUSD, isOrderFullySettled } from '../utils/orderSettlement';
 import { areProteinsDefault, getCleanItemNote, formatRemovedIngredients } from '../utils/burgerProteins';
 import { PrinterSelectModal } from './PrinterSelectModal';
 import {
@@ -116,12 +117,13 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const totalCOP = roundCOP(totalUSD * exchangeRates.COP);
   const totalBs = (totalUSD * exchangeRates.Bs).toFixed(2);
 
-  const isPaid = order.paymentStatus === 'pagado';
+  const payments = order.paymentHistory || [];
+  const pendingChangeUSD = getOrderPendingChangeUSD(order, exchangeRates);
+
   const isCredito = order.paymentStatus === 'credito';
+  const isPaid = !isCredito && isOrderFullySettled(order, exchangeRates);
   const isDelivered = order.status === 'entregada';
   const isPrepared = order.status === 'preparada';
-
-  const payments = order.paymentHistory || [];
   const hasIndividualPayments = payments.some((p) => (p.itemIds?.length || 0) > 0) || (order.items && order.items.some((it) => it.isPaidIndividually));
   const hasGeneralPayments = payments.some((p) => (!p.itemIds || p.itemIds.length === 0) && (p.amountPaidUSD || 0) > 0);
 
@@ -566,11 +568,20 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   hasIndividualPayments ? (
                     <button
                       type="button"
-                      disabled
-                      className="py-2.5 px-3 rounded-xl bg-gray-200 text-gray-400 font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-gray-300 cursor-not-allowed"
-                      title="Cobro por personas en curso. Utiliza el botón X PERSONAS."
+                      onClick={() => {
+                        onClose();
+                        if (onSplitPayment) onSplitPayment(order);
+                        else onPayOrder(order);
+                      }}
+                      className={`py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 border shadow-sm transition-all cursor-pointer active:scale-95 ${
+                        pendingChangeUSD > 0
+                          ? 'bg-orange-400 hover:bg-orange-500 text-black border-orange-500 animate-pulse'
+                          : 'bg-yellow-400 hover:bg-yellow-500 text-black border-yellow-500'
+                      }`}
+                      title={pendingChangeUSD > 0 ? `Vuelto pendiente por entregar ($${pendingChangeUSD.toFixed(2)} USD)` : 'Continuar cobro por personas'}
                     >
-                      <span>👥 POR PERSONAS</span>
+                      <IoPeopleOutline className="text-base" />
+                      <span>{pendingChangeUSD > 0 ? `💵 DAR VUELTO ($${pendingChangeUSD.toFixed(2)})` : `👥 PERSONAS ($${remainingUSD.toFixed(2)})`}</span>
                     </button>
                   ) : (
                     <button
@@ -579,11 +590,15 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                         onClose();
                         onPayOrder(order);
                       }}
-                      className="py-2.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-black font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-yellow-500 shadow-sm transition-all cursor-pointer active:scale-95"
-                      title="Proceder al cobro de la comanda"
+                      className={`py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 border shadow-sm transition-all cursor-pointer active:scale-95 ${
+                        pendingChangeUSD > 0
+                          ? 'bg-orange-400 hover:bg-orange-500 text-black border-orange-500 animate-pulse'
+                          : 'bg-yellow-400 hover:bg-yellow-500 text-black border-yellow-500'
+                      }`}
+                      title={pendingChangeUSD > 0 ? `Registrar vuelto pendiente ($${pendingChangeUSD.toFixed(2)} USD)` : 'Proceder al cobro de la comanda'}
                     >
                       <IoCashOutline className="text-base" />
-                      <span>COBRAR (${remainingUSD > 0 ? remainingUSD.toFixed(2) : totalUSD.toFixed(2)})</span>
+                      <span>{pendingChangeUSD > 0 ? `💵 DAR VUELTO ($${pendingChangeUSD.toFixed(2)})` : `COBRAR ($${remainingUSD > 0 ? remainingUSD.toFixed(2) : totalUSD.toFixed(2)})`}</span>
                     </button>
                   )
                 ) : isPaid ? (
@@ -635,7 +650,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 )}
 
                 {/* 4. MARCAR ENTREGADA / REACTIVAR */}
-                {onToggleDelivered && (
+                {onToggleDelivered && (isDelivered || isPaid || isCredito) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -646,12 +661,10 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                     }}
                     className={`py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 ${
                       !isDelivered
-                        ? isPaid
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-700 animate-pulse'
-                          : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-700 animate-pulse'
                         : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
                     }`}
-                    title={!isDelivered ? 'Marcar orden como entregada al cliente' : 'Reactivar comanda'}
+                    title={!isDelivered ? 'Cuenta cuadrada: marcar orden como entregada al cliente' : 'Reactivar comanda'}
                   >
                     {!isDelivered ? (
                       <>

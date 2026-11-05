@@ -1,8 +1,42 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const { execFileSync, execSync } = require('child_process');
 
 let pool = null;
+
+function tryStartLocalPostgres() {
+  if (process.platform !== 'win32') return false;
+  try {
+    const pgBase = path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'PostgreSQL');
+    if (!fs.existsSync(pgBase)) return false;
+    const versions = fs.readdirSync(pgBase).sort((a, b) => Number(b) - Number(a));
+    for (const ver of versions) {
+      const pgCtl = path.join(pgBase, ver, 'bin', 'pg_ctl.exe');
+      const dataDir = path.join(pgBase, ver, 'data');
+      if (fs.existsSync(pgCtl) && fs.existsSync(dataDir)) {
+        try {
+          console.log(`🔄 Iniciando motor PostgreSQL local (${ver}) automáticamente...`);
+          execFileSync(pgCtl, ['start', '-D', dataDir, '-w'], {
+            stdio: 'ignore',
+            windowsHide: true,
+            timeout: 15000,
+          });
+          console.log(`✅ Motor PostgreSQL (${ver}) iniciado correctamente.`);
+          return true;
+        } catch (ctlErr) {
+          try {
+            execSync(`net start postgresql-x64-${ver}`, { stdio: 'ignore', windowsHide: true, timeout: 10000 });
+            return true;
+          } catch (_) {}
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ No se pudo auto-iniciar PostgreSQL local:', err.message);
+  }
+  return false;
+}
 
 async function tryPgPool(dbName, dbPassword) {
   const p = new Pool({
@@ -30,6 +64,7 @@ async function initDb() {
 
   let connectionObj = null;
   let lastError = null;
+  let attemptedAutoStart = false;
 
   // 1. Intentar conectar a la base de datos principal con las contraseñas posibles
   for (const pass of passwordsToTry) {
@@ -38,7 +73,18 @@ async function initDb() {
       if (connectionObj) break;
     } catch (err) {
       lastError = err;
-      if (err.message && err.message.includes(`database "${targetDbName}" does not exist`)) {
+      if (!attemptedAutoStart && (err.code === 'ECONNREFUSED' || (err.message && err.message.includes('ECONNREFUSED')))) {
+        attemptedAutoStart = true;
+        if (tryStartLocalPostgres()) {
+          try {
+            connectionObj = await tryPgPool(targetDbName, pass);
+            if (connectionObj) break;
+          } catch (retryErr) {
+            lastError = retryErr;
+          }
+        }
+      }
+      if (lastError && lastError.message && lastError.message.includes(`database "${targetDbName}" does not exist`)) {
         // La BD no existe pero la contraseña es correcta, intentar crearla
         try {
           console.log(`ℹ️ La base de datos "${targetDbName}" no existe. Creándola automáticamente en PostgreSQL...`);
@@ -166,6 +212,25 @@ async function initDb() {
       `ALTER TABLE order_edits DROP CONSTRAINT IF EXISTS order_edits_order_id_fkey;`,
       `CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`,
 
+      `CREATE TABLE IF NOT EXISTS standby_orders (
+        id VARCHAR(100) PRIMARY KEY,
+        target_type VARCHAR(20) NOT NULL,
+        table_number INTEGER,
+        title VARCHAR(100),
+        cart_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+        customer_name VARCHAR(100) DEFAULT '',
+        kitchen_notes TEXT DEFAULT '',
+        delivery_fee_usd NUMERIC(10, 2) DEFAULT 0,
+        target_printer VARCHAR(20) DEFAULT 'cocina',
+        total_usd NUMERIC(10, 2) DEFAULT 0,
+        item_count INTEGER DEFAULT 0,
+        shift VARCHAR(20) DEFAULT 'ambos',
+        created_by VARCHAR(100) DEFAULT 'mesero',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_standby_orders_created_at ON standby_orders(created_at DESC);`,
+
       `CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);`,
       `CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status);`,
       `CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);`,
@@ -278,6 +343,28 @@ async function initDb() {
       }
     } else {
       console.log(`ℹ️ Ingredientes existentes detectados (${ingCount} ingredientes). Se conserva intacta la data actual (precios, nombres y categorías).`);
+    }
+
+    try {
+      await client.query(`
+        UPDATE orders 
+        SET payment_status = 'pagado' 
+        WHERE payment_status = 'no_pagado' 
+          AND status = 'entregada' 
+          AND CAST(paid_amount_usd AS NUMERIC) >= (CAST(total_usd AS NUMERIC) - 0.05) 
+          AND CAST(paid_amount_usd AS NUMERIC) > 0
+      `);
+      // Rescatar cualquier comanda activa (no archivada) que haya sido marcada como 'entregada'
+      // teniendo aún cobro parcial, vuelto pendiente o saldo sin pagar, para que jamás desaparezca del tablero
+      await client.query(`
+        UPDATE orders 
+        SET status = 'preparada' 
+        WHERE status = 'entregada' 
+          AND payment_status IN ('no_pagado', 'parcial') 
+          AND archived_at IS NULL
+      `);
+    } catch (reconcileErr) {
+      console.warn('Aviso en reconciliación de órdenes pagadas:', reconcileErr.message);
     }
 
     client.release();

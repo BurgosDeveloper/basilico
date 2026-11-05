@@ -13,6 +13,8 @@ import { OrderDetailModal } from '../components/OrderDetailModal';
 import { OrderEditModal } from '../components/OrderEditModal';
 import { PaymentLedgerModal } from '../components/PaymentLedgerModal';
 import { PrinterSelectModal } from '../components/PrinterSelectModal';
+import { StandbyOrdersModal } from '../components/StandbyOrdersModal';
+import { useStandbyOrders, StandbyOrder } from '../utils/standbyOrders';
 import { roundCOP } from '../utils/currencyRounding';
 import { areProteinsDefault, getCleanItemNote, normalizeProteinName, formatRemovedIngredients } from '../utils/burgerProteins';
 import { isCustomizableProduct, isDrinkProduct } from '../utils/productClassifier';
@@ -26,6 +28,7 @@ import {
   IoWarningOutline,
   IoPrintOutline,
   IoPencilOutline,
+  IoPauseCircle,
 } from 'react-icons/io5';
 
 export const MeseroPage: React.FC = () => {
@@ -76,6 +79,9 @@ export const MeseroPage: React.FC = () => {
   }, [searchParams]);
 
   // Cart & Order Form State
+  const { standbyOrders, saveStandbyOrder, removeStandbyOrder } = useStandbyOrders();
+  const [isStandbyModalOpen, setIsStandbyModalOpen] = useState<boolean>(false);
+  const [activeStandbyDraftId, setActiveStandbyDraftId] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<OrderItem[]>([]);
   const [editingCartItem, setEditingCartItem] = useState<OrderItem | null>(null);
   const [customerName, setCustomerName] = useState<string>('');
@@ -499,7 +505,13 @@ export const MeseroPage: React.FC = () => {
         deliveryFeeUSD: effectiveDeliveryFee,
         shift: userSession?.shift || 'ambos',
         targetPrinter,
+        standbyDraftId: activeStandbyDraftId || undefined,
       } as any);
+
+      if (activeStandbyDraftId) {
+        removeStandbyOrder(activeStandbyDraftId);
+        setActiveStandbyDraftId(null);
+      }
 
       setSentAlert(`✅ Comanda enviada exitosamente (${activeOrderTarget.title})`);
       setTimeout(() => setSentAlert(null), 3500);
@@ -518,6 +530,48 @@ export const MeseroPage: React.FC = () => {
     }
   };
 
+  const handlePutInStandby = () => {
+    if (!activeOrderTarget || cartItems.length === 0) {
+      alert('Agrega al menos un ítem al pedido para poder dejarlo en espera (Standby).');
+      return;
+    }
+
+    const draftId = activeStandbyDraftId || undefined;
+    setActiveStandbyDraftId(null);
+
+    saveStandbyOrder({
+      id: draftId,
+      target: activeOrderTarget,
+      customerName: customerName.trim() || undefined,
+      kitchenNotes: kitchenNotes.trim() || undefined,
+      deliveryFeeUSD: showDeliveryConfig ? deliveryFeeUSD : 0,
+      targetPrinter,
+      cartItems,
+    });
+
+    setSentAlert(`⏸️ Pedido guardado en Standby (${activeOrderTarget.title})`);
+    setTimeout(() => setSentAlert(null), 4000);
+
+    setActiveOrderTarget(null);
+    setActiveStandbyDraftId(null);
+    setCartItems([]);
+    setCustomerName('');
+    setKitchenNotes('');
+    setShowDeliveryConfig(false);
+  };
+
+  const handleSelectStandbyOrder = (standbyOrder: StandbyOrder) => {
+    setActiveStandbyDraftId(standbyOrder.id);
+    setActiveOrderTarget(standbyOrder.target);
+    setCartItems(standbyOrder.cartItems || []);
+    setCustomerName(standbyOrder.customerName || '');
+    setKitchenNotes(standbyOrder.kitchenNotes || '');
+    setDeliveryFeeUSD(standbyOrder.deliveryFeeUSD || (standbyOrder.target.type === 'delivery' ? 1.0 : 0));
+    setTargetPrinter(standbyOrder.targetPrinter || 'cocina');
+    setShowDeliveryConfig(standbyOrder.target.type === 'delivery');
+    setIsStandbyModalOpen(false);
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] p-2.5 sm:p-3 overflow-hidden bg-gray-100 text-gray-900">
       {/* Top Banner Alert (if any) */}
@@ -534,6 +588,8 @@ export const MeseroPage: React.FC = () => {
             tables={tables}
             orders={orders}
             onSelectTarget={handleOpenOrder}
+            onOpenStandby={() => setIsStandbyModalOpen(true)}
+            standbyCount={standbyOrders.length}
             onViewActiveOrder={(ord) => setOrderDetailModalOrder(ord)}
             onAppendOrder={(ord) => setOrderAppendModalOrder(ord)}
             canPay={userSession?.role === 'caja' || userSession?.role === 'admin'}
@@ -900,20 +956,33 @@ export const MeseroPage: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setActiveOrderTarget(null);
-                setSelectedBurger(null);
-                setSelectedDrink(null);
-                setEditingCartItem(null);
-                setShowDeliveryConfig(false);
-              }}
-              className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-700 transition-colors flex items-center gap-1.5 font-black text-xs cursor-pointer border border-gray-200"
-            >
-              <IoClose className="text-xl" />
-              <span>Cerrar Pedido</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePutInStandby}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-black font-black text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer border border-amber-500 active:scale-95"
+                title="Pausar este pedido y guardarlo en Standby"
+              >
+                <IoPauseCircle className="text-base text-black" />
+                <span>PONER EN ESPERA</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveOrderTarget(null);
+                  setActiveStandbyDraftId(null);
+                  setSelectedBurger(null);
+                  setSelectedDrink(null);
+                  setEditingCartItem(null);
+                  setShowDeliveryConfig(false);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-700 transition-colors flex items-center gap-1.5 font-black text-xs cursor-pointer border border-gray-200"
+              >
+                <IoClose className="text-xl" />
+                <span>Cerrar Pedido</span>
+              </button>
+            </div>
           </div>
 
           {/* Error Message */}
@@ -1591,6 +1660,13 @@ export const MeseroPage: React.FC = () => {
             setTimeout(() => setSentAlert(null), 4000);
           }
         }}
+      />
+
+      {/* MODAL 10: PEDIDOS EN ESPERA / STANDBY */}
+      <StandbyOrdersModal
+        isOpen={isStandbyModalOpen}
+        onClose={() => setIsStandbyModalOpen(false)}
+        onSelectOrder={handleSelectStandbyOrder}
       />
     </div>
   );

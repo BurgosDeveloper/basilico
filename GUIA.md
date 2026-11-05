@@ -784,3 +784,28 @@ El sistema protege las operaciones críticas y administrativas permitiendo al ro
       - En `server/db.js`, la migración ejecuta la conversión automática a MAYÚSCULAS de todos los productos (`UPDATE products SET name = UPPER(name)`), ingredientes (`UPDATE ingredients SET name = UPPER(name)`), y los arrays de recetas (`default_proteins` y `base_ingredients`).
       - En los endpoints de creación y edición (`server/routes/products.js`, `server/routes/ingredients.js`), todo nuevo producto, ingrediente o receta se persiste de forma normalizada en MAYÚSCULAS.
 
+
+
+14. **Blindaje Integral de Cobranza, Eliminación del Bug del Limbo, Pedidos en Standby y Guardas Anti-Error USD/COP**:
+    - **Regla Estricta del Botón `Entregar` y Eliminación del Bug del Limbo**:
+      - Ninguna comanda de `mesa`, `delivery` ni `pickup` puede tener visible el botón `Entregar` ni marcarse como `'entregada'` si no está 100% cuadrada tanto en cobros como en vueltos (`pendingDebtUSD <= 0.05 && pendingChangeUSD <= tolerancia`).
+      - El backend (`PATCH /api/orders/:id/status`) protege atómicamente esta regla arrojando un error `409 Conflict` si se intenta entregar una orden con deuda o vuelto pendiente, evitando que cualquier pedido desaparezca de las pantallas activas o quede atrapado en el limbo contable.
+      - Al cerrar la ventana de cobro con la `X` o `CANCELAR` en cualquier momento, la comanda permanece visible e intacta en el tablero mostrando `Cobrar` o `💵 Vuelto / Dar Vuelto`.
+    - **Módulo Centralizado de Cuadre (`src/utils/orderSettlement.ts`)**:
+      - Funciones utilitarias unificadas: `roundCOP`, `getOrderPendingChangeUSD`, `getOrderPendingDebtUSD`, `isOrderFullySettled` e `isOrderActiveInBoard`.
+      - Utilizadas de forma transversal en `TableCompactGrid.tsx`, `CajaPage.tsx` y `PaymentLedgerModal.tsx` para sincronización matemática estricta.
+    - **Gestión de Pedidos en Standby ("Poner en Espera") con Aislamiento Estricto por Turno**:
+      - Permite pausar cualquier pedido en borrador desde `OrderCreateView.tsx` o `MeseroPage.tsx` mediante el botón `⏸️ PONER EN ESPERA`.
+      - Persistencia en base de datos PostgreSQL (`standby_orders`) con sincronización multi-terminal vía WebSockets (`standby:sync`).
+      - **Aislamiento por Turno**: Los usuarios en turno `manana` visualizan y gestionan exclusivamente pedidos en espera del turno mañana o ambos; los usuarios en turno `noche` visualizan y gestionan los del turno noche o ambos.
+      - **Consumo Atómico**: Al confirmar y crear la comanda definitiva, el backend consume y elimina el registro de standby atómicamente dentro de la misma transacción PostgreSQL (`standbyDraftId`), blindando contra duplicaciones o doble cobro.
+    - **Guardas Anti-Error de Monedas (USD vs COP)**:
+      - En `PaymentLedgerModal.tsx` y `caja.js`, se implementaron guardas que bloquean montos en Pesos ingresados por error con la moneda en Dólares (USD):
+        - Pagos en USD >= $500 o que superen el saldo pendiente por más de $100 USD (con aviso explicativo para seleccionar moneda COP).
+        - Vueltos en USD >= $100 USD (con aviso explicativo para seleccionar moneda COP).
+        - Movimientos manuales de Caja Chica en USD >= $1,000 USD o egresos mayores a $500 USD.
+    - **Soporte y Auditoría Exhaustiva de Comandas Reales en Ambos Turnos (Mañana y Noche)**:
+      - **Turno Mañana**: Catálogo de Pastas, Entradas, Especialidades y Bebidas. Filtrado inteligente de cocina (`isKitchenItem`: bebidas comerciales embotelladas como Agua Mineral quedan excluidas del ticket térmico de cocina; jugos naturales con azúcar y sabor van a cocina). Reubicación de mesa (`PATCH /api/orders/:id/change-table`) y adición de ítems (`POST /api/orders/:id/append-items`).
+      - **Turno Noche**: Catálogo de Pizzas completas y Mitad y Mitad (`halfDetails`: `half1Name`, `half2Name`, `half1Removed`, `half1Extras`, `half2Extras`), tamaños (Grande / Pequeña), preferencia de corte (Picada / Entera), adicionales y salsas.
+      - **Regla Estricta de Salsas**: En el ticket térmico de cocina se ordenan obligatoriamente al final de la comanda (`consolidateKitchenItems`). En la pre-cuenta del comensal quedan 100% excluidas.
+      - **Símbolo Oficial de Pre-Cuenta**: Mantiene estrictamente el formato oficial de Basilico con el símbolo `€` / `EUR` en todos los comprobantes de pre-cuenta y consumo de comensales.

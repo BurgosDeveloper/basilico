@@ -2622,6 +2622,7 @@ module.exports = {
   KITCHEN_FORMAT_SETUP,
   isKitchenItem,
   isSalsaItem,
+  consolidateKitchenItems,
   buildKitchenTicket,
   buildKitchenAdditionTicket,
   buildReceiptTicket,

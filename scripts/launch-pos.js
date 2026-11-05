@@ -5,8 +5,32 @@ const { spawn, execSync, execFileSync } = require('child_process');
 
 const rootDir = path.join(__dirname, '..');
 const port = 3001;
-const startupTimeoutMs = 20000;
+const startupTimeoutMs = 35000;
 const retryDelayMs = 250;
+
+function cleanStalePostmasterPid(dataDir) {
+  try {
+    const pidFile = path.join(dataDir, 'postmaster.pid');
+    if (fs.existsSync(pidFile)) {
+      const pidContent = fs.readFileSync(pidFile, 'utf8');
+      const lines = pidContent.trim().split(/\r?\n/);
+      const pid = parseInt(lines[0], 10);
+      if (pid && !isNaN(pid)) {
+        let isAlive = false;
+        try {
+          process.kill(pid, 0);
+          isAlive = true;
+        } catch (e) {
+          isAlive = e.code === 'EPERM';
+        }
+        if (!isAlive) {
+          console.log(`🧹 Eliminando postmaster.pid huérfano (PID ${pid} inactivo)...`);
+          fs.unlinkSync(pidFile);
+        }
+      }
+    }
+  } catch (_) {}
+}
 
 function ensurePostgresRunning() {
   if (process.platform !== 'win32') return;
@@ -23,6 +47,7 @@ function ensurePostgresRunning() {
       const pgCtl = path.join(pgBase, ver, 'bin', 'pg_ctl.exe');
       const dataDir = path.join(pgBase, ver, 'data');
       if (fs.existsSync(pgCtl) && fs.existsSync(dataDir)) {
+        cleanStalePostmasterPid(dataDir);
         try {
           execFileSync(pgCtl, ['start', '-D', dataDir, '-w'], {
             stdio: 'ignore',
@@ -134,10 +159,17 @@ function startBackend() {
     env.NODE_PATH = env.NODE_PATH ? `${nodePath};${env.NODE_PATH}` : nodePath;
   }
 
+  const logFile = path.join(rootDir, 'server.log');
+  let stdioConfig = 'ignore';
+  try {
+    const outFd = fs.openSync(logFile, 'a');
+    stdioConfig = ['ignore', outFd, outFd];
+  } catch (_) {}
+
   const child = spawn(process.execPath, ['server/index.js'], {
     cwd: rootDir,
     detached: true,
-    stdio: 'ignore',
+    stdio: stdioConfig,
     windowsHide: true,
     env,
   });

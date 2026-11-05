@@ -168,7 +168,7 @@ export const CajaPage: React.FC = () => {
       setPinModalState({
         isOpen: true,
         title: title || '🔐 AUTORIZACIÓN DE ADMINISTRADOR',
-        description: description || 'Ingrese el PIN de seguridad de 4 dígitos para autorizar:',
+        description: description || 'Ingrese el PIN de seguridad de 6 caracteres para autorizar:',
         actionName,
         onSuccess: callback,
       });
@@ -417,7 +417,7 @@ export const CajaPage: React.FC = () => {
         `Registrar ${manualType === 'egreso' ? 'Egreso' : 'Ingreso'} (${formattedAmount})`,
         `🔐 CONFIRMAR ${manualType === 'egreso' ? 'EGRESO' : 'INGRESO'} MANUAL`,
         doSubmit,
-        `Ingrese el PIN de seguridad de 4 dígitos para autorizar este ${manualType === 'egreso' ? 'egreso' : 'ingreso'} de ${formattedAmount} en caja chica:`
+        `Ingrese el PIN de seguridad de 6 caracteres para autorizar este ${manualType === 'egreso' ? 'egreso' : 'ingreso'} de ${formattedAmount} en caja chica:`
       );
     } else {
       await doSubmit();
@@ -2702,6 +2702,7 @@ export const CajaPage: React.FC = () => {
         actionName={pinModalState.actionName}
         onSuccess={pinModalState.onSuccess}
         onClose={() => setPinModalState((prev) => ({ ...prev, isOpen: false }))}
+        shift={userSession?.shift}
       />
 
       {/* Modal de Cambio / Reubicación de Mesa o Servicio */}

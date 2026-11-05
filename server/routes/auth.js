@@ -118,19 +118,33 @@ module.exports = function(io) {
     }
   });
 
-  // Verificar PIN de seguridad de 4 dígitos para autorizar acciones de caja
+  // Verificar PIN/Clave de seguridad de 6 caracteres para autorizar acciones de caja
   router.post('/verify-admin-pin', async (req, res) => {
     try {
-      const { pin } = req.body;
+      const { pin, shift } = req.body;
       const cleanPin = String(pin || '').trim();
+      const userShift = String(shift || req.user?.shift || 'ambos').toLowerCase();
 
-      const { rows } = await query(`SELECT value FROM system_settings WHERE key = 'admin_pin'`);
-      const currentPin = rows[0]?.value || '1234';
+      const { rows } = await query(`SELECT key, value FROM system_settings WHERE key IN ('admin_pin', 'admin_pin_manana', 'admin_pin_noche')`);
+      const pinMap = {};
+      for (const r of rows) pinMap[r.key] = r.value;
+      const pinGeneral = pinMap['admin_pin'] || '123456';
+      const pinManana = pinMap['admin_pin_manana'] || pinGeneral || '123456';
+      const pinNoche = pinMap['admin_pin_noche'] || pinGeneral || '123456';
 
-      if (cleanPin === currentPin) {
+      let isValid = false;
+      if (userShift === 'manana') {
+        isValid = (cleanPin === pinManana);
+      } else if (userShift === 'noche') {
+        isValid = (cleanPin === pinNoche);
+      } else {
+        isValid = (cleanPin === pinManana || cleanPin === pinNoche || cleanPin === pinGeneral);
+      }
+
+      if (isValid) {
         return res.json({ success: true, valid: true });
       } else {
-        return res.status(401).json({ success: false, valid: false, error: 'PIN de seguridad incorrecto' });
+        return res.status(401).json({ success: false, valid: false, error: 'Clave de seguridad incorrecta para este turno.' });
       }
     } catch (err) {
       console.error('Error al verificar PIN de admin:', err);
@@ -138,37 +152,70 @@ module.exports = function(io) {
     }
   });
 
-  // Obtener PIN de seguridad actual (solo admin)
+  // Obtener PIN/Clave de seguridad actual (solo admin)
   router.get('/admin-pin', async (req, res) => {
     try {
-      const { rows } = await query(`SELECT value FROM system_settings WHERE key = 'admin_pin'`);
-      const pin = rows[0]?.value || '1234';
-      res.json({ success: true, pin });
+      const requestedShift = String(req.query.shift || req.user?.shift || 'ambos').toLowerCase();
+      const { rows } = await query(`SELECT key, value FROM system_settings WHERE key IN ('admin_pin', 'admin_pin_manana', 'admin_pin_noche')`);
+      const pinMap = {};
+      for (const r of rows) pinMap[r.key] = r.value;
+      const pinGeneral = pinMap['admin_pin'] || '123456';
+      const pinManana = pinMap['admin_pin_manana'] || pinGeneral || '123456';
+      const pinNoche = pinMap['admin_pin_noche'] || pinGeneral || '123456';
+
+      let currentPin = pinGeneral;
+      if (requestedShift === 'manana') currentPin = pinManana;
+      else if (requestedShift === 'noche') currentPin = pinNoche;
+
+      res.json({
+        success: true,
+        pin: currentPin,
+        pinManana,
+        pinNoche,
+        shift: requestedShift,
+      });
     } catch (err) {
       console.error('Error al consultar PIN de admin:', err);
       res.status(500).json({ error: 'Error al consultar PIN' });
     }
   });
 
-  // Actualizar PIN de seguridad de 4 dígitos (solo admin)
+  // Actualizar PIN/Clave de seguridad de 6 caracteres (independiente por turno)
   router.put('/admin-pin', async (req, res) => {
     try {
-      const { pin } = req.body;
+      const { pin, shift } = req.body;
       const cleanPin = String(pin || '').trim();
+      const targetShift = String(shift || req.user?.shift || 'ambos').toLowerCase();
 
-      if (!/^\d{4}$/.test(cleanPin)) {
-        return res.status(400).json({ error: 'El PIN debe contener exactamente 4 dígitos numéricos.' });
+      if (typeof cleanPin !== 'string' || cleanPin.length !== 6) {
+        return res.status(400).json({ error: 'La clave de seguridad debe contener exactamente 6 caracteres.' });
       }
 
-      await query(
-        `INSERT INTO system_settings (key, value, updated_at)
-         VALUES ('admin_pin', $1, CURRENT_TIMESTAMP)
-         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
-        [cleanPin]
-      );
+      const keysToUpdate = [];
+      if (targetShift === 'manana') {
+        keysToUpdate.push('admin_pin_manana');
+      } else if (targetShift === 'noche') {
+        keysToUpdate.push('admin_pin_noche');
+      } else {
+        keysToUpdate.push('admin_pin_manana', 'admin_pin_noche', 'admin_pin');
+      }
 
-      console.log(`🔐 [PIN DE SEGURIDAD ACTUALIZADO] Nuevo PIN configurado por Administrador`);
-      res.json({ success: true, message: 'PIN de seguridad actualizado exitosamente.', pin: cleanPin });
+      for (const k of keysToUpdate) {
+        await query(
+          `INSERT INTO system_settings (key, value, updated_at)
+           VALUES ($1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+          [k, cleanPin]
+        );
+      }
+
+      console.log(`🔐 [CLAVE DE SEGURIDAD ACTUALIZADA] Nueva clave de 6 caracteres configurada para turno: ${targetShift}`);
+      res.json({
+        success: true,
+        message: `Clave de seguridad de 6 caracteres actualizada exitosamente para turno ${targetShift}.`,
+        pin: cleanPin,
+        shift: targetShift,
+      });
     } catch (err) {
       console.error('Error al actualizar PIN de admin:', err);
       res.status(500).json({ error: 'Error al actualizar PIN' });

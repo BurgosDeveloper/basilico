@@ -44,7 +44,10 @@ export const MenuManagementPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'pizzas' | 'bebidas' | 'ingredientes' | 'mesas' | 'seguridad' | 'impresoras'>('pizzas');
   const [isCashierUnlocked, setIsCashierUnlocked] = useState<boolean>(userSession?.role === 'admin');
-  const [currentPin, setCurrentPin] = useState<string>('1234');
+  const [selectedPinShift, setSelectedPinShift] = useState<'manana' | 'noche'>(userSession?.shift === 'noche' ? 'noche' : 'manana');
+  const [currentPin, setCurrentPin] = useState<string>('123456');
+  const [currentPinManana, setCurrentPinManana] = useState<string>('123456');
+  const [currentPinNoche, setCurrentPinNoche] = useState<string>('123456');
   const [newPinInput, setNewPinInput] = useState<string>('');
   const [confirmPinInput, setConfirmPinInput] = useState<string>('');
   const [pinFeedback, setPinFeedback] = useState<string>('');
@@ -63,12 +66,14 @@ export const MenuManagementPage: React.FC = () => {
 
   useEffect(() => {
     if (userSession?.role === 'admin' || isCashierUnlocked) {
-      void getAdminPin().then((pin) => setCurrentPin(pin)).catch(() => {});
+      void getAdminPin('manana').then((pin) => setCurrentPinManana(pin)).catch(() => {});
+      void getAdminPin('noche').then((pin) => setCurrentPinNoche(pin)).catch(() => {});
+      void getAdminPin(selectedPinShift).then((pin) => setCurrentPin(pin)).catch(() => {});
       void getPrintersConfig().then((cfg) => {
         if (cfg) setPrintersConfig(cfg);
       }).catch(() => {});
     }
-  }, [userSession, isCashierUnlocked, getAdminPin, getPrintersConfig]);
+  }, [userSession, isCashierUnlocked, selectedPinShift, getAdminPin, getPrintersConfig]);
 
   // Modal Pizza / Plato (Crear / Editar)
   const [isAddPizzaOpen, setIsAddPizzaOpen] = useState(false);
@@ -787,7 +792,7 @@ export const MenuManagementPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 5: SEGURIDAD Y PIN */}
+      {/* TAB 5: SEGURIDAD Y CLAVE / PIN */}
       {activeTab === 'seguridad' && (
         <div className="space-y-6 max-w-2xl mx-auto">
           <div className="p-6 sm:p-8 rounded-3xl bg-white border border-yellow-400/40 shadow-lg space-y-6">
@@ -796,23 +801,73 @@ export const MenuManagementPage: React.FC = () => {
                 <IoShieldCheckmark />
               </div>
               <div>
-                <h2 className="text-lg font-black text-black uppercase">PIN de Seguridad y Autorizaciones</h2>
+                <h2 className="text-lg font-black text-black uppercase">Clave / PIN de Seguridad y Autorizaciones</h2>
                 <p className="text-xs text-gray-500 font-medium">
-                  Configura el PIN de 4 dígitos requerido para autorizar acciones sensibles en Caja (Editar comanda, Anular, Unificar, Historial, Reportes y Cierre).
+                  Configura la clave de 6 caracteres requerida para autorizar acciones sensibles en Caja (Editar comanda, Anular, Unificar, Historial, Reportes y Cierre). Admite números, letras y símbolos de forma independiente por turno.
                 </p>
               </div>
             </div>
 
-            {/* PIN Actual Informativo */}
+            {/* Selector de Turno Independiente */}
+            <div>
+              <label className="text-xs font-black text-black uppercase tracking-wider block mb-2">Turno a Configurar:</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPinShift('manana');
+                    setCurrentPin(currentPinManana);
+                    setPinFeedback('');
+                    setPinError('');
+                  }}
+                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl font-black text-xs transition-all border ${
+                    selectedPinShift === 'manana'
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-300'
+                      : 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200'
+                  }`}
+                >
+                  <span className="text-base">☀️</span>
+                  <span>TURNO MAÑANA</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPinShift('noche');
+                    setCurrentPin(currentPinNoche);
+                    setPinFeedback('');
+                    setPinError('');
+                  }}
+                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl font-black text-xs transition-all border ${
+                    selectedPinShift === 'noche'
+                      ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-300'
+                      : 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200'
+                  }`}
+                >
+                  <span className="text-base">🌙</span>
+                  <span>TURNO NOCHE</span>
+                </button>
+              </div>
+            </div>
+
+            {/* PIN Actual Informativo del Turno Seleccionado */}
             <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between">
               <div>
-                <span className="text-xs font-black uppercase text-amber-900 block">PIN de Administrador Configurado:</span>
-                <span className="text-2xl font-black text-black tracking-widest">
-                  {currentPin ? currentPin.split('').map(() => '•').join(' ') + ` (${currentPin})` : '1234'}
+                <span className="text-xs font-black uppercase text-amber-900 block">
+                  Clave Activa ({selectedPinShift === 'manana' ? '☀️ Turno Mañana' : '🌙 Turno Noche'}):
+                </span>
+                <span className="text-2xl font-black text-black tracking-widest font-mono">
+                  {currentPin ? currentPin.split('').map(() => '•').join(' ') + ` (${currentPin})` : '123456'}
                 </span>
               </div>
-              <div className="px-3 py-1.5 rounded-xl bg-yellow-400 text-black font-black text-xs border border-yellow-500">
-                ACTIVO
+              <div className="flex flex-col items-end gap-1">
+                <div className={`px-3 py-1 rounded-xl text-xs font-black border ${
+                  selectedPinShift === 'manana'
+                    ? 'bg-amber-400 text-black border-amber-500'
+                    : 'bg-indigo-500 text-white border-indigo-600'
+                }`}>
+                  {selectedPinShift === 'manana' ? '☀️ MAÑANA' : '🌙 NOCHE'}
+                </div>
+                <span className="text-[10px] font-bold text-stone-500">INDependiente</span>
               </div>
             </div>
 
@@ -822,67 +877,70 @@ export const MenuManagementPage: React.FC = () => {
                 e.preventDefault();
                 setPinFeedback('');
                 setPinError('');
-                if (!/^\d{4}$/.test(newPinInput)) {
-                  setPinError('El nuevo PIN debe contener exactamente 4 dígitos numéricos.');
+                if (newPinInput.length !== 6) {
+                  setPinError('La nueva clave de seguridad debe contener exactamente 6 caracteres (números, letras o símbolos).');
                   return;
                 }
                 if (newPinInput !== confirmPinInput) {
-                  setPinError('La confirmación del PIN no coincide con el nuevo PIN.');
+                  setPinError('La confirmación de la clave no coincide.');
                   return;
                 }
                 setIsSavingPin(true);
                 try {
-                  await updateAdminPin(newPinInput);
+                  await updateAdminPin(newPinInput, selectedPinShift);
+                  if (selectedPinShift === 'manana') {
+                    setCurrentPinManana(newPinInput);
+                  } else {
+                    setCurrentPinNoche(newPinInput);
+                  }
                   setCurrentPin(newPinInput);
                   setNewPinInput('');
                   setConfirmPinInput('');
-                  setPinFeedback('✅ ¡PIN de seguridad actualizado exitosamente a ' + newPinInput + '!');
+                  setPinFeedback(`✅ ¡Clave de seguridad para Turno ${selectedPinShift === 'manana' ? 'Mañana ☀️' : 'Noche 🌙'} actualizada a "${newPinInput}"!`);
                 } catch (err: any) {
-                  setPinError(err.message || 'Error al actualizar el PIN.');
+                  setPinError(err.message || 'Error al actualizar la clave de seguridad.');
                 } finally {
                   setIsSavingPin(false);
                 }
               }}
               className="space-y-4"
             >
-              <h3 className="text-xs font-black text-black uppercase tracking-wider">Modificar PIN de Seguridad:</h3>
+              <h3 className="text-xs font-black text-black uppercase tracking-wider">
+                Modificar Clave para Turno {selectedPinShift === 'manana' ? 'Mañana' : 'Noche'}:
+              </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">Nuevo PIN (4 dígitos):</label>
+                  <label className="text-xs font-bold text-gray-700 block mb-1">Nueva Clave (6 caracteres):</label>
                   <input
                     type="password"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={4}
+                    maxLength={6}
                     required
                     value={newPinInput}
                     onChange={(e) => {
-                      setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 4));
+                      setNewPinInput(e.target.value.slice(0, 6));
                       setPinFeedback('');
                       setPinError('');
                     }}
-                    placeholder="••••"
-                    className="w-full px-4 py-3 rounded-xl bg-stone-50 border border-gray-300 text-base font-black text-center tracking-widest text-black outline-none focus:border-yellow-400 shadow-inner"
+                    placeholder="••••••"
+                    className="w-full px-4 py-3 rounded-xl bg-stone-50 border border-gray-300 text-base font-black text-center tracking-widest text-black outline-none focus:border-yellow-400 shadow-inner font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">Confirmar Nuevo PIN:</label>
+                  <label className="text-xs font-bold text-gray-700 block mb-1">Confirmar Nueva Clave:</label>
                   <input
                     type="password"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={4}
+                    maxLength={6}
                     required
                     value={confirmPinInput}
                     onChange={(e) => {
-                      setConfirmPinInput(e.target.value.replace(/\D/g, '').slice(0, 4));
+                      setConfirmPinInput(e.target.value.slice(0, 6));
                       setPinFeedback('');
                       setPinError('');
                     }}
-                    placeholder="••••"
-                    className="w-full px-4 py-3 rounded-xl bg-stone-50 border border-gray-300 text-base font-black text-center tracking-widest text-black outline-none focus:border-yellow-400 shadow-inner"
+                    placeholder="••••••"
+                    className="w-full px-4 py-3 rounded-xl bg-stone-50 border border-gray-300 text-base font-black text-center tracking-widest text-black outline-none focus:border-yellow-400 shadow-inner font-mono"
                   />
                 </div>
               </div>
@@ -1373,10 +1431,11 @@ export const MenuManagementPage: React.FC = () => {
         <AdminPinModal
           isOpen={true}
           title="🔐 ACCESO ADMINISTRATIVO"
-          description="Para ingresar a la gestión del menú y configuración ingrese el PIN de 4 dígitos:"
+          description="Para ingresar a la gestión del menú y configuración ingrese la clave de seguridad de 6 caracteres:"
           actionName="Panel de Administración"
           onSuccess={() => setIsCashierUnlocked(true)}
           onClose={() => window.history.back()}
+          shift={userSession?.shift}
         />
       )}
 

@@ -5,6 +5,31 @@ const { execFileSync, execSync } = require('child_process');
 
 let pool = null;
 
+function cleanStalePostmasterPid(dataDir) {
+  try {
+    const pidFile = path.join(dataDir, 'postmaster.pid');
+    if (fs.existsSync(pidFile)) {
+      const pidContent = fs.readFileSync(pidFile, 'utf8');
+      const lines = pidContent.trim().split(/\r?\n/);
+      const pid = parseInt(lines[0], 10);
+      if (pid && !isNaN(pid)) {
+        let isAlive = false;
+        try {
+          process.kill(pid, 0);
+          isAlive = true;
+        } catch (e) {
+          isAlive = e.code === 'EPERM';
+        }
+        if (!isAlive) {
+          console.log(`🧹 Eliminando postmaster.pid huérfano (PID ${pid} inactivo)...`);
+          fs.unlinkSync(pidFile);
+        }
+      }
+    }
+  } catch (_) {}
+}
+
+
 function tryStartLocalPostgres() {
   if (process.platform !== 'win32') return false;
   try {
@@ -15,6 +40,7 @@ function tryStartLocalPostgres() {
       const pgCtl = path.join(pgBase, ver, 'bin', 'pg_ctl.exe');
       const dataDir = path.join(pgBase, ver, 'data');
       if (fs.existsSync(pgCtl) && fs.existsSync(dataDir)) {
+        cleanStalePostmasterPid(dataDir);
         try {
           console.log(`🔄 Iniciando motor PostgreSQL local (${ver}) automáticamente...`);
           execFileSync(pgCtl, ['start', '-D', dataDir, '-w'], {
@@ -66,54 +92,84 @@ async function initDb() {
   let lastError = null;
   let attemptedAutoStart = false;
 
-  // 1. Intentar conectar a la base de datos principal con las contraseñas posibles
-  for (const pass of passwordsToTry) {
-    try {
-      connectionObj = await tryPgPool(targetDbName, pass);
-      if (connectionObj) break;
-    } catch (err) {
-      lastError = err;
-      if (!attemptedAutoStart && (err.code === 'ECONNREFUSED' || (err.message && err.message.includes('ECONNREFUSED')))) {
-        attemptedAutoStart = true;
-        if (tryStartLocalPostgres()) {
+  // 1. Bucle de reintento inteligente (espera si PostgreSQL se está iniciando o recuperando)
+  const maxRetries = 25;
+  const retryIntervalMs = 1200;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (const pass of passwordsToTry) {
+      try {
+        connectionObj = await tryPgPool(targetDbName, pass);
+        if (connectionObj) break;
+      } catch (err) {
+        lastError = err;
+        const msg = String(err.message || '');
+        const isRefused = err.code === 'ECONNREFUSED' || msg.includes('ECONNREFUSED');
+        const isStartingUp = err.code === '57P03' || msg.includes('iniciándose') || msg.includes('starting up') || err.code === '57P01' || err.code === '57P02';
+
+        if (!attemptedAutoStart && isRefused) {
+          attemptedAutoStart = true;
+          tryStartLocalPostgres();
+        }
+
+        if (isStartingUp) {
+          // Si la base se está iniciando/recuperando, no agotar las demás contraseñas en vano
+          break;
+        }
+
+        if (msg.includes(`database "${targetDbName}" does not exist`)) {
           try {
+            console.log(`ℹ️ La base de datos "${targetDbName}" no existe. Creándola automáticamente en PostgreSQL...`);
+            const adminConn = await tryPgPool('postgres', pass);
+            await adminConn.client.query(`CREATE DATABASE "${targetDbName}"`);
+            adminConn.client.release();
+            await adminConn.pool.end();
             connectionObj = await tryPgPool(targetDbName, pass);
             if (connectionObj) break;
-          } catch (retryErr) {
-            lastError = retryErr;
+          } catch (createErr) {
+            console.error(`⚠️ No se pudo crear la BD "${targetDbName}":`, createErr.message);
           }
         }
       }
-      if (lastError && lastError.message && lastError.message.includes(`database "${targetDbName}" does not exist`)) {
-        // La BD no existe pero la contraseña es correcta, intentar crearla
-        try {
-          console.log(`ℹ️ La base de datos "${targetDbName}" no existe. Creándola automáticamente en PostgreSQL...`);
-          const adminConn = await tryPgPool('postgres', pass);
-          await adminConn.client.query(`CREATE DATABASE "${targetDbName}"`);
-          adminConn.client.release();
-          await adminConn.pool.end();
-          connectionObj = await tryPgPool(targetDbName, pass);
-          if (connectionObj) break;
-        } catch (createErr) {
-          console.error(`⚠️ No se pudo crear la BD "${targetDbName}":`, createErr.message);
+    }
+
+    if (connectionObj) break;
+
+    // Si no conectó al target, probar base postgres administrativa si no está en proceso de arranque
+    const lastMsg = String(lastError?.message || '');
+    const isStartingUp = lastError?.code === '57P03' || lastMsg.includes('iniciándose') || lastMsg.includes('starting up');
+    const isRefused = lastError?.code === 'ECONNREFUSED' || lastMsg.includes('ECONNREFUSED');
+
+    if (!isStartingUp && !isRefused) {
+      for (const db of dbsToTry) {
+        if (db === targetDbName) continue;
+        for (const pass of passwordsToTry) {
+          try {
+            connectionObj = await tryPgPool(db, pass);
+            if (connectionObj) break;
+          } catch (e) {
+            lastError = e;
+          }
         }
+        if (connectionObj) break;
       }
     }
-  }
 
-  // 2. Si aún no conectó, intentar con postgres administrativo
-  if (!connectionObj) {
-    for (const db of dbsToTry) {
-      if (db === targetDbName) continue;
-      for (const pass of passwordsToTry) {
-        try {
-          connectionObj = await tryPgPool(db, pass);
-          if (connectionObj) break;
-        } catch (e) {
-          lastError = e;
+    if (connectionObj) break;
+
+    if (isStartingUp || isRefused) {
+      if (attempt < maxRetries) {
+        if (!attemptedAutoStart && isRefused) {
+          attemptedAutoStart = true;
+          tryStartLocalPostgres();
         }
+        console.log(`⏳ PostgreSQL está en fase de arranque/recuperación. Reintentando (${attempt}/${maxRetries})...`);
+        await new Promise((r) => setTimeout(r, retryIntervalMs));
+        continue;
       }
-      if (connectionObj) break;
+    } else {
+      // Error de credenciales o de otro tipo en motor ya activo; no reintentar
+      break;
     }
   }
 
@@ -248,7 +304,9 @@ async function initDb() {
       `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('ambos', 3950.00, 36.50, 'Inicial Basilico') ON CONFLICT (shift) DO NOTHING;`,
       `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('manana', 3950.00, 36.50, 'Compatibilidad') ON CONFLICT (shift) DO NOTHING;`,
       `INSERT INTO shift_exchange_rates (shift, cop_rate, bs_rate, updated_by) VALUES ('noche', 3950.00, 36.50, 'Compatibilidad') ON CONFLICT (shift) DO NOTHING;`,
-      `INSERT INTO system_settings (key, value) VALUES ('admin_pin', '1234') ON CONFLICT (key) DO NOTHING;`,
+      `INSERT INTO system_settings (key, value) VALUES ('admin_pin', '123456') ON CONFLICT (key) DO NOTHING;`,
+      `INSERT INTO system_settings (key, value) VALUES ('admin_pin_manana', '123456') ON CONFLICT (key) DO NOTHING;`,
+      `INSERT INTO system_settings (key, value) VALUES ('admin_pin_noche', '123456') ON CONFLICT (key) DO NOTHING;`,
 
       `INSERT INTO users (id, username, password, role, name, shift) VALUES
         ('u-admin', 'carlos', 'carloscrispys', 'admin', 'Carlos', 'noche'),
@@ -362,6 +420,15 @@ async function initDb() {
         WHERE status = 'entregada' 
           AND payment_status IN ('no_pagado', 'parcial') 
           AND archived_at IS NULL
+      `);
+      // Auto-migración idempotente del PIN/Clave de seguridad de 4 a 6 caracteres por turno
+      await client.query(`
+        INSERT INTO system_settings (key, value) VALUES ('admin_pin', '123456') ON CONFLICT (key) DO NOTHING;
+        INSERT INTO system_settings (key, value) VALUES ('admin_pin_manana', '123456') ON CONFLICT (key) DO NOTHING;
+        INSERT INTO system_settings (key, value) VALUES ('admin_pin_noche', '123456') ON CONFLICT (key) DO NOTHING;
+        UPDATE system_settings 
+        SET value = '123456', updated_at = CURRENT_TIMESTAMP 
+        WHERE key IN ('admin_pin', 'admin_pin_manana', 'admin_pin_noche') AND value = '1234';
       `);
     } catch (reconcileErr) {
       console.warn('Aviso en reconciliación de órdenes pagadas:', reconcileErr.message);

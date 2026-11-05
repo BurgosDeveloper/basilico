@@ -144,9 +144,9 @@ interface AppContextType {
   testPrinter: (targetPrinter: 'cocina' | 'caja' | 'ambas') => Promise<any>;
   updateExchangeRates: (newRates: Partial<ExchangeRates>) => Promise<void>;
   queryCajaAI: (message: string) => Promise<string>;
-  verifyAdminPin: (pin: string) => Promise<boolean>;
-  getAdminPin: () => Promise<string>;
-  updateAdminPin: (newPin: string) => Promise<void>;
+  verifyAdminPin: (pin: string, shift?: string) => Promise<boolean>;
+  getAdminPin: (shift?: string) => Promise<string>;
+  updateAdminPin: (newPin: string, shift?: string) => Promise<void>;
 
   // Admin CRUD Actions (Persisted to Database / JSON)
   addProduct: (product: Omit<Product, 'id'> & { id?: string }) => Promise<void>;
@@ -945,12 +945,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return await requireApiSuccess(res, `No se pudo conectar con la impresora (${targetPrinter}).`);
   };
 
-  const verifyAdminPin = async (pin: string): Promise<boolean> => {
+  const verifyAdminPin = async (pin: string, shift?: string): Promise<boolean> => {
     try {
+      const effectiveShift = shift || userSession?.shift || 'ambos';
       const res = await apiFetch(`${backendUrl}/api/auth/verify-admin-pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, shift: effectiveShift }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -962,17 +963,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const getAdminPin = async (): Promise<string> => {
-    const res = await apiFetch(`${backendUrl}/api/auth/admin-pin`);
+  const getAdminPin = async (shift?: string): Promise<string> => {
+    const effectiveShift = shift || userSession?.shift || 'ambos';
+    const res = await apiFetch(`${backendUrl}/api/auth/admin-pin?shift=${encodeURIComponent(effectiveShift)}`);
     const data = await requireApiSuccess(res, 'No se pudo consultar el PIN de administrador.');
-    return data.pin || '1234';
+    return data.pin || '123456';
   };
 
-  const updateAdminPin = async (newPin: string): Promise<void> => {
+  const updateAdminPin = async (newPin: string, shift?: string): Promise<void> => {
+    const effectiveShift = shift || userSession?.shift || 'ambos';
     const res = await apiFetch(`${backendUrl}/api/auth/admin-pin`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: newPin }),
+      body: JSON.stringify({ pin: newPin, shift: effectiveShift }),
     });
     await requireApiSuccess(res, 'No se pudo actualizar el PIN de administrador.');
   };

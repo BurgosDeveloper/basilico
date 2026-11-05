@@ -98,6 +98,10 @@ export const CajaPage: React.FC = () => {
   const [isStandbyModalOpen, setIsStandbyModalOpen] = useState<boolean>(false);
   const [activeStandbyDraft, setActiveStandbyDraft] = useState<StandbyOrder | null>(null);
 
+  const filteredStandbyOrders = standbyOrders.filter(
+    (o) => !o.shift || o.shift === 'ambos' || !userSession?.shift || userSession.shift === 'ambos' || o.shift === userSession.shift
+  );
+
   const handleSelectStandbyOrder = (standbyOrder: StandbyOrder) => {
     setActiveStandbyDraft(standbyOrder);
     setActiveOrderTarget(standbyOrder.target);
@@ -532,7 +536,7 @@ export const CajaPage: React.FC = () => {
             <span>REPORTES & CIERRE</span>
           </button>
 
-          {standbyOrders.length > 0 && (
+          {filteredStandbyOrders.length > 0 && (
             <button
               type="button"
               onClick={() => setIsStandbyModalOpen(true)}
@@ -541,7 +545,7 @@ export const CajaPage: React.FC = () => {
             >
               <span>⏸️ STANDBY</span>
               <span className="px-1.5 py-0.5 rounded-full bg-black text-yellow-300 text-[10px] font-black leading-none">
-                {standbyOrders.length}
+                {filteredStandbyOrders.length}
               </span>
             </button>
           )}
@@ -626,7 +630,7 @@ export const CajaPage: React.FC = () => {
                 });
               }}
               onOpenStandby={() => setIsStandbyModalOpen(true)}
-              standbyCount={standbyOrders.length}
+              standbyCount={filteredStandbyOrders.length}
               onViewActiveOrder={(ord) => setOrderDetailModalOrder(ord)}
               onAppendOrder={(ord) => setOrderAppendModalOrder(ord)}
               canPay={true}

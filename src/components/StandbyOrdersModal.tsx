@@ -5,6 +5,7 @@ import {
   useStandbyOrders,
 } from '../utils/standbyOrders';
 import { roundCOP } from '../utils/currencyRounding';
+import { useApp } from '../context/AppContext';
 import {
   IoClose,
   IoTrashOutline,
@@ -44,17 +45,26 @@ export const StandbyOrdersModal: React.FC<StandbyOrdersModalProps> = ({
   exchangeRates = { COP: 3950, Bs: 36.5 },
 }) => {
   const { standbyOrders, removeStandbyOrder, clearAllStandbyOrders } = useStandbyOrders();
+  const { userSession } = useApp();
+  const currentShift = userSession?.shift;
+  const filteredOrders = standbyOrders.filter(
+    (o) => !o.shift || o.shift === 'ambos' || !currentShift || currentShift === 'ambos' || o.shift === currentShift
+  );
 
   if (!isOpen) return null;
 
   const handleClearAll = () => {
-    if (standbyOrders.length === 0) return;
+    if (filteredOrders.length === 0) return;
     if (
       window.confirm(
-        `¿Estás seguro de que deseas eliminar TODOS los ${standbyOrders.length} pedidos en espera? Esta acción no se puede deshacer.`
+        `¿Estás seguro de que deseas eliminar los ${filteredOrders.length} pedidos en espera de este turno? Esta acción no se puede deshacer.`
       )
     ) {
-      clearAllStandbyOrders();
+      if (filteredOrders.length === standbyOrders.length) {
+        clearAllStandbyOrders();
+      } else {
+        filteredOrders.forEach((o) => removeStandbyOrder(o.id));
+      }
     }
   };
 
@@ -76,11 +86,11 @@ export const StandbyOrdersModal: React.FC<StandbyOrdersModalProps> = ({
               <h3 className="text-base sm:text-lg font-black text-black leading-tight flex items-center gap-2">
                 <span>PEDIDOS EN ESPERA (STANDBY)</span>
                 <span className="px-2 py-0.5 rounded-full bg-black text-yellow-300 text-xs font-black">
-                  {standbyOrders.length}
+                  {filteredOrders.length}
                 </span>
               </h3>
               <p className="text-[11px] font-bold text-black/70">
-                Borradores pausados pendientes por confirmar y enviar a cocina
+                Borradores pausados del turno ({currentShift === 'manana' ? 'Mañana' : currentShift === 'noche' ? 'Noche' : 'Todos'})
               </p>
             </div>
           </div>
@@ -96,7 +106,7 @@ export const StandbyOrdersModal: React.FC<StandbyOrdersModalProps> = ({
         </div>
 
         {/* Barra de Acciones Globales */}
-        {standbyOrders.length > 0 && (
+        {filteredOrders.length > 0 && (
           <div className="px-5 py-2.5 bg-stone-50 border-b border-gray-200 flex items-center justify-between shrink-0">
             <span className="text-xs font-bold text-gray-500">
               Selecciona un pedido para terminarlo o descártalo si fue cancelado
@@ -105,23 +115,23 @@ export const StandbyOrdersModal: React.FC<StandbyOrdersModalProps> = ({
               type="button"
               onClick={handleClearAll}
               className="px-3 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 text-red-700 font-black text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-red-200"
-              title="Eliminar todos los pedidos en espera"
+              title="Eliminar pedidos en espera de este turno"
             >
               <IoTrashOutline className="text-sm" />
-              <span>Vaciar todos</span>
+              <span>Vaciar turno</span>
             </button>
           </div>
         )}
 
         {/* Lista de Pedidos en Espera */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {standbyOrders.length === 0 ? (
+          {filteredOrders.length === 0 ? (
             <div className="py-12 px-6 text-center space-y-3">
               <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-3xl">
                 <IoPauseCircle />
               </div>
               <h4 className="text-base font-black text-gray-800">
-                No hay pedidos en espera
+                No hay pedidos en espera para este turno
               </h4>
               <p className="text-xs text-gray-500 max-w-sm mx-auto font-medium">
                 Cuando estés tomando un pedido y el cliente necesite esperar, toca el botón{' '}
@@ -130,7 +140,7 @@ export const StandbyOrdersModal: React.FC<StandbyOrdersModalProps> = ({
               </p>
             </div>
           ) : (
-            standbyOrders.map((ord) => {
+            filteredOrders.map((ord) => {
               const copTotal = roundCOP(ord.totalUSD * (exchangeRates?.COP || 3950));
               const bsTotal = (ord.totalUSD * (exchangeRates?.Bs || 36.5)).toFixed(2);
 

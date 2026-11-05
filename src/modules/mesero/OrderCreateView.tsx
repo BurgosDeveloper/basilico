@@ -497,6 +497,7 @@ export const OrderCreateView: React.FC<OrderCreateViewProps> = ({
       deliveryFeeUSD: showDeliveryConfig ? deliveryFeeUSD : 0,
       targetPrinter,
       cartItems,
+      shift: userSession?.shift || 'ambos',
     });
 
     if (onStandbySaved) {

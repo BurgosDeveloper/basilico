@@ -547,6 +547,7 @@ export const MeseroPage: React.FC = () => {
       deliveryFeeUSD: showDeliveryConfig ? deliveryFeeUSD : 0,
       targetPrinter,
       cartItems,
+      shift: userSession?.shift || 'ambos',
     });
 
     setSentAlert(`⏸️ Pedido guardado en Standby (${activeOrderTarget.title})`);
@@ -589,7 +590,11 @@ export const MeseroPage: React.FC = () => {
             orders={orders}
             onSelectTarget={handleOpenOrder}
             onOpenStandby={() => setIsStandbyModalOpen(true)}
-            standbyCount={standbyOrders.length}
+            standbyCount={
+              standbyOrders.filter(
+                (o) => !o.shift || o.shift === 'ambos' || !userSession?.shift || userSession.shift === 'ambos' || o.shift === userSession.shift
+              ).length
+            }
             onViewActiveOrder={(ord) => setOrderDetailModalOrder(ord)}
             onAppendOrder={(ord) => setOrderAppendModalOrder(ord)}
             canPay={userSession?.role === 'caja' || userSession?.role === 'admin'}

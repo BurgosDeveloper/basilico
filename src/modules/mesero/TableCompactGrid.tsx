@@ -1,5 +1,6 @@
 import React from 'react';
 import { Table, Order } from '../../data/mockData';
+import { useApp } from '../../context/AppContext';
 import {
   isOrderFullySettled,
   isOrderActiveInBoard,
@@ -64,8 +65,15 @@ export const TableCompactGrid: React.FC<TableCompactGridProps> = ({
   onOpenStandby,
   standbyCount = 0,
 }) => {
-  // Comandas activas en curso (jamás oculta una comanda si aún tiene deuda o vuelto pendiente)
-  const activeOrders = orders.filter((o) => isOrderActiveInBoard(o));
+  const { userSession } = useApp();
+  const currentShift = userSession?.shift;
+
+  // Comandas activas en curso (jamás oculta una comanda si aún tiene deuda o vuelto pendiente, y respeta estrictamente el turno actual)
+  const activeOrders = orders.filter(
+    (o) =>
+      isOrderActiveInBoard(o) &&
+      (!o.shift || o.shift === 'ambos' || !currentShift || currentShift === 'ambos' || o.shift === currentShift)
+  );
 
   // Separación por tipo de servicio con orden ascendente (más antigua primero, ej: #35 antes de #40)
   const activeDeliveryOrders = activeOrders

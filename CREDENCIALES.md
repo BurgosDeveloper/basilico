@@ -38,10 +38,12 @@ Usuarios maestros con visibilidad completa para auditar, supervisar o gestionar 
 
 ---
 
-## 🔒 PIN DE SEGURIDAD ADMINISTRATIVO
-El sistema solicita un código PIN para autorizaciones críticas (como anulación de comandas, edición de pedidos ya cobrados o reimpresiones protegidas):
+## 🔒 CLAVE / PIN DE SEGURIDAD ADMINISTRATIVO (6 CARACTERES INDEPENDIENTES POR TURNO)
+El sistema solicita una clave de seguridad de **exactamente 6 caracteres** (admite números, letras mayúsculas/minúsculas y símbolos del teclado) para autorizaciones críticas en Caja (anulación o edición de comandas, reactivación en histórico, egresos/ingresos manuales, apertura posterior y arqueo/cierre de turno):
 
-- **PIN de Autorización Oficial:** `1234`
+- **Clave por Defecto Turno Mañana (`admin_pin_manana`):** `123456`
+- **Clave por Defecto Turno Noche (`admin_pin_noche`):** `123456`
+- *Cada turno configura y verifica su propia clave de forma 100% independiente desde `/menu-admin` -> Seguridad.*
 
 ---
 

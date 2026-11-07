@@ -83,7 +83,7 @@ async function fetchAllOrders(user = null) {
       paymentMethod: ord.payment_method,
       totalUSD,
       paidAmountUSD,
-      pendingChangeUSD,
+      pendingChangeUSD: Number(pendingChangeUSD.toFixed(2)),
       copRateAtPayment: copRateOrd,
       bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
       waiterName: ord.waiter_name || 'Mesero',

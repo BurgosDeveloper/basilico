@@ -1,7 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
-const { createSession } = require('../helpers/sessionAuth');
+const { createSession, getSession } = require('../helpers/sessionAuth');
+
+function resolveSessionUser(req) {
+  const authHeader = req.get('authorization') || req.get('Authorization');
+  let token = null;
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else {
+    token = req.get('x-crispy-token') || req.get('x-basilico-session');
+  }
+  return token ? getSession(token) : null;
+}
 
 const SHIFT_ACCOUNTS = {
   // Turno Mañana (Restaurante / Almuerzos)
@@ -123,7 +134,15 @@ module.exports = function(io) {
     try {
       const { pin, shift } = req.body;
       const cleanPin = String(pin || '').trim();
-      const userShift = String(shift || req.user?.shift || 'ambos').toLowerCase();
+      const sessionUser = req.user || resolveSessionUser(req);
+      const sessionShift = String(sessionUser?.shift || '').toLowerCase();
+      const userShift = (sessionShift === 'manana' || sessionShift === 'noche')
+        ? sessionShift
+        : String(shift || sessionShift || 'ambos').toLowerCase();
+
+      if (cleanPin.length !== 6 || /\s/.test(cleanPin)) {
+        return res.status(401).json({ success: false, valid: false, error: 'La clave de seguridad debe contener exactamente 6 caracteres.' });
+      }
 
       const { rows } = await query(`SELECT key, value FROM system_settings WHERE key IN ('admin_pin', 'admin_pin_manana', 'admin_pin_noche')`);
       const pinMap = {};
@@ -152,10 +171,15 @@ module.exports = function(io) {
     }
   });
 
-  // Obtener PIN/Clave de seguridad actual (solo admin)
+  // Obtener PIN/Clave de seguridad actual (aislado por turno)
   router.get('/admin-pin', async (req, res) => {
     try {
-      const requestedShift = String(req.query.shift || req.user?.shift || 'ambos').toLowerCase();
+      const sessionUser = req.user || resolveSessionUser(req);
+      const sessionShift = String(sessionUser?.shift || '').toLowerCase();
+      const requestedShift = (sessionShift === 'manana' || sessionShift === 'noche')
+        ? sessionShift
+        : String(req.query.shift || sessionShift || 'ambos').toLowerCase();
+
       const { rows } = await query(`SELECT key, value FROM system_settings WHERE key IN ('admin_pin', 'admin_pin_manana', 'admin_pin_noche')`);
       const pinMap = {};
       for (const r of rows) pinMap[r.key] = r.value;
@@ -170,8 +194,8 @@ module.exports = function(io) {
       res.json({
         success: true,
         pin: currentPin,
-        pinManana,
-        pinNoche,
+        pinManana: sessionShift === 'noche' ? undefined : pinManana,
+        pinNoche: sessionShift === 'manana' ? undefined : pinNoche,
         shift: requestedShift,
       });
     } catch (err) {
@@ -185,10 +209,14 @@ module.exports = function(io) {
     try {
       const { pin, shift } = req.body;
       const cleanPin = String(pin || '').trim();
-      const targetShift = String(shift || req.user?.shift || 'ambos').toLowerCase();
+      const sessionUser = req.user || resolveSessionUser(req);
+      const sessionShift = String(sessionUser?.shift || '').toLowerCase();
+      const targetShift = (sessionShift === 'manana' || sessionShift === 'noche')
+        ? sessionShift
+        : String(shift || sessionShift || 'ambos').toLowerCase();
 
-      if (typeof cleanPin !== 'string' || cleanPin.length !== 6) {
-        return res.status(400).json({ error: 'La clave de seguridad debe contener exactamente 6 caracteres.' });
+      if (typeof cleanPin !== 'string' || cleanPin.length !== 6 || /\s/.test(cleanPin)) {
+        return res.status(400).json({ error: 'La clave de seguridad debe contener exactamente 6 caracteres (números, letras o símbolos, sin espacios).' });
       }
 
       const keysToUpdate = [];

@@ -18,6 +18,8 @@ import {
   IoRestaurantOutline,
   IoCardOutline,
   IoLayersOutline,
+  IoEyeOutline,
+  IoEyeOffOutline,
 } from 'react-icons/io5';
 
 export const MenuManagementPage: React.FC = () => {
@@ -50,6 +52,7 @@ export const MenuManagementPage: React.FC = () => {
   const [currentPinNoche, setCurrentPinNoche] = useState<string>('123456');
   const [newPinInput, setNewPinInput] = useState<string>('');
   const [confirmPinInput, setConfirmPinInput] = useState<string>('');
+  const [showPinCharacters, setShowPinCharacters] = useState<boolean>(false);
   const [pinFeedback, setPinFeedback] = useState<string>('');
   const [pinError, setPinError] = useState<string>('');
   const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
@@ -65,10 +68,24 @@ export const MenuManagementPage: React.FC = () => {
   const [testingPrinterKey, setTestingPrinterKey] = useState<string | null>(null);
 
   useEffect(() => {
+    if (userSession?.shift === 'manana' && selectedPinShift !== 'manana') {
+      setSelectedPinShift('manana');
+      return;
+    }
+    if (userSession?.shift === 'noche' && selectedPinShift !== 'noche') {
+      setSelectedPinShift('noche');
+      return;
+    }
     if (userSession?.role === 'admin' || isCashierUnlocked) {
-      void getAdminPin('manana').then((pin) => setCurrentPinManana(pin)).catch(() => {});
-      void getAdminPin('noche').then((pin) => setCurrentPinNoche(pin)).catch(() => {});
-      void getAdminPin(selectedPinShift).then((pin) => setCurrentPin(pin)).catch(() => {});
+      if (!userSession?.shift || userSession.shift === 'ambos') {
+        void getAdminPin('manana').then((pin) => setCurrentPinManana(pin)).catch(() => {});
+        void getAdminPin('noche').then((pin) => setCurrentPinNoche(pin)).catch(() => {});
+      }
+      void getAdminPin(selectedPinShift).then((pin) => {
+        setCurrentPin(pin);
+        if (selectedPinShift === 'manana') setCurrentPinManana(pin);
+        else setCurrentPinNoche(pin);
+      }).catch(() => {});
       void getPrintersConfig().then((cfg) => {
         if (cfg) setPrintersConfig(cfg);
       }).catch(() => {});
@@ -809,45 +826,52 @@ export const MenuManagementPage: React.FC = () => {
             </div>
 
             {/* Selector de Turno Independiente */}
-            <div>
-              <label className="text-xs font-black text-black uppercase tracking-wider block mb-2">Turno a Configurar:</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedPinShift('manana');
-                    setCurrentPin(currentPinManana);
-                    setPinFeedback('');
-                    setPinError('');
-                  }}
-                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl font-black text-xs transition-all border ${
-                    selectedPinShift === 'manana'
-                      ? 'bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-300'
-                      : 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200'
-                  }`}
-                >
-                  <span className="text-base">☀️</span>
-                  <span>TURNO MAÑANA</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedPinShift('noche');
-                    setCurrentPin(currentPinNoche);
-                    setPinFeedback('');
-                    setPinError('');
-                  }}
-                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl font-black text-xs transition-all border ${
-                    selectedPinShift === 'noche'
-                      ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-300'
-                      : 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200'
-                  }`}
-                >
-                  <span className="text-base">🌙</span>
-                  <span>TURNO NOCHE</span>
-                </button>
+            {(!userSession?.shift || userSession.shift === 'ambos') ? (
+              <div>
+                <label className="text-xs font-black text-black uppercase tracking-wider block mb-2">Turno a Configurar:</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPinShift('manana');
+                      setCurrentPin(currentPinManana);
+                      setPinFeedback('');
+                      setPinError('');
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl font-black text-xs transition-all border cursor-pointer ${
+                      selectedPinShift === 'manana'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-300'
+                        : 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200'
+                    }`}
+                  >
+                    <span className="text-base">☀️</span>
+                    <span>TURNO MAÑANA</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPinShift('noche');
+                      setCurrentPin(currentPinNoche);
+                      setPinFeedback('');
+                      setPinError('');
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl font-black text-xs transition-all border cursor-pointer ${
+                      selectedPinShift === 'noche'
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-300'
+                        : 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200'
+                    }`}
+                  >
+                    <span className="text-base">🌙</span>
+                    <span>TURNO NOCHE</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="px-4 py-2.5 rounded-2xl bg-stone-100 border border-stone-200 flex items-center justify-between text-xs font-black text-stone-800">
+                <span>Turno asignado a tu sesión:</span>
+                <span>{selectedPinShift === 'manana' ? '☀️ TURNO MAÑANA' : '🌙 TURNO NOCHE'}</span>
+              </div>
+            )}
 
             {/* PIN Actual Informativo del Turno Seleccionado */}
             <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between">
@@ -867,7 +891,7 @@ export const MenuManagementPage: React.FC = () => {
                 }`}>
                   {selectedPinShift === 'manana' ? '☀️ MAÑANA' : '🌙 NOCHE'}
                 </div>
-                <span className="text-[10px] font-bold text-stone-500">INDependiente</span>
+                <span className="text-[10px] font-bold text-stone-500">INDEPENDIENTE</span>
               </div>
             </div>
 
@@ -905,20 +929,30 @@ export const MenuManagementPage: React.FC = () => {
               }}
               className="space-y-4"
             >
-              <h3 className="text-xs font-black text-black uppercase tracking-wider">
-                Modificar Clave para Turno {selectedPinShift === 'manana' ? 'Mañana' : 'Noche'}:
-              </h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-black text-black uppercase tracking-wider">
+                  Modificar Clave para Turno {selectedPinShift === 'manana' ? 'Mañana' : 'Noche'}:
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowPinCharacters((prev) => !prev)}
+                  className="px-2.5 py-1 rounded-xl bg-stone-100 hover:bg-stone-200 border border-stone-300 text-xs font-bold text-stone-800 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {showPinCharacters ? <IoEyeOffOutline /> : <IoEyeOutline />}
+                  <span>{showPinCharacters ? 'Ocultar' : 'Mostrar caracteres'}</span>
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-1">Nueva Clave (6 caracteres):</label>
                   <input
-                    type="password"
+                    type={showPinCharacters ? 'text' : 'password'}
                     maxLength={6}
                     required
                     value={newPinInput}
                     onChange={(e) => {
-                      setNewPinInput(e.target.value.slice(0, 6));
+                      setNewPinInput(e.target.value.replace(/\s/g, '').slice(0, 6));
                       setPinFeedback('');
                       setPinError('');
                     }}
@@ -930,12 +964,12 @@ export const MenuManagementPage: React.FC = () => {
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-1">Confirmar Nueva Clave:</label>
                   <input
-                    type="password"
+                    type={showPinCharacters ? 'text' : 'password'}
                     maxLength={6}
                     required
                     value={confirmPinInput}
                     onChange={(e) => {
-                      setConfirmPinInput(e.target.value.slice(0, 6));
+                      setConfirmPinInput(e.target.value.replace(/\s/g, '').slice(0, 6));
                       setPinFeedback('');
                       setPinError('');
                     }}
@@ -960,11 +994,11 @@ export const MenuManagementPage: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={newPinInput.length !== 4 || confirmPinInput.length !== 4 || isSavingPin}
+                disabled={newPinInput.length !== 6 || confirmPinInput.length !== 6 || isSavingPin}
                 className="w-full py-3.5 rounded-2xl bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-black text-xs border border-yellow-500 shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <IoKeypad />
-                <span>{isSavingPin ? 'GUARDANDO PIN...' : 'GUARDAR NUEVO PIN'}</span>
+                <span>{isSavingPin ? 'GUARDANDO CLAVE...' : 'GUARDAR NUEVA CLAVE'}</span>
               </button>
             </form>
           </div>

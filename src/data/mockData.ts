@@ -99,7 +99,7 @@ export interface OrderItem {
 }
 
 export type OrderStatus = 'en_preparacion' | 'preparada' | 'entregada' | 'cancelado' | 'fusionada';
-export type PaymentStatus = 'no_pagado' | 'pagado' | 'credito';
+export type PaymentStatus = 'no_pagado' | 'parcial' | 'pagado' | 'credito';
 export type PaymentMethod = 'Efectivo USD' | 'Efectivo COP' | 'Zelle' | 'Binance' | 'Bancolombia' | 'Nequi' | 'Pago Móvil' | 'Tarjeta de Crédito' | 'Tarjeta de Débito' | 'Mixto' | 'Crédito';
 
 export interface SplitPayment {

@@ -448,7 +448,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         setPinModalState({
           isOpen: true,
           title: '🔐 AUTORIZACIÓN REQUERIDA',
-          description: 'Ingrese el PIN de administrador para remover este producto ya enviado a cocina:',
+          description: 'Ingrese la clave de seguridad de 6 caracteres para remover este producto ya enviado a cocina:',
           actionName: 'Remover ítem de comanda',
           onSuccess: () => setRemovedItemIds((prev) => [...prev, itemId]),
         });
@@ -1171,6 +1171,7 @@ export const OrderAppendModal: React.FC<OrderAppendModalProps> = ({
         title={pinModalState.title}
         description={pinModalState.description}
         actionName={pinModalState.actionName}
+        shift={order?.shift && order.shift !== 'ambos' ? order.shift : userSession?.shift}
         onSuccess={pinModalState.onSuccess}
         onClose={() => setPinModalState((prev) => ({ ...prev, isOpen: false }))}
       />

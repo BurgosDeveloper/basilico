@@ -14,6 +14,7 @@ import { OrderEditModal } from '../components/OrderEditModal';
 import { PaymentLedgerModal } from '../components/PaymentLedgerModal';
 import { PrinterSelectModal } from '../components/PrinterSelectModal';
 import { StandbyOrdersModal } from '../components/StandbyOrdersModal';
+import { AdminPinModal } from '../components/AdminPinModal';
 import { useStandbyOrders, StandbyOrder } from '../utils/standbyOrders';
 import { roundCOP } from '../utils/currencyRounding';
 import { areProteinsDefault, getCleanItemNote, normalizeProteinName, formatRemovedIngredients } from '../utils/burgerProteins';
@@ -105,6 +106,33 @@ export const MeseroPage: React.FC = () => {
   const [printerSelectOrder, setPrinterSelectOrder] = useState<Order | null>(null);
   const [printerSelectKitchenOrder, setPrinterSelectKitchenOrder] = useState<Order | null>(null);
   const [activeOrderForPay, setActiveOrderForPay] = useState<Order | null>(null);
+  const [pinModalState, setPinModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    description?: string;
+    actionName: string;
+    onSuccess: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    actionName: '',
+    onSuccess: () => {},
+  });
+
+  const requireAdminPin = (actionName: string, title: string, callback: () => void, description?: string) => {
+    if (userSession?.role === 'admin') {
+      callback();
+    } else {
+      setPinModalState({
+        isOpen: true,
+        title: title || '🔐 AUTORIZACIÓN DE ADMINISTRADOR',
+        description: description || 'Ingrese la clave de seguridad de 6 caracteres para autorizar:',
+        actionName,
+        onSuccess: callback,
+      });
+    }
+  };
   const [isCompactComandasView, setIsCompactComandasView] = useState<boolean>(() => {
     return localStorage.getItem('basilico_mesero_view_mode') !== 'expanded';
   });
@@ -1576,7 +1604,17 @@ export const MeseroPage: React.FC = () => {
           exchangeRates={exchangeRates}
           onPayOrder={userSession?.role === 'caja' || userSession?.role === 'admin' ? (ord) => setActiveOrderForPay(ord) : undefined}
           onAppendOrder={(ord) => setOrderAppendModalOrder(ord)}
-          onEditOrder={(ord) => setOrderEditModalOrder(ord)}
+          onEditOrder={
+            userSession?.role === 'mesero'
+              ? undefined
+              : (ord) => {
+                  requireAdminPin(
+                    `Editar Comanda #${ord.orderNumber}`,
+                    'Autorizar Edición de Comanda',
+                    () => setOrderEditModalOrder(ord)
+                  );
+                }
+          }
           onChangeTable={(ord) => setTableChangeOrder(ord)}
           onToggleDelivered={async (ord) => {
             const newStatus = ord.status === 'entregada' ? 'preparada' : 'entregada';
@@ -1587,15 +1625,25 @@ export const MeseroPage: React.FC = () => {
               setOrderDetailModalOrder((prev) => prev ? { ...prev, status: newStatus } : null);
             }
           }}
-          onCancelOrder={async (ord) => {
-            if (!window.confirm(`¿Seguro que deseas anular y eliminar la comanda #${ord.orderNumber}?`)) return;
-            try {
-              await deleteOrder(ord.id);
-              setOrderDetailModalOrder(null);
-            } catch (err) {
-              alert(err instanceof Error ? err.message : 'No se pudo anular la comanda');
-            }
-          }}
+          onCancelOrder={
+            userSession?.role === 'mesero'
+              ? undefined
+              : (ord) => {
+                  requireAdminPin(
+                    `Anular Comanda #${ord.orderNumber}`,
+                    'Autorizar Anulación de Comanda',
+                    async () => {
+                      if (!window.confirm(`¿Seguro que deseas anular y eliminar la comanda #${ord.orderNumber}?`)) return;
+                      try {
+                        await deleteOrder(ord.id);
+                        setOrderDetailModalOrder(null);
+                      } catch (err) {
+                        alert(err instanceof Error ? err.message : 'No se pudo anular la comanda');
+                      }
+                    }
+                  );
+                }
+          }
           onPrintReceipt={(ord) => setPrinterSelectOrder(ord)}
           onReprintKitchen={(ord) => setPrinterSelectKitchenOrder(ord)}
           userRole={userSession?.role}
@@ -1672,6 +1720,17 @@ export const MeseroPage: React.FC = () => {
         isOpen={isStandbyModalOpen}
         onClose={() => setIsStandbyModalOpen(false)}
         onSelectOrder={handleSelectStandbyOrder}
+      />
+
+      {/* MODAL DE AUTORIZACIÓN POR CLAVE DE 6 CARACTERES */}
+      <AdminPinModal
+        isOpen={pinModalState.isOpen}
+        title={pinModalState.title}
+        description={pinModalState.description}
+        actionName={pinModalState.actionName}
+        shift={userSession?.shift}
+        onSuccess={pinModalState.onSuccess}
+        onClose={() => setPinModalState((prev) => ({ ...prev, isOpen: false }))}
       />
     </div>
   );

@@ -27,8 +27,20 @@ async function runTests() {
   const server = http.createServer(app);
   const io = new Server(server, { cors: { origin: '*' } });
 
+  const { getSession } = require('../server/helpers/sessionAuth');
+  const authRouter = require('../server/routes/auth')(io);
+  app.use('/api/auth', authRouter);
+
   const cajaUser = { username: 'cajero_test', role: 'caja', shift: 'ambos' };
   app.use((req, res, next) => {
+    const authHeader = req.get('authorization') || '';
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      const sess = getSession(authHeader.slice(7).trim());
+      if (sess) {
+        req.user = sess;
+        return next();
+      }
+    }
     req.user = cajaUser;
     next();
   });
@@ -36,9 +48,12 @@ async function runTests() {
   const ordersRouter = require('../server/routes/orders')(io);
   const paymentsRouter = require('../server/routes/payments')(io);
   const cajaRouter = require('../server/routes/caja')(io);
+  const reporteIntervaloRouter = require('../server/routes/reporteIntervalo')(io);
   app.use('/api/orders', ordersRouter);
   app.use('/api/orders', paymentsRouter);
   app.use('/api/caja-chica', cajaRouter);
+  app.use('/api/caja', cajaRouter);
+  app.use('/api/caja', reporteIntervaloRouter);
 
   const PORT = 3098;
   await new Promise((resolve) => server.listen(PORT, resolve));
@@ -60,6 +75,15 @@ async function runTests() {
   let createdOrderId = null;
   let deliveryOrderId = null;
   let pickupOrderId = null;
+  let binanceOrderId = null;
+  let zelleOrderId = null;
+  let morningOrderId = null;
+  let nightOrderId = null;
+
+  const { rows: savedPinRows } = await query(`SELECT key, value FROM system_settings WHERE key IN ('admin_pin', 'admin_pin_manana', 'admin_pin_noche')`);
+  const savedPins = {};
+  for (const r of savedPinRows) savedPins[r.key] = r.value;
+
   try {
     await query(`UPDATE tables_config SET status = 'libre' WHERE number = 7`);
 
@@ -395,16 +419,392 @@ async function runTests() {
     const pickFinal = await pickOk.json();
     assert(pickOk.status === 200 && pickFinal.status === 'entregada' && pickFinal.paymentStatus === 'pagado', 'PickUp 100% cuadrado permite Entregar y pasa a Histórico');
 
+    console.log('\n🟡 8. [BINANCE CON EXCEDENTE] Registrando pago de $20 USD vía Binance para comanda de $14 USD...');
+    const createBinanceRes = await fetch(`${baseUrl}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'pickup',
+        customerName: 'Cliente Binance Excess',
+        items: [{ productId: 'prod-pizza', productName: 'PIZZA MARGARITA', price: 7, quantity: 2 }],
+        totalUSD: 14,
+      }),
+    });
+    const binanceOrd = await createBinanceRes.json();
+    binanceOrderId = binanceOrd.id;
+    assert(createBinanceRes.status === 201 && Boolean(binanceOrderId), 'Orden para Binance creada ($14.00 USD)');
+
+    const binancePayRes = await fetch(`${baseUrl}/orders/${binanceOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryType: 'payment',
+        currency: 'USD',
+        amountLocal: 20,
+        paymentMethod: 'Binance',
+        payerName: 'Cliente Binance Excess',
+      }),
+    });
+    const orderAfterBinance = await binancePayRes.json();
+    assert(binancePayRes.status === 200, 'Pago con excedente en Binance ($20 USD para deuda de $14 USD) aceptado exitosamente (HTTP 200)');
+    assert(orderAfterBinance.paymentStatus === 'parcial', 'Comanda queda en estado "parcial" mientras exista vuelto pendiente de $6 USD');
+    assert(orderAfterBinance.pendingChangeUSD === 6, 'Vuelto pendiente en Binance calculado exactamente en $6.00 USD');
+
+    const deliverBinanceBlocked = await fetch(`${baseUrl}/orders/${binanceOrderId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'entregada' }),
+    });
+    assert(deliverBinanceBlocked.status === 409, 'Bloqueado (HTTP 409) intento de entregar comanda de Binance con vuelto pendiente');
+
+    const binanceChangeRes = await fetch(`${baseUrl}/orders/${binanceOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryType: 'change',
+        currency: 'USD',
+        amountLocal: 6,
+        paymentMethod: 'Efectivo USD',
+        payerName: 'Cliente Binance Excess',
+      }),
+    });
+    const orderAfterBinanceChange = await binanceChangeRes.json();
+    assert(binanceChangeRes.status === 200 && orderAfterBinanceChange.paymentStatus === 'pagado', 'Vuelto de $6 USD en Efectivo USD salda la comanda de Binance');
+
+    const finalizeBinanceRes = await fetch(`${baseUrl}/orders/${binanceOrderId}/finalize`, { method: 'POST' });
+    assert(finalizeBinanceRes.status === 200, 'Comanda de Binance finalizada exitosamente tras devolver vuelto');
+
+    const deliverBinanceRes = await fetch(`${baseUrl}/orders/${binanceOrderId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'entregada' }),
+    });
+    assert(deliverBinanceRes.status === 200, 'Comanda PickUp de Binance entregada exitosamente (HTTP 200)');
+
+    const { rows: binanceCajaRows } = await query(`SELECT * FROM caja_chica_transactions WHERE order_id = $1`, [binanceOrderId]);
+    const binanceIngreso = binanceCajaRows.find((r) => r.type === 'ingreso' && r.payment_method === 'Binance');
+    const cashEgreso = binanceCajaRows.find((r) => r.type === 'egreso' && r.payment_method === 'Efectivo USD');
+    assert(Boolean(binanceIngreso) && Number(binanceIngreso.amount_usd) === 20, 'Caja Chica registró ingreso exacto de +$20 USD en Binance');
+    assert(Boolean(cashEgreso) && Number(cashEgreso.amount_usd) === 6, 'Caja Chica registró egreso exacto de -$6 USD en Efectivo USD');
+
+    console.log('\n🔵 9. [ZELLE CON EXCEDENTE Y VUELTO EN COP] Registrando pago de $50 USD vía Zelle con vuelto en Pesos...');
+    const { getRatesForShift } = require('../server/helpers/exchangeRates');
+    const shiftRates = await getRatesForShift({ query }, 'noche');
+    const activeCopRate = Number(shiftRates?.COP) || 3950;
+
+    const createZelleRes = await fetch(`${baseUrl}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'delivery',
+        customerName: 'Cliente Zelle Excess',
+        deliveryFeeUSD: 2,
+        items: [{ productId: 'prod-pizza-esp', productName: 'PIZZA ESPECIAL', price: 28, quantity: 1 }],
+        totalUSD: 30,
+      }),
+    });
+    const zelleOrd = await createZelleRes.json();
+    zelleOrderId = zelleOrd.id;
+    assert(createZelleRes.status === 201 && Boolean(zelleOrderId), 'Orden para Zelle creada ($30.00 USD)');
+
+    const zellePayRes = await fetch(`${baseUrl}/orders/${zelleOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryType: 'payment',
+        currency: 'USD',
+        amountLocal: 50,
+        paymentMethod: 'Zelle',
+        payerName: 'Cliente Zelle Excess',
+      }),
+    });
+    const orderAfterZelle = await zellePayRes.json();
+    assert(zellePayRes.status === 200 && orderAfterZelle.pendingChangeUSD === 20, 'Pago con excedente en Zelle ($50 para $30) deja $20.00 USD de vuelto pendiente');
+
+    const expectedCopChange = Math.round(20 * (orderAfterZelle.copRateAtPayment || activeCopRate));
+    const zelleCopChangeRes = await fetch(`${baseUrl}/orders/${zelleOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryType: 'change',
+        currency: 'COP',
+        amountLocal: expectedCopChange,
+        paymentMethod: 'Efectivo COP',
+        payerName: 'Cliente Zelle Excess',
+      }),
+    });
+    const orderAfterZelleCopChange = await zelleCopChangeRes.json();
+    assert(zelleCopChangeRes.status === 200 && orderAfterZelleCopChange.paymentStatus === 'pagado', `Vuelto de $20 USD entregado en Efectivo COP (${expectedCopChange.toLocaleString()} COP) salda la comanda de Zelle`);
+
+    const finalizeZelleRes = await fetch(`${baseUrl}/orders/${zelleOrderId}/finalize`, { method: 'POST' });
+    assert(finalizeZelleRes.status === 200, 'Comanda de Zelle finalizada exitosamente');
+
+    const deliverZelleRes = await fetch(`${baseUrl}/orders/${zelleOrderId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'entregada' }),
+    });
+    assert(deliverZelleRes.status === 200, 'Comanda Delivery de Zelle entregada exitosamente (HTTP 200)');
+
+    const { rows: zelleCajaRows } = await query(`SELECT * FROM caja_chica_transactions WHERE order_id = $1`, [zelleOrderId]);
+    const zelleIngreso = zelleCajaRows.find((r) => r.type === 'ingreso' && r.payment_method === 'Zelle');
+    const copEgreso = zelleCajaRows.find((r) => r.type === 'egreso' && r.payment_method === 'Efectivo COP');
+    assert(Boolean(zelleIngreso) && Number(zelleIngreso.amount_usd) === 50, 'Caja Chica registró ingreso exacto de +$50 USD en Zelle');
+    assert(Boolean(copEgreso) && Number(copEgreso.amount_cop) === expectedCopChange, `Caja Chica registró egreso exacto de -${expectedCopChange.toLocaleString()} COP en Efectivo COP`);
+
+    console.log('\n🔐 10. [PIN DE 6 CARACTERES ALFANUMÉRICO + SÍMBOLOS E INDEPENDENCIA DE TURNOS]...');
+    const loginAs = async (username, password) => {
+      const r = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const b = await r.json();
+      return b.user.sessionToken;
+    };
+
+    const tokenAdminGeneral = await loginAs('admin', 'basilico1.');
+    const tokenCajaManana = await loginAs('caja.manana', 'caja123');
+    const tokenCajaNoche = await loginAs('caja.noche', 'caja123');
+    const tokenAdminManana = await loginAs('admin.manana', 'admin123');
+
+    // Rechazar longitudes inválidas (4 dígitos, 7 dígitos, o con espacios)
+    for (const badPin of ['1234', '1234567', 'AB 12#']) {
+      const badRes = await fetch(`${baseUrl}/auth/admin-pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenAdminGeneral}` },
+        body: JSON.stringify({ pin: badPin, shift: 'manana' }),
+      });
+      assert(badRes.status === 400, `Clave inválida "${badPin}" rechazada correctamente (HTTP 400)`);
+    }
+
+    // Configurar clave con letras mayúsculas/minúsculas, números y símbolos para Mañana y otra distinta para Noche
+    const pinMananaTest = 'Mn#24@';
+    const pinNocheTest = 'Nc*98$';
+
+    const setMRes = await fetch(`${baseUrl}/auth/admin-pin`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenAdminGeneral}` },
+      body: JSON.stringify({ pin: pinMananaTest, shift: 'manana' }),
+    });
+    assert(setMRes.status === 200, `Clave de Turno Mañana configurada a "${pinMananaTest}" (letras, números y símbolos)`);
+
+    const setNRes = await fetch(`${baseUrl}/auth/admin-pin`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenAdminGeneral}` },
+      body: JSON.stringify({ pin: pinNocheTest, shift: 'noche' }),
+    });
+    assert(setNRes.status === 200, `Clave de Turno Noche configurada a "${pinNocheTest}" (letras, números y símbolos)`);
+
+    // Verificar que Caja Mañana autoriza con Mn#24@ y rechaza Nc*98$ y 1234
+    const verMOk = await fetch(`${baseUrl}/auth/verify-admin-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaManana}` },
+      body: JSON.stringify({ pin: pinMananaTest }),
+    });
+    assert(verMOk.status === 200, `Caja Mañana autoriza correctamente con su clave "${pinMananaTest}"`);
+
+    const verMCrossFail = await fetch(`${baseUrl}/auth/verify-admin-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaManana}` },
+      body: JSON.stringify({ pin: pinNocheTest, shift: 'noche' }),
+    });
+    assert(verMCrossFail.status === 401, 'Caja Mañana NO puede autorizar usando la clave de Noche (aislamiento estricto de sesión)');
+
+    // Verificar que Caja Noche autoriza con Nc*98$ y rechaza Mn#24@
+    const verNOk = await fetch(`${baseUrl}/auth/verify-admin-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({ pin: pinNocheTest }),
+    });
+    assert(verNOk.status === 200, `Caja Noche autoriza correctamente con su clave "${pinNocheTest}"`);
+
+    const verNCrossFail = await fetch(`${baseUrl}/auth/verify-admin-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({ pin: pinMananaTest }),
+    });
+    assert(verNCrossFail.status === 401, 'Caja Noche NO puede autorizar usando la clave de Mañana');
+
+    // Verificar que Admin Mañana al consultar GET /admin-pin NO recibe pinNoche expuesto
+    const getPinMRes = await fetch(`${baseUrl}/auth/admin-pin?shift=noche`, {
+      headers: { Authorization: `Bearer ${tokenAdminManana}` },
+    });
+    const getPinMBody = await getPinMRes.json();
+    assert(getPinMBody.pin === pinMananaTest && getPinMBody.pinNoche === undefined, 'Admin Mañana solo visualiza la clave de Mañana y jamás expone la clave de Noche');
+
+    console.log('\n☀️🌙 11. [MULTIFUNCIONALIDAD Y CONTABILIDAD ENTRE TURNOS: PLATOS MAÑANA vs PIZZAS MITADES NOCHE]...');
+    // Crear comanda en Turno Mañana con platos de almuerzo y cobro dividido + Binance con vuelto
+    await query(`UPDATE tables_config SET status = 'libre' WHERE number IN (8, 9)`);
+    const mCreateRes = await fetch(`${baseUrl}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaManana}` },
+      body: JSON.stringify({
+        type: 'mesa',
+        tableNumber: 8,
+        customerName: 'Almuerzo Ejecutivo',
+        items: [
+          { productId: 'prod-pasta', productName: 'PASTA CARBONARA', category: 'Pastas', price: 9.5, quantity: 1, removedIngredients: ['PIMIENTA'] },
+          { productId: 'prod-jugo', productName: 'JUGO NATURAL', category: 'Bebidas', drinkType: 'jugo', sugarPreference: 'Sin azúcar', flavor: 'Mora', price: 2.5, quantity: 1 },
+        ],
+        totalUSD: 12,
+      }),
+    });
+    const mOrd = await mCreateRes.json();
+    morningOrderId = mOrd.id;
+    assert(mCreateRes.status === 201 && mOrd.shift === 'manana', 'Comanda de Turno Mañana creada en Mesa #8 ($12.00 USD)');
+
+    // Crear comanda en Turno Noche con Pizza Mitad y Mitad + extras + adición posterior
+    const nCreateRes = await fetch(`${baseUrl}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({
+        type: 'mesa',
+        tableNumber: 9,
+        customerName: 'Cena Pizzería',
+        items: [
+          {
+            productId: 'prod-pizza-mitad',
+            productName: 'PIZZA MITAD Y MITAD',
+            category: 'Pizzas',
+            size: 'Grande',
+            isHalfHalf: true,
+            cutPreference: 'Picada',
+            halfDetails: {
+              half1Name: 'PEPPERONI',
+              half2Name: 'HAWAIANA',
+              half1Removed: ['ORÉGANO'],
+              half2Extras: [{ name: 'MAÍZ DULCE', price: 1.5, quantity: 1 }],
+            },
+            price: 15.5,
+            quantity: 1,
+          },
+        ],
+        totalUSD: 15.5,
+      }),
+    });
+    const nOrd = await nCreateRes.json();
+    nightOrderId = nOrd.id;
+    assert(nCreateRes.status === 201 && nOrd.shift === 'noche', 'Comanda de Turno Noche (Pizza Mitad/Mitad + Extra) creada en Mesa #9 ($15.50 USD)');
+
+    // Verificar aislamiento estricto de comandas entre turnos
+    const mOrdersList = await (await fetch(`${baseUrl}/orders`, { headers: { Authorization: `Bearer ${tokenCajaManana}` } })).json();
+    const nOrdersList = await (await fetch(`${baseUrl}/orders`, { headers: { Authorization: `Bearer ${tokenCajaNoche}` } })).json();
+    assert(mOrdersList.some((o) => o.id === morningOrderId) && !mOrdersList.some((o) => o.id === nightOrderId), 'Caja Mañana ve su comanda de almuerzo y NO ve la pizza de Noche');
+    assert(nOrdersList.some((o) => o.id === nightOrderId) && !nOrdersList.some((o) => o.id === morningOrderId), 'Caja Noche ve su pizza mitad/mitad y NO ve el almuerzo de Mañana');
+
+    // Cobrar una parte de la pizza de Noche ($10 USD) y luego adicionar una bebida ($2.50 USD) -> debe mantenerse 'parcial'
+    await fetch(`${baseUrl}/orders/${nightOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({ entryType: 'payment', currency: 'USD', amountLocal: 10, paymentMethod: 'Efectivo USD', payerName: 'Cena Pizzería' }),
+    });
+    const appendNRes = await fetch(`${baseUrl}/orders/${nightOrderId}/append-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({
+        addedItems: [{ productId: 'prod-coca', productName: 'COCA COLA', category: 'Bebidas', drinkType: 'refresco', price: 2.5, quantity: 1 }],
+        removedItemIds: [],
+        targetPrinter: 'ninguna',
+      }),
+    });
+    const appendNBody = await appendNRes.json();
+    assert(
+      appendNRes.status === 200 && appendNBody.newTotalUSD === 18 && appendNBody.order.paymentStatus === 'parcial',
+      'Al adicionar bebida ($2.50) a pizza con abono ($10.00), nuevo total es $18.00 USD y preserva estado "parcial"'
+    );
+
+    // Saldar los $8 restantes de Noche pagando $20 por Binance y recibiendo $12 de vuelto en Efectivo USD
+    await fetch(`${baseUrl}/orders/${nightOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({ entryType: 'payment', currency: 'USD', amountLocal: 20, paymentMethod: 'Binance', payerName: 'Cena Pizzería' }),
+    });
+    await fetch(`${baseUrl}/orders/${nightOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaNoche}` },
+      body: JSON.stringify({ entryType: 'change', currency: 'USD', amountLocal: 12, paymentMethod: 'Efectivo USD', payerName: 'Cena Pizzería' }),
+    });
+    const finNightRes = await fetch(`${baseUrl}/orders/${nightOrderId}/finalize`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenCajaNoche}` },
+    });
+    assert(finNightRes.status === 200, 'Comanda de Noche ($18.00 USD: Efectivo $10 + Binance $20 - Vuelto $12) cuadrada y finalizada al centavo');
+
+    // Saldar comanda de Mañana por Personas (Split Payment: ítem 1 por Zelle $9.50, ítem 2 por Binance $5.00 con vuelto de $2.50 Efectivo USD)
+    const mItem1 = mOrd.items[0].id;
+    const mItem2 = mOrd.items[1].id;
+    const mSplit1 = await fetch(`${baseUrl}/orders/${morningOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaManana}` },
+      body: JSON.stringify({ entryType: 'payment', currency: 'USD', amountLocal: 9.5, paymentMethod: 'Zelle', payerName: 'Persona 1', itemIds: [mItem1] }),
+    });
+    assert(mSplit1.status === 200, 'Turno Mañana: Persona 1 pagó su Pasta Carbonara ($9.50 USD por Zelle)');
+
+    const mSplit2 = await fetch(`${baseUrl}/orders/${morningOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaManana}` },
+      body: JSON.stringify({ entryType: 'payment', currency: 'USD', amountLocal: 5, paymentMethod: 'Binance', payerName: 'Persona 2', itemIds: [mItem2] }),
+    });
+    const mAfterSplit2 = await mSplit2.json();
+    assert(mSplit2.status === 200 && mAfterSplit2.pendingChangeUSD === 2.5, 'Turno Mañana: Persona 2 pagó Jugo ($2.50) con $5.00 Binance dejando $2.50 de vuelto pendiente');
+
+    await fetch(`${baseUrl}/orders/${morningOrderId}/ledger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCajaManana}` },
+      body: JSON.stringify({ entryType: 'change', currency: 'USD', amountLocal: 2.5, paymentMethod: 'Efectivo USD', payerName: 'Persona 2', itemIds: [mItem2] }),
+    });
+    const finMorningRes = await fetch(`${baseUrl}/orders/${morningOrderId}/finalize`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenCajaManana}` },
+    });
+    assert(finMorningRes.status === 200, 'Comanda de Mañana ($12.00 USD por Personas + Binance con vuelto) cuadrada y finalizada al centavo');
+
+    // Validar contabilidad exacta en Caja Chica de Mañana vs Noche
+    const { rows: mCaja } = await query(`SELECT * FROM caja_chica_transactions WHERE order_id = $1`, [morningOrderId]);
+    const mNetUSD = mCaja.reduce((s, r) => s + (r.type === 'ingreso' ? Number(r.amount_usd) : -Number(r.amount_usd)), 0);
+    assert(Math.abs(mNetUSD - 12) < 0.001 && mCaja.every((r) => r.shift === 'manana'), 'Caja Chica Turno Mañana cuadrada exacta en +$12.00 USD netos con shift="manana"');
+
+    const { rows: nCaja } = await query(`SELECT * FROM caja_chica_transactions WHERE order_id = $1`, [nightOrderId]);
+    const nNetUSD = nCaja.reduce((s, r) => s + (r.type === 'ingreso' ? Number(r.amount_usd) : -Number(r.amount_usd)), 0);
+    assert(Math.abs(nNetUSD - 18) < 0.001 && nCaja.every((r) => r.shift === 'noche'), 'Caja Chica Turno Noche cuadrada exacta en +$18.00 USD netos con shift="noche"');
+
+    // Validar endpoint de Reporte por Intervalo aislado por turno
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const repManana = await (await fetch(`${baseUrl}/caja/reporte-intervalo?from=${todayStr}&to=${todayStr}`, {
+      headers: { Authorization: `Bearer ${tokenCajaManana}` },
+    })).json();
+    const repNoche = await (await fetch(`${baseUrl}/caja/reporte-intervalo?from=${todayStr}&to=${todayStr}`, {
+      headers: { Authorization: `Bearer ${tokenCajaNoche}` },
+    })).json();
+    assert(
+      repManana.orders.some((o) => o.id === morningOrderId) && !repManana.orders.some((o) => o.id === nightOrderId),
+      'Reporte Contable de Mañana incluye sus platos/cobros y aísla 100% los de Noche'
+    );
+    assert(
+      repNoche.orders.some((o) => o.id === nightOrderId) && !repNoche.orders.some((o) => o.id === morningOrderId),
+      'Reporte Contable de Noche incluye sus pizzas/mitades/cobros y aísla 100% los de Mañana'
+    );
+
     console.log(`\n🎉 TODAS LAS PRUEBAS PASARON EXITOSAMENTE (${passed}/${total})`);
   } finally {
-    for (const oid of [createdOrderId, deliveryOrderId, pickupOrderId].filter(Boolean)) {
+    // Restaurar exactamente los PINs guardados antes de la prueba
+    for (const k of ['admin_pin', 'admin_pin_manana', 'admin_pin_noche']) {
+      const val = savedPins[k] || '123456';
+      await query(
+        `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+        [k, val]
+      );
+    }
+    for (const oid of [createdOrderId, deliveryOrderId, pickupOrderId, binanceOrderId, zelleOrderId, morningOrderId, nightOrderId].filter(Boolean)) {
       await query(`DELETE FROM caja_chica_transactions WHERE order_id = $1`, [oid]);
       await query(`DELETE FROM order_edits WHERE order_id = $1`, [oid]);
       await query(`DELETE FROM order_payments WHERE order_id = $1`, [oid]);
       await query(`DELETE FROM order_items WHERE order_id = $1`, [oid]);
       await query(`DELETE FROM orders WHERE id = $1`, [oid]);
     }
-    await query(`UPDATE tables_config SET status = 'libre' WHERE number = 7`);
+    await query(`UPDATE tables_config SET status = 'libre' WHERE number IN (7, 8, 9)`);
     server.close();
   }
 }

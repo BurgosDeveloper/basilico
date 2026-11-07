@@ -51,16 +51,19 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
         void executeVerification(nextPin);
       }
     }
+    inputRef.current?.focus();
   };
 
   const handleBackspace = () => {
     setPin((prev) => prev.slice(0, -1));
     setError('');
+    inputRef.current?.focus();
   };
 
   const handleClear = () => {
     setPin('');
     setError('');
+    inputRef.current?.focus();
   };
 
   const executeVerification = async (pinToVerify: string) => {
@@ -94,7 +97,14 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-      <div className="relative w-full max-w-sm rounded-2xl border border-gray-300 bg-white p-6 text-black shadow-2xl space-y-4">
+      <div
+        onMouseDown={(e) => {
+          if (e.target !== inputRef.current) {
+            setTimeout(() => inputRef.current?.focus(), 0);
+          }
+        }}
+        className="relative w-full max-w-sm rounded-2xl border border-gray-300 bg-white p-6 text-black shadow-2xl space-y-4"
+      >
         
         {/* Header */}
         <div className="flex items-start justify-between border-b border-gray-200 pb-3">
@@ -134,7 +144,11 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
 
         {/* Form / PIN Display con 6 casillas adaptables */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex justify-center gap-2 sm:gap-2.5">
+          <div
+            className="flex justify-center gap-2 sm:gap-2.5 cursor-pointer"
+            onClick={() => inputRef.current?.focus()}
+            title="Haga clic para escribir con el teclado (números, letras o símbolos)"
+          >
             {[0, 1, 2, 3, 4, 5].map((index) => {
               const hasDigit = pin.length > index;
               return (
@@ -152,6 +166,9 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
               );
             })}
           </div>
+          <p className="text-[11px] text-gray-400 font-semibold text-center -mt-2">
+            Admite números, letras y símbolos desde su teclado
+          </p>
 
           {/* Input oculto para teclado físico: acepta números, letras y símbolos */}
           <input
@@ -160,7 +177,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
             maxLength={6}
             value={pin}
             onChange={(e) => {
-              const val = e.target.value.slice(0, 6);
+              const val = e.target.value.replace(/\s/g, '').slice(0, 6);
               setPin(val);
               setError('');
               if (val.length === 6) void executeVerification(val);

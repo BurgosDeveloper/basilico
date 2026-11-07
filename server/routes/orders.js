@@ -848,6 +848,11 @@ module.exports = function(io) {
             [id]
           );
           const { rows: paymentRows } = await query('SELECT * FROM order_payments WHERE order_id = $1 ORDER BY created_at ASC', [id]);
+          const fallbackTotals = paymentHistoryTotals(paymentRows);
+          const fallbackTotalUSD = parseFloat(ord.total_usd) || 0;
+          const fallbackPendingChange = (Boolean(ord.archived_at) || (ord.status === 'entregada' && ord.payment_status === 'pagado'))
+            ? 0
+            : Math.max(0, fallbackTotals.tenderedUSD - fallbackTotalUSD - fallbackTotals.changeGivenUSD);
           targetOrder = {
             id: ord.id,
             orderNumber: ord.order_number,
@@ -857,8 +862,9 @@ module.exports = function(io) {
             status: ord.status,
             paymentStatus: ord.payment_status,
             paymentMethod: ord.payment_method,
-            totalUSD: parseFloat(ord.total_usd) || 0,
-            paidAmountUSD: parseFloat(ord.paid_amount_usd) || (ord.payment_status === 'pagado' || ord.payment_status === 'credito' ? parseFloat(ord.total_usd) : 0),
+            totalUSD: fallbackTotalUSD,
+            paidAmountUSD: parseFloat(ord.paid_amount_usd) || (ord.payment_status === 'pagado' || ord.payment_status === 'credito' ? fallbackTotalUSD : 0),
+            pendingChangeUSD: Number(fallbackPendingChange.toFixed(2)),
             copRateAtPayment: parseFloat(ord.cop_rate_at_payment) || 3950,
             bsRateAtPayment: parseFloat(ord.bs_rate_at_payment) || 36.5,
             waiterName: ord.waiter_name || 'Mesero',
@@ -1381,13 +1387,18 @@ module.exports = function(io) {
         nextStatus = 'en_preparacion';
       }
 
-      // Recalcular estado de pago si el total cambió
+      // Recalcular estado de pago si el total cambió (respetando cobros parciales, vueltos pendientes y créditos)
       const { rows: payRows } = await client.query(
-        `SELECT COALESCE(SUM(amount_paid_usd), 0) AS total_paid FROM order_payments WHERE order_id = $1`,
+        `SELECT * FROM order_payments WHERE order_id = $1`,
         [id]
       );
-      const totalPaid = parseFloat(payRows[0]?.total_paid) || 0;
-      const nextPaymentStatus = (totalPaid >= newTotalUSD - 0.01 && newTotalUSD > 0) ? 'pagado' : 'no_pagado';
+      const appendTotals = paymentHistoryTotals(payRows);
+      const appendPendingChangeUSD = Math.max(0, appendTotals.tenderedUSD - newTotalUSD - appendTotals.changeGivenUSD);
+      const nextPaymentStatus = order.payment_status === 'credito'
+        ? 'credito'
+        : (appendTotals.paidUSD >= newTotalUSD - 0.05 && newTotalUSD > 0 && appendPendingChangeUSD <= 0.05)
+          ? 'pagado'
+          : (appendTotals.paidUSD > 0.05 ? 'parcial' : 'no_pagado');
 
       const updateFields = ['total_usd = $1', 'status = $2', 'delivery_fee_usd = $3', 'payment_status = $4', 'updated_at = CURRENT_TIMESTAMP'];
       const updateValues = [newTotalUSD, nextStatus, deliveryFee, nextPaymentStatus, id];

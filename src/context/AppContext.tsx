@@ -84,7 +84,7 @@ interface AppContextType {
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   cancelOrder: (orderId: string) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
-  editOrder: (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => Promise<Order>;
+  editOrder: (orderId: string, editData: { items?: OrderItem[]; kitchenNotes?: string; totalUSD?: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number | null; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => Promise<Order>;
   processPayment: (
 
     orderId: string,
@@ -136,7 +136,7 @@ interface AppContextType {
   obtenerReporteDiario: () => Promise<any>;
   fetchReporteIntervalo: (from: string, to: string) => Promise<any>;
   fetchHistoricOrders: (params: HistoricOrdersParams) => Promise<HistoricOrdersResponse>;
-  printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted', data: any, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
+  printReporteIntervalo: (reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted' | 'robusto', data: any, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   printOrderReceipt: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   reprintKitchenOrder: (orderId: string, targetPrinter?: 'cocina' | 'caja' | 'ambas') => Promise<void>;
   getPrintersConfig: () => Promise<DualPrintersConfig>;
@@ -615,7 +615,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) => prev.filter((order) => order.id !== orderId));
   };
 
-  const editOrder = async (orderId: string, editData: { items: OrderItem[]; kitchenNotes?: string; totalUSD: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => {
+  const editOrder = async (orderId: string, editData: { items?: OrderItem[]; kitchenNotes?: string; totalUSD?: number; deliveryFeeUSD?: number; customerName?: string; tableNumber?: number | null; type?: 'mesa' | 'delivery' | 'pickup' | 'credito' | 'llevar'; }) => {
     if (userSession?.role !== 'admin' && userSession?.role !== 'caja' && userSession?.role !== 'mesero') {
       throw new Error('Solo meseros, administradores o usuarios de caja pueden editar una comanda.');
     }
@@ -883,7 +883,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const printReporteIntervalo = async (
-    reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted',
+    reportType: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted' | 'robusto',
     data: any,
     targetPrinter: 'cocina' | 'caja' | 'ambas' = 'caja'
   ) => {

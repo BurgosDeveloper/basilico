@@ -4,7 +4,7 @@ const path = require('path');
 
 const PRINTER_CONFIG_PATH = path.join(__dirname, '../config/thermal-printer.json');
 const { roundCOP } = require('./currencyRounding');
-const { cleanItemName, resolveHalfAndHalfPizza, findProduct, isProductPizza, isProductDrink } = require('./reportCalculations');
+const { cleanItemName, resolveHalfAndHalfPizza, findProduct, isProductPizza, isProductDrink, calculateRobustoMetrics } = require('./reportCalculations');
 // Font expansion in ESC/POS uses discrete sizes. Extra character spacing gives
 // the 80 mm ticket approximately 40% more horizontal presence without relying
 // on vendor-specific font modes.
@@ -669,7 +669,7 @@ function paymentChangeAmounts(payment) {
   };
 }
 
-function addReportHeader(lines, title, data, width = LINE_WIDTH, formatSetup = PRINT_FORMAT_SETUP) {
+function addReportHeader(lines, title, data, width = LINE_WIDTH, formatSetup = PRINT_FORMAT_SETUP, includeRates = true) {
   lines.push(
     '\x1B@',
     formatSetup,
@@ -684,7 +684,9 @@ function addReportHeader(lines, title, data, width = LINE_WIDTH, formatSetup = P
   );
   lines.push(...wrapText(`DESDE: ${reportTimestamp(data?.dateRange?.from)}`, width));
   lines.push(...wrapText(`HASTA: ${reportTimestamp(data?.dateRange?.to)}`, width));
-  lines.push(...wrapText(`TASAS: 1 USD = ${Number(data?.exchangeRates?.COP) || 3950} COP | ${Number(data?.exchangeRates?.Bs) || 36.5} Bs`, width));
+  if (includeRates) {
+    lines.push(...wrapText(`TASAS: 1 USD = ${Number(data?.exchangeRates?.COP) || 3950} COP | ${Number(data?.exchangeRates?.Bs) || 36.5} Bs`, width));
+  }
 }
 
 function getReportBaseProductName(item = {}, productsMap = null) {
@@ -717,6 +719,7 @@ function buildReportTicket(reportType, data, paperWidth = null) {
     egresos: 'VUELTOS Y EGRESOS',
     cocina: 'REPORTE DE COCINA',
     audit_deleted: 'DATA ELIMINADA Y AUDITORIA',
+    robusto: 'REPORTE ROBUSTO (NOCHE)',
   };
   const title = titles[reportType];
   if (!title) throw new Error('Tipo de reporte térmico no válido.');
@@ -726,7 +729,7 @@ function buildReportTicket(reportType, data, paperWidth = null) {
   const formatSetup = is58mm ? PRINT_FORMAT_SETUP_58 : (isContable ? KITCHEN_FORMAT_SETUP : PRINT_FORMAT_SETUP_80);
 
   const lines = [];
-  addReportHeader(lines, title, data, reportWidth, formatSetup);
+  addReportHeader(lines, title, data, reportWidth, formatSetup, reportType !== 'robusto');
 
   if (reportType === 'pizzas' || reportType === 'platos' || reportType === 'hamburguesas') {
     const grouped = new Map();
@@ -938,6 +941,50 @@ function buildReportTicket(reportType, data, paperWidth = null) {
         lines.push(...wrapText(`DETALLE: ${e.editDetails || 'N/A'}`, reportWidth));
       }
     }
+  } else if (reportType === 'robusto') {
+    const metrics = calculateRobustoMetrics(data, data.products);
+    const addMetricRow = (label, value) => {
+      const valStr = String(value);
+      const cleanLabel = printableText(label);
+      if (cleanLabel.length + 1 + valStr.length <= reportWidth) {
+        lines.push(formatTwoColumns(cleanLabel, valStr, reportWidth));
+        return;
+      }
+      const wrapped = wrapText(cleanLabel, reportWidth);
+      for (let idx = 0; idx < wrapped.length - 1; idx++) {
+        lines.push(wrapped[idx]);
+      }
+      const lastLine = wrapped[wrapped.length - 1] || '';
+      if (lastLine.length + 1 + valStr.length <= reportWidth) {
+        lines.push(formatTwoColumns(lastLine, valStr, reportWidth));
+      } else {
+        lines.push(lastLine);
+        lines.push(formatTwoColumns('  Cant:', valStr, reportWidth));
+      }
+    };
+
+    addSection(lines, 'PIZZAS POR TIPO Y TAMANO', reportWidth);
+    if (metrics.pizzasByType.length === 0) {
+      lines.push('  SIN PIZZAS VENDIDAS');
+    } else {
+      for (const p of metrics.pizzasByType) {
+        addMetricRow(p.name, p.quantity);
+      }
+    }
+
+    addSection(lines, 'TOTAL PIZZAS POR TAMANO', reportWidth);
+    addMetricRow('Total Pizzas Grandes:', metrics.totalPizzasGrandes);
+    addMetricRow('Total Pizzas Pequenas:', metrics.totalPizzasPequenas);
+
+    addSection(lines, 'BEBIDAS Y ADICIONALES', reportWidth);
+    addMetricRow('Total Bebidas:', metrics.totalBebidas);
+    addMetricRow('Total Adicionales:', metrics.totalAdicionales);
+
+    addSection(lines, 'SERVICIOS Y CREDITOS', reportWidth);
+    addMetricRow('Total Deliverys:', metrics.totalDeliverys);
+    addMetricRow('Total Pickup:', metrics.totalPickups);
+    addMetricRow('Servicios en Mesas:', metrics.totalMesas);
+    addMetricRow('Total Creditos:', metrics.totalCreditos);
   } else {
     // REPORTE CONTABLE CONSOLIDADO
     const copRateGlobal = Number(data.exchangeRates?.COP) || 3950;

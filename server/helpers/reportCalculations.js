@@ -257,6 +257,114 @@ function resolveHalfAndHalfPizza(item, productsMap, baseUnitPrice, shift) {
   };
 }
 
+/**
+ * Calcula las métricas exactas del Reporte Robusto (estricto turno noche, sin montos monetarios).
+ */
+function calculateRobustoMetrics(data, productsMap = null) {
+  const sourceProducts = Array.isArray(productsMap)
+    ? productsMap
+    : (Array.isArray(data?.products) ? data.products : []);
+  const nightProducts = sourceProducts.filter(
+    (p) => !p.shift || p.shift === 'noche' || p.shift === 'ambos'
+  );
+
+  const pizzaMap = new Map();
+  let totalPizzasGrandes = 0;
+  let totalPizzasPequenas = 0;
+  let totalBebidas = 0;
+  let totalAdicionales = 0;
+
+  for (const item of data?.items || []) {
+    const itQty = Number(item.quantity) || 1;
+    const rawPrice = Number(item.price) || 0;
+    const catLower = String(item.category || '').toLowerCase();
+    const rawNameLower = String(item.productName || item.name || '').toLowerCase();
+    const isDeliveryItem = catLower.includes('delivery') || rawNameLower.includes('delivery');
+
+    let extrasList = [];
+    if (Array.isArray(item.extras)) extrasList = item.extras;
+    else if (Array.isArray(item.extrasJson)) extrasList = item.extrasJson;
+    else if (Array.isArray(item.extras_json)) extrasList = item.extras_json;
+    else if (typeof (item.extrasJson || item.extras_json) === 'string') {
+      try {
+        const parsed = JSON.parse(item.extrasJson || item.extras_json);
+        if (Array.isArray(parsed)) extrasList = parsed;
+      } catch (e) {}
+    }
+
+    let paidExtrasUnitCost = 0;
+    for (const extra of extrasList) {
+      paidExtrasUnitCost += Number(extra?.price) || 0;
+    }
+
+    const baseUnitPrice = Math.max(0, rawPrice - paidExtrasUnitCost);
+    const isPizza = !isDeliveryItem && isProductPizza(item, nightProducts, 'noche');
+    const isDrink = !isDeliveryItem && !isPizza && isProductDrink(item, nightProducts);
+
+    if (isPizza) {
+      const resolved = resolveHalfAndHalfPizza(item, nightProducts, baseUnitPrice, 'noche');
+      const key = resolved.name;
+      const isSmall = key.toLowerCase().includes('(peque') || String(item.size || '').toLowerCase().includes('peque');
+      const existing = pizzaMap.get(key) || {
+        name: key,
+        size: isSmall ? 'Pequeña' : 'Grande',
+        quantity: 0,
+      };
+      existing.quantity += itQty;
+      pizzaMap.set(key, existing);
+
+      if (isSmall) totalPizzasPequenas += itQty;
+      else totalPizzasGrandes += itQty;
+
+      for (const extra of extrasList) {
+        if (!extra) continue;
+        const extraNameLower = String(extra.name || '').toLowerCase();
+        const extraPrice = Number(extra.price) || 0;
+        if ((extraPrice > 0 || extraNameLower.length > 0) && !extraNameLower.includes('gratis')) {
+          totalAdicionales += itQty * (Number(extra.quantity) || 1);
+        }
+      }
+    } else if (isDrink) {
+      totalBebidas += itQty;
+    } else if (!isDeliveryItem && (catLower.includes('adicional') || catLower === 'extras')) {
+      totalAdicionales += itQty;
+    }
+  }
+
+  const pizzasByType = Array.from(pizzaMap.values()).sort(
+    (a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name)
+  );
+
+  let totalDeliverys = 0;
+  let totalPickups = 0;
+  let totalMesas = 0;
+  let totalCreditos = 0;
+
+  for (const ord of data?.orders || []) {
+    if (!ord || ord.status === 'cancelado') continue;
+    const ordType = String(ord.type || '').toLowerCase();
+    const payStatus = String(ord.paymentStatus || ord.payment_status || '').toLowerCase();
+
+    if (ordType === 'delivery') totalDeliverys += 1;
+    else if (ordType === 'pickup' || ordType === 'llevar') totalPickups += 1;
+    else if (ordType === 'mesa') totalMesas += 1;
+
+    if (payStatus === 'credito') totalCreditos += 1;
+  }
+
+  return {
+    pizzasByType,
+    totalPizzasGrandes,
+    totalPizzasPequenas,
+    totalBebidas,
+    totalAdicionales,
+    totalDeliverys,
+    totalPickups,
+    totalMesas,
+    totalCreditos,
+  };
+}
+
 module.exports = {
   cleanItemName,
   findProduct,
@@ -264,4 +372,5 @@ module.exports = {
   resolveHalfAndHalfPizza,
   isProductPizza,
   isProductDrink,
+  calculateRobustoMetrics,
 };

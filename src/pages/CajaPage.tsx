@@ -135,13 +135,13 @@ export const CajaPage: React.FC = () => {
 
   // States para confirmación e impresión de reportes de intervalo
   const [pendingReportChoice, setPendingReportChoice] = useState<{
-    type: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted';
+    type: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted' | 'robusto';
     title: string;
     generator: () => void;
   } | null>(null);
 
   const [printerSelectReport, setPrinterSelectReport] = useState<{
-    type: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted';
+    type: 'contable' | 'pizzas' | 'ingresos' | 'egresos' | 'cocina' | 'audit_deleted' | 'robusto';
     title: string;
     generator: () => void;
   } | null>(null);
@@ -2145,7 +2145,13 @@ export const CajaPage: React.FC = () => {
               {reporteIntervaloData && (
                 <div className="border-t border-gray-200 pt-4 space-y-3">
                   <p className="text-xs text-gray-600 font-medium">El reporte fue generado. Haz clic para abrirlo y podrás revisarlo o imprimirlo según desees:</p>
-                  <div className={`grid grid-cols-1 sm:grid-cols-2 ${userSession?.role === 'admin' ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-3`}>
+                  <div className={`grid grid-cols-1 sm:grid-cols-2 ${
+                    userSession?.role === 'admin' && userSession?.shift === 'noche'
+                      ? 'lg:grid-cols-7'
+                      : userSession?.role === 'admin'
+                        ? 'lg:grid-cols-6'
+                        : 'lg:grid-cols-5'
+                  } gap-3`}>
                     <button
                       onClick={() => {
                         const dataForReport: ReporteIntervaloData = {
@@ -2220,6 +2226,18 @@ export const CajaPage: React.FC = () => {
                         className="px-4 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black text-xs flex items-center justify-center gap-2 border border-red-700 shadow-xs transition-all"
                       >
                         <IoTrashOutline className="text-base" /> <span>DATA ELIMINADA</span>
+                      </button>
+                    )}
+                    {userSession?.role === 'admin' && userSession?.shift === 'noche' && (
+                      <button
+                        onClick={() => setPendingReportChoice({
+                          type: 'robusto',
+                          title: 'Reporte Robusto (Turno Noche)',
+                          generator: () => reportService.generateRobustoIntervalReport(reporteIntervaloData, products),
+                        })}
+                        className="px-4 py-3 rounded-xl bg-zinc-900 hover:bg-black text-yellow-400 font-black text-xs flex items-center justify-center gap-2 border border-yellow-500/60 shadow-xs transition-all"
+                      >
+                        <IoBarChartOutline className="text-base" /> <span>REPORTE ROBUSTO</span>
                       </button>
                     )}
                   </div>

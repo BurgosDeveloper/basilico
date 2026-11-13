@@ -8,8 +8,13 @@ module.exports = function (io) {
   router.post('/reporte-intervalo/imprimir', requireRole('caja', 'admin'), async (req, res) => {
     try {
       const { reportType, data, targetPrinter = 'caja' } = req.body || {};
-      if (!['contable', 'pizzas', 'ingresos', 'egresos', 'cocina', 'audit_deleted'].includes(reportType)) {
+      if (!['contable', 'pizzas', 'ingresos', 'egresos', 'cocina', 'audit_deleted', 'robusto'].includes(reportType)) {
         return res.status(400).json({ error: 'El tipo de reporte no es válido.' });
+      }
+      if (reportType === 'robusto' && (req.user?.role !== 'admin' || req.user?.shift !== 'noche')) {
+        return res.status(403).json({
+          error: 'Acceso denegado: El Reporte Robusto es exclusivo para el administrador del turno de noche.',
+        });
       }
       if (!data || !Array.isArray(data.orders) || !Array.isArray(data.items) || !Array.isArray(data.payments) || !Array.isArray(data.transactions)) {
         return res.status(400).json({ error: 'No se recibió un reporte válido para imprimir.' });
@@ -33,7 +38,7 @@ module.exports = function (io) {
         const { rows: pRows } = await query('SELECT id, name, price, price_small, category, shift FROM products');
         data.products = pRows;
       }
-      data.shift = data.shift || req.user.shift;
+      data.shift = reportType === 'robusto' ? 'noche' : (data.shift || req.user.shift);
 
       const result = await printReportTicket(reportType, data, targetPrinter);
       if (!result.printed) {
@@ -110,7 +115,16 @@ module.exports = function (io) {
         const { rows } = await query(
           `SELECT oi.*, o.order_number, COALESCE(NULLIF(oi.category, ''), p.category, 'Sin categoría') AS category FROM order_items oi
            JOIN orders o ON o.id = oi.order_id
-           LEFT JOIN products p ON (p.id = oi.product_id OR LOWER(p.name) = LOWER(oi.product_name))
+           LEFT JOIN LATERAL (
+             SELECT pr.category
+             FROM products pr
+             WHERE (pr.id = oi.product_id OR LOWER(pr.name) = LOWER(oi.product_name))
+             ORDER BY
+               CASE WHEN pr.id = oi.product_id THEN 0 ELSE 1 END,
+               CASE WHEN pr.shift = o.shift THEN 0 WHEN pr.shift = 'ambos' THEN 1 ELSE 2 END,
+               pr.created_at DESC
+             LIMIT 1
+           ) p ON true
            WHERE oi.order_id = ANY($1::text[])`,
           [orderIds]
         );

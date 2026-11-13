@@ -311,7 +311,16 @@ module.exports = function(io) {
             `SELECT oi.*, o.order_number, COALESCE(NULLIF(oi.category, ''), p.category, 'Sin categoría') AS category
              FROM order_items oi
              JOIN orders o ON o.id = oi.order_id
-             LEFT JOIN products p ON (p.id = oi.product_id OR LOWER(p.name) = LOWER(oi.product_name))
+             LEFT JOIN LATERAL (
+               SELECT pr.category
+               FROM products pr
+               WHERE (pr.id = oi.product_id OR LOWER(pr.name) = LOWER(oi.product_name))
+               ORDER BY
+                 CASE WHEN pr.id = oi.product_id THEN 0 ELSE 1 END,
+                 CASE WHEN pr.shift = o.shift THEN 0 WHEN pr.shift = 'ambos' THEN 1 ELSE 2 END,
+                 pr.created_at DESC
+               LIMIT 1
+             ) p ON true
              WHERE oi.order_id = ANY($1::text[])`,
             [allShiftOrderIds]
           );
@@ -664,8 +673,18 @@ module.exports = function(io) {
       if (orderIds.length > 0) {
         const { rows: fetchedItems } = await query(
           `SELECT oi.*, p.default_proteins 
-           FROM order_items oi 
-           LEFT JOIN products p ON (oi.product_id = p.id OR LOWER(oi.product_name) = LOWER(p.name))
+           FROM order_items oi
+           LEFT JOIN orders ord_shift ON ord_shift.id = oi.order_id
+           LEFT JOIN LATERAL (
+             SELECT pr.default_proteins
+             FROM products pr
+             WHERE (pr.id = oi.product_id OR LOWER(pr.name) = LOWER(oi.product_name))
+             ORDER BY
+               CASE WHEN pr.id = oi.product_id THEN 0 ELSE 1 END,
+               CASE WHEN pr.shift = ord_shift.shift THEN 0 WHEN pr.shift = 'ambos' THEN 1 ELSE 2 END,
+               pr.created_at DESC
+             LIMIT 1
+           ) p ON true
            WHERE oi.order_id = ANY($1::text[])`,
           [orderIds]
         );

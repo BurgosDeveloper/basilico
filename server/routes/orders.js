@@ -526,7 +526,7 @@ module.exports = function(io) {
       const orderShift = await assertOrderAccess({ query: (text, params) => client.query(text, params) }, req.user, id);
 
       const { rows: orderRows } = await client.query(
-        `SELECT id, paid_amount_usd FROM orders WHERE id = $1 FOR UPDATE`,
+        `SELECT id, paid_amount_usd, type, table_number, delivery_fee_usd, total_usd FROM orders WHERE id = $1 FOR UPDATE`,
         [id]
       );
       if (!orderRows[0]) {
@@ -536,33 +536,68 @@ module.exports = function(io) {
         return res.status(404).json({ error: 'Comanda no encontrada.' });
       }
 
-      if (Array.isArray(items)) {
-        const { rows: paymentRows } = await client.query(
-          `SELECT id FROM order_payments WHERE order_id = $1 LIMIT 1`,
-          [id]
-        );
-        if (paymentRows.length > 0 || Number(orderRows[0].paid_amount_usd) > 0) {
-          await client.query('ROLLBACK');
-          client.release();
-          client = null;
-          return res.status(409).json({ error: 'Anula primero todos los pagos y vueltos antes de modificar los productos de la comanda.' });
-        }
+      const { rows: paymentRows } = await client.query(
+        `SELECT id FROM order_payments WHERE order_id = $1 LIMIT 1`,
+        [id]
+      );
+      const hasPayments = paymentRows.length > 0 || Number(orderRows[0].paid_amount_usd) > 0;
+
+      if (hasPayments && Array.isArray(items)) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(409).json({ error: 'Anula primero todos los pagos y vueltos antes de modificar los productos de la comanda.' });
       }
+
+      const oldType = orderRows[0].type;
+      const oldTableNumber = orderRows[0].table_number;
+      const normalizedReqType = type === 'llevar' ? 'pickup' : type;
+      const finalType = normalizedReqType !== undefined ? normalizedReqType : oldType;
+      const finalTableNumber = finalType === 'mesa'
+        ? (tableNumber !== undefined ? (tableNumber ? parseInt(tableNumber, 10) : null) : oldTableNumber)
+        : null;
+      const oldDeliveryFee = Number(orderRows[0].delivery_fee_usd) || 0;
+      const requestedDeliveryFee = finalType === 'delivery'
+        ? (deliveryFeeUSD !== undefined ? Number(deliveryFeeUSD) || 0 : oldDeliveryFee)
+        : 0;
+
+      if (hasPayments && Math.abs(requestedDeliveryFee - oldDeliveryFee) > 0.01) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(409).json({ error: 'Anula primero todos los pagos y vueltos antes de modificar montos o tarifa de delivery.' });
+      }
+
+      const finalDeliveryFee = hasPayments ? oldDeliveryFee : requestedDeliveryFee;
+      const finalTotalUSD = hasPayments ? orderRows[0].total_usd : (totalUSD ?? null);
 
       await client.query(
         `UPDATE orders SET 
            kitchen_notes = COALESCE($1, kitchen_notes), 
            total_usd = COALESCE($2, total_usd), 
-           delivery_fee_usd = COALESCE($3, delivery_fee_usd),
+           delivery_fee_usd = $3,
            customer_name = COALESCE($4, customer_name),
-           table_number = COALESCE($5, table_number),
-           type = COALESCE($6, type),
+           table_number = $5,
+           type = $6,
            payment_status = COALESCE($7, payment_status),
            is_edited = true, 
            updated_at = CURRENT_TIMESTAMP 
          WHERE id = $8`,
-        [kitchenNotes ?? null, totalUSD ?? null, deliveryFeeUSD ?? null, customerName ?? null, tableNumber ?? null, type ?? null, paymentStatus ?? null, id]
+        [kitchenNotes ?? null, finalTotalUSD, finalDeliveryFee, customerName ?? null, finalTableNumber, finalType, paymentStatus ?? null, id]
       );
+
+      if (oldTableNumber && oldTableNumber !== finalTableNumber) {
+        const { rows: otherOrders } = await client.query(
+          `SELECT id FROM orders WHERE table_number = $1 AND type = 'mesa' AND id != $2 AND status NOT IN ('cancelado', 'fusionada') AND payment_status != 'credito' AND archived_at IS NULL AND NOT (status = 'entregada' AND payment_status = 'pagado') LIMIT 1`,
+          [oldTableNumber, id]
+        );
+        if (otherOrders.length === 0) {
+          await client.query(`UPDATE tables_config SET status = 'libre' WHERE number = $1`, [oldTableNumber]);
+        }
+      }
+      if (finalType === 'mesa' && finalTableNumber) {
+        await client.query(`UPDATE tables_config SET status = 'ocupada' WHERE number = $1`, [finalTableNumber]);
+      }
 
       let oldItemsSummary = '';
       if (items && Array.isArray(items)) {
@@ -842,8 +877,18 @@ module.exports = function(io) {
           const ord = ordRows[0];
           const { rows: itemRows } = await query(
             `SELECT oi.*, p.default_proteins 
-             FROM order_items oi 
-             LEFT JOIN products p ON (oi.product_id = p.id OR LOWER(oi.product_name) = LOWER(p.name))
+             FROM order_items oi
+             LEFT JOIN orders ord_shift ON ord_shift.id = oi.order_id
+             LEFT JOIN LATERAL (
+               SELECT pr.default_proteins
+               FROM products pr
+               WHERE (pr.id = oi.product_id OR LOWER(pr.name) = LOWER(oi.product_name))
+               ORDER BY
+                 CASE WHEN pr.id = oi.product_id THEN 0 ELSE 1 END,
+                 CASE WHEN pr.shift = ord_shift.shift THEN 0 WHEN pr.shift = 'ambos' THEN 1 ELSE 2 END,
+                 pr.created_at DESC
+               LIMIT 1
+             ) p ON true
              WHERE oi.order_id = $1`,
             [id]
           );
@@ -1495,8 +1540,18 @@ module.exports = function(io) {
       const ord = orderRows[0];
       const { rows: items } = await query(
         `SELECT oi.*, p.default_proteins 
-         FROM order_items oi 
-         LEFT JOIN products p ON (oi.product_id = p.id OR LOWER(oi.product_name) = LOWER(p.name))
+         FROM order_items oi
+         LEFT JOIN orders ord_shift ON ord_shift.id = oi.order_id
+         LEFT JOIN LATERAL (
+           SELECT pr.default_proteins
+           FROM products pr
+           WHERE (pr.id = oi.product_id OR LOWER(pr.name) = LOWER(oi.product_name))
+           ORDER BY
+             CASE WHEN pr.id = oi.product_id THEN 0 ELSE 1 END,
+             CASE WHEN pr.shift = ord_shift.shift THEN 0 WHEN pr.shift = 'ambos' THEN 1 ELSE 2 END,
+             pr.created_at DESC
+           LIMIT 1
+         ) p ON true
          WHERE oi.order_id = $1`,
         [id]
       );

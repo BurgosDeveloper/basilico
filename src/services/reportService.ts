@@ -4,7 +4,7 @@ import { Order, CajaChicaTransaction, ExchangeRates } from '../data/mockData';
 import { ReporteIntervaloData } from './excelExportService';
 import { roundCOP } from '../utils/currencyRounding';
 import { isSalsaItem } from '../utils/productClassifier';
-import { resolveHalfAndHalfPizza, isProductPizza, isProductDrink } from '../utils/reportCalculations';
+import { resolveHalfAndHalfPizza, isProductPizza, isProductDrink, calculateRobustoMetrics } from '../utils/reportCalculations';
 
 export class ReportService {
   private openPrintWindow(title: string, htmlContent: string, isNarrowTicket: boolean = false) {
@@ -931,6 +931,67 @@ export class ReportService {
   // Alias para retrocompatibilidad
   generatePizzasSoldIntervalReport(data: ReporteIntervaloData, productsMap?: any[], shiftName?: string) {
     return this.generateProductsSoldIntervalReport(data, productsMap, shiftName);
+  }
+
+  // 4B. Reporte Robusto (Estricto Administrador Turno Noche - Solo cantidades operativas, sin montos monetarios)
+  generateRobustoIntervalReport(data: ReporteIntervaloData, productsMap?: any[]) {
+    const metrics = calculateRobustoMetrics(data, productsMap);
+
+    const pizzaRows = metrics.pizzasByType
+      .map(
+        (p) =>
+          `<tr><td><strong>${this.escapeHtml(p.name)}</strong></td><td style="text-align:right; font-weight:800;">${p.quantity}</td></tr>`
+      )
+      .join('');
+
+    this.openPrintWindow(
+      'Reporte_Robusto_Noche',
+      `
+      <div class="section-title">REPORTE ROBUSTO OPERATIVO (TURNO NOCHE)</div>
+      <p style="font-size:12px; color:#4b5563;">${this.intervalTitle(data)}</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:75%;">Pizza por Tipo y Tamaño</th>
+            <th style="width:25%; text-align:right;">Cantidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pizzaRows || `<tr><td colspan="2" style="text-align:center;">Sin pizzas vendidas en el intervalo.</td></tr>`}
+        </tbody>
+      </table>
+
+      <div class="total-box" style="margin-bottom:14px;">
+        <div>
+          <div class="total-label">TOTAL PIZZAS GRANDES</div>
+          <strong style="font-size:16px; color:#111827;">${metrics.totalPizzasGrandes}</strong>
+        </div>
+        <div>
+          <div class="total-label">TOTAL PIZZAS PEQUEÑAS</div>
+          <strong style="font-size:16px; color:#111827;">${metrics.totalPizzasPequenas}</strong>
+        </div>
+      </div>
+
+      <div class="section-title">CONSOLIDADO OPERATIVO DEL INTERVALO</div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:75%;">Métrica</th>
+            <th style="width:25%; text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Bebidas Vendidas (Total General)</strong></td><td style="text-align:right; font-weight:800;">${metrics.totalBebidas}</td></tr>
+          <tr><td><strong>Adicionales / Extras Vendidos en Pizzas</strong></td><td style="text-align:right; font-weight:800;">${metrics.totalAdicionales}</td></tr>
+          <tr><td><strong>Total Deliverys</strong></td><td style="text-align:right; font-weight:800;">${metrics.totalDeliverys}</td></tr>
+          <tr><td><strong>Total Pickup</strong></td><td style="text-align:right; font-weight:800;">${metrics.totalPickups}</td></tr>
+          <tr><td><strong>Total Servicios en Mesas</strong></td><td style="text-align:right; font-weight:800;">${metrics.totalMesas}</td></tr>
+          <tr><td><strong>Total Créditos</strong></td><td style="text-align:right; font-weight:800;">${metrics.totalCreditos}</td></tr>
+        </tbody>
+      </table>
+    `
+    );
   }
 
   // 5. Reporte de Ingresos y Cobros por Intervalo
